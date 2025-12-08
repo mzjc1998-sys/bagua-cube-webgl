@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>先天八卦 / 64卦：bit 立方体模型</title>
+  <title>先天八卦 / 64卦：四维超立方体（Tesseract）</title>
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
     canvas { display:block; width:100vw; height:100vh; touch-action:none; }
@@ -13,7 +13,7 @@
       background:rgba(0,0,0,.56); color:#fff;
       padding:10px 12px; border-radius:12px;
       font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      max-width:min(420px, calc(100vw - 24px));
+      max-width:min(520px, calc(100vw - 24px));
     }
     #hud .title{ font-weight:800; margin-bottom:6px; }
     #hud .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px; }
@@ -24,7 +24,7 @@
     }
     .sw{ width:14px; height:14px; border-radius:4px; display:inline-block; border:1px solid rgba(255,255,255,.35); }
 
-    button, .toggle{
+    button{
       appearance:none; border:1px solid rgba(255,255,255,.25);
       background:rgba(255,255,255,.10);
       color:#fff; border-radius:10px;
@@ -41,20 +41,26 @@
     #detail b{ font-weight:800; }
     #panels { margin-top:8px; }
     #mirrorPanel, #hexPanel{ display:none; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.18); }
+
     label{ display:inline-flex; align-items:center; gap:6px; }
     input[type="checkbox"]{ width:16px; height:16px; }
+    input[type="range"]{ width:min(260px, 62vw); }
     .hint{ opacity:.85; font-size:12px; margin-top:6px; }
+
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
   </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 
 <div id="hud">
-  <div class="title">bit 立方体：8卦 / 64卦（先天序）</div>
+  <div class="title">bit 立方体：8卦 / 64卦（四维超立方体投影）</div>
 
   <div class="row">
     <span class="chip"><span class="sw" style="background:#cfd6df;"></span>浅色 = 阳爻(0)</span>
     <span class="chip"><span class="sw" style="background:#1f2329;"></span>深色 = 阴爻(1)</span>
+    <span class="chip"><span class="sw" style="background:#ffd24a;"></span>黄点 = 现实(下卦)</span>
+    <span class="chip"><span class="sw" style="background:#5ad6ff;"></span>蓝点 = 真我(上卦)</span>
   </div>
 
   <div class="row">
@@ -63,11 +69,11 @@
     <span class="sep"></span>
     <button id="btnOrtho" class="active">正交</button>
     <button id="btnPersp">透视</button>
-    <button id="btnSnap" class="mini">乾坤重合(正六边形)</button>
+    <button id="btnSnap" class="mini">对角视图</button>
     <button id="btnReset" class="mini">重置</button>
   </div>
 
-  <div class="hint">交互：拖拽旋转｜滚轮/双指缩放｜点顶点显示/高亮</div>
+  <div class="hint">交互：拖拽旋转｜滚轮/双指缩放｜点顶点查看该点“叠加态→64卦”</div>
 
   <div id="panels">
     <div id="mirrorPanel">
@@ -80,15 +86,27 @@
         <label><input id="mzp" type="checkbox">+Z</label>
         <label><input id="mzn" type="checkbox">-Z</label>
       </div>
-      <div class="hint">说明：勾选后，会以该面四顶点为“共享面”，生成镜像 bit 立方体。</div>
+      <div class="hint">8卦模式下：勾选后以该面四顶点为“共享面”，生成镜像 bit 立方体。</div>
     </div>
 
     <div id="hexPanel">
-      <div style="font-weight:800; margin-bottom:6px;">64卦（时空①=下卦，时空②=上卦）</div>
+      <div style="font-weight:800; margin-bottom:6px;">64卦 = 四维超立方体(Tesseract)投影 + 叠加态</div>
       <div class="row">
-        <label><input id="showLinks" type="checkbox" checked>显示时空对应连线(8条)</label>
+        <label><input id="auto4d" type="checkbox" checked>自动四维旋转</label>
+        <label><input id="showTrue" type="checkbox">显示真我当前卦</label>
       </div>
-      <div class="hint">操作：左立方体点“下卦”，右立方体点“上卦”，自动给出6bit与卦号。</div>
+      <div class="row">
+        <label style="gap:10px;">时间(影响真我)：<input id="tTime" type="range" min="0" max="1" step="0.001" value="0"></label>
+        <span class="mono" id="tTimeTxt">0.000</span>
+      </div>
+      <div class="row">
+        <label style="gap:10px;">叠加度(真我→现实)：<input id="tSuper" type="range" min="0" max="1" step="0.001" value="0"></label>
+        <span class="mono" id="tSuperTxt">0.000</span>
+      </div>
+      <div class="hint">
+        外层黄点(现实/下卦)与内层蓝点(真我/上卦)构成 tesseract 的“两层立方体”。<br>
+        蓝点上卦：默认从“全反(111 xor 下卦)”出发，并随 <b>时间+四维旋转</b> 在 8 卦间流动；因此每个下卦点有 8 种上卦可能性 ⇒ 全局 64 卦。
+      </div>
     </div>
   </div>
 
@@ -99,22 +117,24 @@
 <script>
 (() => {
   // ====== 固定映射（先天序：乾兑离震巽坎艮坤 = 000..111）=====
-  // 约定：X向边=初爻，Y向边=二爻，Z向边=三爻；边值 0阳 1阴
-  // 采用可解的边值规则（局部bit坐标下）：
+  // 顶点卦bits约定：bits = (初爻,二爻,三爻) = (X向边, Y向边, Z向边)
+  // 使用可解规则（局部bit坐标下）：
   //   X向边值 = yBit
   //   Y向边值 = zBit
   //   Z向边值 = xBit
-  // 则顶点卦bits = (X,Y,Z) = (y,z,x)  ⇒ bits = `${y}${z}${x}`
+  // 所以 顶点卦bits = (y,z,x)  ⇒ bits = `${y}${z}${x}`
   const bitsToName = {
     "000":"乾","001":"兑","010":"离","011":"震",
     "100":"巽","101":"坎","110":"艮","111":"坤"
   };
 
-  const STEP = 2; // 一个立方体边长（bit 0→1 的世界坐标增量）
+  const STEP = 2;     // 3D cube: bit 0→1 的世界坐标增量
+  const W_DIST = 4.0; // 4D→3D 投影距离（>2即可）
 
   // ====== DOM ======
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
+
   const hudCheck  = document.getElementById("check");
   const hudDetail = document.getElementById("detail");
 
@@ -133,7 +153,13 @@
   const myn = document.getElementById("myn");
   const mzp = document.getElementById("mzp");
   const mzn = document.getElementById("mzn");
-  const showLinks = document.getElementById("showLinks");
+
+  const auto4dEl  = document.getElementById("auto4d");
+  const showTrueEl= document.getElementById("showTrue");
+  const tTimeEl   = document.getElementById("tTime");
+  const tSuperEl  = document.getElementById("tSuper");
+  const tTimeTxt  = document.getElementById("tTimeTxt");
+  const tSuperTxt = document.getElementById("tSuperTxt");
 
   // ====== 颜色 ======
   const COLOR_YANG = "#cfd6df";  // 浅色（阳爻0）
@@ -142,11 +168,13 @@
   const COLOR_LABEL = "#0b0f14";
   const COLOR_HI = "#ffb020";
   const COLOR_LINK = "rgba(40,50,60,.35)";
+  const COLOR_REAL = "#ffd24a";  // 黄：现实
+  const COLOR_TRUE = "#5ad6ff";  // 蓝：真我
 
   // ====== 视图状态 ======
   let W=0, H=0, DPR=1;
-  let mode = "bagua";     // "bagua" | "hex64"
-  let projMode = "ortho"; // "ortho" | "persp"
+  let mode = "bagua";      // "bagua" | "hex64"
+  let projMode = "ortho";  // "ortho" | "persp"
   let rotX = -0.6;
   let rotY = 0.8;
   let zoom = 1.1;
@@ -159,9 +187,35 @@
   let sceneMaxAbs = 1;
 
   // 选择
-  let selSingle = null;   // bagua
-  let selLower  = null;   // hex64 (左)
-  let selUpper  = null;   // hex64 (右)
+  let selSingle = null; // 8卦选中
+  let selT = null;      // 64(tesseract)选中
+
+  // ====== tesseract: 配对与“真我当前态” ======
+  let tPair = new Map();        // key -> pairedKey
+  let tTrueState = new Map();   // trueKey -> { upperBits, upperName, upperIdx }
+  let tTime = 0;
+  let tSuper = 0;
+  let auto4dOn = true;
+  let showTrueOn = false;
+
+  // 4D旋转角（6个旋转平面里只用3个就足够形成“像wiki那样”的扭动）
+  let aXW = 0, aYW = 0, aYZ = 0;
+  let lastTs = null;
+
+  function syncTControls(){
+    if (!tTimeEl) return;
+    tTime = parseFloat(tTimeEl.value || "0");
+    tSuper = parseFloat(tSuperEl.value || "0");
+    auto4dOn = !!auto4dEl?.checked;
+    showTrueOn = !!showTrueEl?.checked;
+    if (tTimeTxt) tTimeTxt.textContent = tTime.toFixed(3);
+    if (tSuperTxt) tSuperTxt.textContent = tSuper.toFixed(3);
+  }
+  [auto4dEl, showTrueEl, tTimeEl, tSuperEl].forEach(el => {
+    if (!el) return;
+    el.addEventListener("input", syncTControls);
+    el.addEventListener("change", syncTControls);
+  });
 
   // ====== resize ======
   function resize(){
@@ -175,12 +229,12 @@
   }
   window.addEventListener("resize", resize);
 
-  // ====== 工具函数 ======
+  // ====== 工具函数（8卦/镜像用） ======
   function keyOf(cubeId, x,y,z){ return `${cubeId}|${x},${y},${z}`; }
 
-  function makeCubeInstance({id, label, role=null, offset={x:0,y:0,z:0}, axisBase={x:-1,y:-1,z:-1}, axisMirror={x:false,y:false,z:false}, showLabels=true, pickable=true}) {
+  function makeCubeInstance({id, label, offset={x:0,y:0,z:0}, axisBase={x:-1,y:-1,z:-1}, axisMirror={x:false,y:false,z:false}, showLabels=true, pickable=true}) {
     return {
-      id, label, role, showLabels, pickable,
+      id, label, showLabels, pickable,
       ax: {
         x: { base: axisBase.x + offset.x, mirror: !!axisMirror.x },
         y: { base: axisBase.y + offset.y, mirror: !!axisMirror.y },
@@ -196,13 +250,23 @@
     return {x:wx,y:wy,z:wz};
   }
 
+  // ====== bits utils ======
+  function trigramIndex(bits){ return (parseInt(bits,2) & 7) + 1; }
+  function invertBits3(bits){ return bits.split("").map(ch => ch==="0"?"1":"0").join(""); }
+  function bitsFromIdx(idx){
+    return (idx & 7).toString(2).padStart(3,"0");
+  }
+
+  // ====== buildScene ======
   function buildScene(){
-    // reset selections on rebuild
-    selSingle = null; selLower = null; selUpper = null;
+    selSingle = null;
+    selT = null;
 
     cubes = [];
     vertices = [];
     edges = [];
+    tPair.clear();
+    tTrueState.clear();
 
     if (mode === "bagua"){
       mirrorPanel.style.display = "block";
@@ -211,7 +275,7 @@
       const base = makeCubeInstance({ id:"B", label:"本卦", showLabels:true, pickable:true });
       cubes.push(base);
 
-      // 镜像：以某个面四顶点为共享面，生成镜像立方体
+      // 8卦镜像（按面）
       const wantMirrors = [
         {on: mxp.checked, id:"Mx+", axis:"x", base:  1, mirror:true},
         {on: mxn.checked, id:"Mx-", axis:"x", base: -3, mirror:true},
@@ -234,108 +298,175 @@
         }));
       }
 
+      // 生成顶点&边（每个 cube）
+      for (const cube of cubes){
+        for (let x=0;x<=1;x++){
+          for (let y=0;y<=1;y++){
+            for (let z=0;z<=1;z++){
+              const bits = `${y}${z}${x}`;
+              const key = keyOf(cube.id, x,y,z);
+              vertices.push({
+                key,
+                mode:"bagua",
+                pickable: cube.pickable,
+                showLabel: cube.showLabels,
+                cubeId: cube.id,
+                local:{x,y,z},
+                bits,
+                name: bitsToName[bits],
+                world: worldPos(cube, x,y,z),
+              });
+            }
+          }
+        }
+
+        // edges (12)
+        for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
+          edges.push({ type:"edge", cubeId:cube.id, axis:"X", val:y,
+            a:keyOf(cube.id,0,y,z), b:keyOf(cube.id,1,y,z) });
+        }
+        for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
+          edges.push({ type:"edge", cubeId:cube.id, axis:"Y", val:z,
+            a:keyOf(cube.id,x,0,z), b:keyOf(cube.id,x,1,z) });
+        }
+        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
+          edges.push({ type:"edge", cubeId:cube.id, axis:"Z", val:x,
+            a:keyOf(cube.id,x,y,0), b:keyOf(cube.id,x,y,1) });
+        }
+      }
+
+      vByKey = new Map(vertices.map(v => [v.key, v]));
+      // scene bounds
+      sceneMaxAbs = 1;
+      for (const v of vertices){
+        sceneMaxAbs = Math.max(sceneMaxAbs, Math.abs(v.world.x), Math.abs(v.world.y), Math.abs(v.world.z));
+      }
+
     } else {
+      // ====== 64卦：tesseract（外层现实=黄，内层真我=蓝）=====
       mirrorPanel.style.display = "none";
       hexPanel.style.display = "block";
+      syncTControls();
 
-      // 两个时空立方体（左=下卦，右=上卦）
-      cubes.push(makeCubeInstance({
-        id:"L", label:"时空①(下卦)", role:"lower",
-        offset:{x:-4.2,y:0,z:0},
-        showLabels:true, pickable:true
-      }));
-      cubes.push(makeCubeInstance({
-        id:"U", label:"时空②(上卦)", role:"upper",
-        offset:{x:+4.2,y:0,z:0},
-        showLabels:true, pickable:true
-      }));
-    }
+      // 定义两层立方体：现实(外层) w=+1；真我(内层) w=-1
+      const roles = [
+        { role:"reality", w:+1 },
+        { role:"true",    w:-1 },
+      ];
 
-    // 生成每个cube的顶点&边
-    for (const cube of cubes){
-      // vertices
-      for (let x=0;x<=1;x++){
-        for (let y=0;y<=1;y++){
-          for (let z=0;z<=1;z++){
-            const bits = `${y}${z}${x}`; // (X,Y,Z)=(y,z,x)
-            const name = bitsToName[bits];
-            const key = keyOf(cube.id, x,y,z);
-            const pos = worldPos(cube, x,y,z);
-            vertices.push({
-              key, cubeId:cube.id, role:cube.role,
-              pickable: cube.pickable,
-              showLabel: cube.showLabels,
-              local:{x,y,z},
-              bits, name,
-              world: pos
-            });
+      for (const R of roles){
+        for (let x=0;x<=1;x++){
+          for (let y=0;y<=1;y++){
+            for (let z=0;z<=1;z++){
+              const bits = `${y}${z}${x}`;          // 下卦bits（与8卦同）
+              const key = `T|${R.role}|${x},${y},${z}`;
+              vertices.push({
+                key,
+                mode:"hex64",
+                role: R.role,
+                pickable:true,
+                showLabel:true,
+                local:{x,y,z},
+                bits,
+                name: bitsToName[bits],            // 现实下卦名
+                invBits: invertBits3(bits),        // “全反”参考
+                invName: bitsToName[invertBits3(bits)],
+                base4: {                           // 4D坐标：x,y,z∈{-1,+1}, w∈{-1,+1}
+                  x: x?+1:-1,
+                  y: y?+1:-1,
+                  z: z?+1:-1,
+                  w: R.w
+                }
+              });
+            }
           }
         }
       }
 
-      // edges (12)
-      // X向（初爻）：值=y
-      for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-        edges.push({ type:"edge", cubeId:cube.id, axis:"X", label:"初爻", val:y,
-          a:keyOf(cube.id,0,y,z), b:keyOf(cube.id,1,y,z) });
-      }
-      // Y向（二爻）：值=z
-      for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
-        edges.push({ type:"edge", cubeId:cube.id, axis:"Y", label:"二爻", val:z,
-          a:keyOf(cube.id,x,0,z), b:keyOf(cube.id,x,1,z) });
-      }
-      // Z向（三爻）：值=x
-      for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
-        edges.push({ type:"edge", cubeId:cube.id, axis:"Z", label:"三爻", val:x,
-          a:keyOf(cube.id,x,y,0), b:keyOf(cube.id,x,y,1) });
-      }
-    }
-
-    // 64模式：可选“对应连线(8条)”（同local bit连接）
-    if (mode === "hex64" && showLinks.checked){
+      vByKey = new Map(vertices.map(v => [v.key, v]));
+      // 配对：同(x,y,z) 的 reality <-> true
       for (let x=0;x<=1;x++){
         for (let y=0;y<=1;y++){
           for (let z=0;z<=1;z++){
-            edges.push({
-              type:"link",
-              a:keyOf("L",x,y,z),
-              b:keyOf("U",x,y,z)
-            });
+            const kr = `T|reality|${x},${y},${z}`;
+            const kt = `T|true|${x},${y},${z}`;
+            tPair.set(kr, kt);
+            tPair.set(kt, kr);
           }
         }
       }
-    }
 
-    vByKey = new Map(vertices.map(v => [v.key, v]));
+      // 现实/真我各自的 12 条“爻边”（仍满足各自 6阳6阴）
+      function addCubeEdges(role){
+        for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
+          const a = `T|${role}|0,${y},${z}`;
+          const b = `T|${role}|1,${y},${z}`;
+          edges.push({ type:"edge", role, axis:"X", val:y, a, b });
+        }
+        for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
+          const a = `T|${role}|${x},0,${z}`;
+          const b = `T|${role}|${x},1,${z}`;
+          edges.push({ type:"edge", role, axis:"Y", val:z, a, b });
+        }
+        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
+          const a = `T|${role}|${x},${y},0`;
+          const b = `T|${role}|${x},${y},1`;
+          edges.push({ type:"edge", role, axis:"Z", val:x, a, b });
+        }
+      }
+      addCubeEdges("reality");
+      addCubeEdges("true");
 
-    // scene bounds
-    sceneMaxAbs = 1;
-    for (const v of vertices){
-      sceneMaxAbs = Math.max(sceneMaxAbs, Math.abs(v.world.x), Math.abs(v.world.y), Math.abs(v.world.z));
+      // “w连接边”：把两层立方体对应顶点连起来（tesseract 的第4维边）
+      for (let x=0;x<=1;x++){
+        for (let y=0;y<=1;y++){
+          for (let z=0;z<=1;z++){
+            const a = `T|reality|${x},${y},${z}`;
+            const b = `T|true|${x},${y},${z}`;
+            edges.push({ type:"wlink", a, b });
+          }
+        }
+      }
+
+      // tesseract 画面范围（不严格求极值，给个稳定值避免缩放抖动）
+      sceneMaxAbs = 3.2;
     }
 
     updateCheckText();
-    updateDetailText();
+    updateDetailText(); // 初始
   }
 
-  function trigramIndex(bits){ return parseInt(bits,2) + 1; }
-
+  // ====== HUD ======
   function updateCheckText(){
-    // 校验：每个“可pick”的主cube都应满足 6阳6阴 + 顶点bits一致
-    // 这里输出当前模式的快速校验
-    let msg = [];
-    const cubeIds = new Set(edges.filter(e=>e.type==="edge").map(e=>e.cubeId));
-    for (const cid of cubeIds){
-      let yang=0, yin=0;
-      for (const e of edges){
-        if (e.type!=="edge" || e.cubeId!==cid) continue;
-        (e.val===0) ? yang++ : yin++;
+    if (mode === "bagua"){
+      let msg = [];
+      const cubeIds = new Set(edges.filter(e=>e.type==="edge").map(e=>e.cubeId));
+      for (const cid of cubeIds){
+        let yang=0, yin=0;
+        for (const e of edges){
+          if (e.type!=="edge" || e.cubeId!==cid) continue;
+          (e.val===0) ? yang++ : yin++;
+        }
+        msg.push(`${cid}:阳${yang} 阴${yin} ${(yang===6&&yin===6)?"OK":"FAIL"}`);
       }
-      const okCount = (yang===6 && yin===6);
-      msg.push(`${cid}:阳${yang} 阴${yin} ${okCount?"OK":"FAIL"}`);
+      hudCheck.innerHTML = `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>` +
+        `校验：${msg.join(" ｜ ")}`;
+    } else {
+      // 64(tesseract)
+      function count(role, val){
+        let c=0;
+        for (const e of edges){
+          if (e.type==="edge" && e.role===role && e.val===val) c++;
+        }
+        return c;
+      }
+      const ry0=count("reality",0), ry1=count("reality",1);
+      const ty0=count("true",0),    ty1=count("true",1);
+      hudCheck.innerHTML =
+        `模式：<b>64卦(tesseract)</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>` +
+        `现实边：阳${ry0} 阴${ry1} ｜ 真我边：阳${ty0} 阴${ty1} ｜ w连接：${edges.filter(e=>e.type==="wlink").length}<br>` +
+        `时间=${tTime.toFixed(3)} ｜ 叠加度=${tSuper.toFixed(3)} ｜ 自动4D=${auto4dOn?"ON":"OFF"}`;
     }
-    hudCheck.innerHTML = `模式：<b>${mode==="bagua"?"8卦":"64卦"}</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>` +
-      `校验：${msg.join(" ｜ ")}`;
   }
 
   function updateDetailText(){
@@ -344,44 +475,65 @@
       const v = vByKey.get(selSingle);
       if (!v){ hudDetail.innerHTML=""; return; }
       hudDetail.innerHTML =
-        `选中：<b>${v.name}</b> bits=<b>${v.bits}</b>（先天序号=${trigramIndex(v.bits)}）<br>` +
+        `选中：<b>${v.name}</b> bits=<b class="mono">${v.bits}</b>（先天序号=${trigramIndex(v.bits)}）<br>` +
         `local(x,y,z)=(${v.local.x},${v.local.y},${v.local.z}) ｜ cube=${v.cubeId}`;
-    } else {
-      const lv = selLower ? vByKey.get(selLower) : null;
-      const uv = selUpper ? vByKey.get(selUpper) : null;
-
-      if (!lv && !uv){ hudDetail.innerHTML=""; return; }
-
-      const lowerBits = lv ? lv.bits : "---";
-      const upperBits = uv ? uv.bits : "---";
-
-      let html = `下卦：<b>${lv?lv.name:"未选"}</b> bits=<b>${lowerBits}</b>`;
-      if (lv) html += `（序号=${trigramIndex(lv.bits)}）`;
-      html += `<br>上卦：<b>${uv?uv.name:"未选"}</b> bits=<b>${upperBits}</b>`;
-      if (uv) html += `（序号=${trigramIndex(uv.bits)}）`;
-
-      if (lv && uv){
-        const hexBits = `${uv.bits}${lv.bits}`; // 上6=上卦三bit + 下卦三bit
-        const lowerIdx = trigramIndex(lv.bits);
-        const upperIdx = trigramIndex(uv.bits);
-        const hexNum = (upperIdx - 1) * 8 + lowerIdx;
-        html += `<br>六爻bits：<b>${hexBits}</b> ｜ 卦号：<b>${hexNum}</b>`;
-      }
-      hudDetail.innerHTML = html;
+      return;
     }
+
+    // tesseract detail
+    if (!selT){ hudDetail.innerHTML = ""; return; }
+    const v = vByKey.get(selT);
+    if (!v){ hudDetail.innerHTML=""; return; }
+
+    const pairKey = tPair.get(v.key);
+    const pv = pairKey ? vByKey.get(pairKey) : null;
+
+    const lowerV = (v.role==="reality") ? v : pv;   // 现实作为下卦
+    const trueV  = (v.role==="true") ? v : pv;      // 真我作为上卦
+
+    if (!lowerV || !trueV){
+      hudDetail.innerHTML = `选中：<b>${v.role==="reality"?"现实":"真我"}</b> 顶点 bits=<b class="mono">${v.bits}</b>`;
+      return;
+    }
+
+    const lowerBits = lowerV.bits;
+    const lowerName = lowerV.name;
+    const lowerIdx0 = parseInt(lowerBits,2) & 7;
+
+    const state = tTrueState.get(trueV.key);
+    const curUpperBits = state ? state.upperBits : trueV.invBits;
+    const curUpperName = state ? state.upperName : trueV.invName;
+
+    const hexBitsNow = `${curUpperBits}${lowerBits}`;
+    const hexNumNow  = (parseInt(hexBitsNow,2) & 63) + 1;
+
+    // 该点的 8 种上卦可能性（形成 8 个六爻；全局 8点×8=64）
+    let list = "";
+    for (let i=0;i<8;i++){
+      const ub = bitsFromIdx(i);
+      const hn = bitsToName[ub];
+      const hb = `${ub}${lowerBits}`;
+      const num = (parseInt(hb,2) & 63) + 1;
+      const isCur = (ub === curUpperBits);
+      list += `${isCur?"👉 ":""}上${hn}(${ub}) + 下${lowerName}(${lowerBits}) = <span class="mono">${hb}</span> #${num}<br>`;
+    }
+
+    hudDetail.innerHTML =
+      `选中：<b>${v.role==="reality"?"现实(下卦点)":"真我(上卦点)"}</b><br>` +
+      `下卦：<b>${lowerName}</b> bits=<b class="mono">${lowerBits}</b>（序号=${lowerIdx0+1}）<br>` +
+      `上卦(当前)：<b>${curUpperName}</b> bits=<b class="mono">${curUpperBits}</b> → 六爻=<b class="mono">${hexBitsNow}</b> #<b>${hexNumNow}</b><br>` +
+      `<div style="margin-top:6px; font-weight:800;">该点的 8 种上卦可能性（叠加态）：</div>` +
+      `<div style="margin-top:4px;">${list}</div>`;
   }
 
-  // ====== 投影（正交/透视） ======
-  function rotate(p){
-    // 先做全局zoom
+  // ====== 3D 视角旋转 & 投影（沿用你原来的） ======
+  function rotate3D(p){
     let x = p.x * zoom, y = p.y * zoom, z = p.z * zoom;
 
-    // yaw around Y
     const cy = Math.cos(rotY), sy = Math.sin(rotY);
     const x1 = x*cy + z*sy;
     const z1 = -x*sy + z*cy;
 
-    // pitch around X
     const cx = Math.cos(rotX), sx = Math.sin(rotX);
     const y2 = y*cx - z1*sx;
     const z2 = y*sx + z1*cx;
@@ -390,36 +542,108 @@
   }
 
   function getOrthoScale(){
-    // 保证场景在屏幕里大致合适（zoom仍然会放大缩小）
     return 0.42 * Math.min(W,H) / Math.max(1e-6, sceneMaxAbs);
   }
 
-  function project(world){
-    const pr = rotate(world);
+  function project(world3){
+    const pr = rotate3D(world3);
 
     if (projMode === "ortho"){
       const s = getOrthoScale();
-      return {
-        x: pr.x * s + W/2,
-        y: -pr.y * s + H/2,
-        z: pr.z, // depth for sorting
-        k: s
-      };
+      return { x: pr.x*s + W/2, y: -pr.y*s + H/2, z: pr.z, k: s };
     } else {
       const cameraDist = sceneMaxAbs * 4.2 + 2.0;
       const fov = Math.min(W,H) * 1.25;
       const z = pr.z + cameraDist;
       const k = fov / z;
-      return {
-        x: pr.x * k + W/2,
-        y: -pr.y * k + H/2,
-        z: z,
-        k
-      };
+      return { x: pr.x*k + W/2, y: -pr.y*k + H/2, z, k };
     }
   }
 
-  // ====== 选择命中 ======
+  // ====== 4D rotation helpers ======
+  function rotPlane(v, i, j, ang){
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const a = v[i], b = v[j];
+    v[i] = a*c - b*s;
+    v[j] = a*s + b*c;
+  }
+
+  function rotate4D(base4){
+    // vec = [x,y,z,w]
+    const v = [base4.x, base4.y, base4.z, base4.w];
+
+    // 只用三个平面就足以产生“wiki tesseract”那种扭动效果
+    rotPlane(v, 0, 3, aXW); // XW
+    rotPlane(v, 1, 3, aYW); // YW
+    rotPlane(v, 1, 2, aYZ); // YZ
+    return v;
+  }
+
+  function project4Dto3D(v4){
+    // 4D→3D 透视（沿w）
+    const w = v4[3];
+    const f = W_DIST / (W_DIST - w);
+    return { x: v4[0]*f, y: v4[1]*f, z: v4[2]*f, wRot: w };
+  }
+
+  function computeTesseractFrame(){
+    // 返回：pos3ByKey, wRotByKey，并更新 tTrueState
+    const pos3ByKey = new Map();
+    const wRotByKey = new Map();
+
+    // 先算原始4D旋转+投影（不叠加）
+    for (const v of vertices){
+      const v4 = rotate4D(v.base4);
+      const p3 = project4Dto3D(v4);
+      pos3ByKey.set(v.key, {x:p3.x, y:p3.y, z:p3.z});
+      wRotByKey.set(v.key, p3.wRot);
+    }
+
+    // 叠加：真我顶点向现实顶点插值（让你看到“顶点互相叠加”）
+    if (tSuper > 0){
+      for (const v of vertices){
+        if (v.role !== "true") continue;
+        const pk = tPair.get(v.key);
+        const pT = pos3ByKey.get(v.key);
+        const pR = pk ? pos3ByKey.get(pk) : null;
+        if (!pT || !pR) continue;
+        pos3ByKey.set(v.key, {
+          x: pT.x*(1-tSuper) + pR.x*tSuper,
+          y: pT.y*(1-tSuper) + pR.y*tSuper,
+          z: pT.z*(1-tSuper) + pR.z*tSuper,
+        });
+      }
+    }
+
+    // 真我“当前上卦”：
+    // 规则：上卦idx = (全反idx + timeStep + rotStep) mod 8
+    // 其中：全反idx = 7 - 下卦idx；timeStep=floor(time*8)；rotStep由该点wRot决定
+    tTrueState.clear();
+    const timeStep = (Math.floor(tTime * 8) & 7);
+
+    for (const v of vertices){
+      if (v.role !== "true") continue;
+
+      const pk = tPair.get(v.key);
+      const lower = pk ? vByKey.get(pk) : null;
+      const lowerBits = lower ? lower.bits : v.bits;
+      const lowerIdx = (parseInt(lowerBits,2) & 7);
+      const invIdx = (7 - lowerIdx) & 7;
+
+      const wRot = wRotByKey.get(v.key) ?? 0;
+      // wRot 大致在 [-2,2]，归一化到[0,1]再取0..7
+      const rotNorm = Math.max(0, Math.min(1, (wRot + 2) / 4));
+      const rotStep = (Math.floor(rotNorm * 8) & 7);
+
+      const upperIdx = (invIdx + timeStep + rotStep) & 7;
+      const upperBits = bitsFromIdx(upperIdx);
+      tTrueState.set(v.key, { upperIdx, upperBits, upperName: bitsToName[upperBits] });
+    }
+
+    return pos3ByKey;
+  }
+
+  // ====== 点击命中 ======
   let lastProjCache = null;
   function hitTest(px,py, projCache){
     let best=null, bestD2=Infinity;
@@ -427,7 +651,7 @@
       if (!v.pickable) continue;
       const p = projCache.get(v.key);
       if (!p) continue;
-      const r = Math.max(9, 12 * (p.k/150)); // depth-aware radius
+      const r = Math.max(9, 12 * (p.k/150));
       const dx = px - p.x, dy = py - p.y;
       const d2 = dx*dx + dy*dy;
       if (d2 < r*r && d2 < bestD2){ bestD2 = d2; best = v.key; }
@@ -489,14 +713,10 @@
       const hit = hitTest(e.clientX, e.clientY, pc);
       if (!hit) return;
 
-      const v = vByKey.get(hit);
-      if (!v || !v.pickable) return;
-
       if (mode === "bagua"){
         selSingle = (selSingle === hit) ? null : hit;
       } else {
-        if (v.role === "lower") selLower = (selLower === hit) ? null : hit;
-        if (v.role === "upper") selUpper = (selUpper === hit) ? null : hit;
+        selT = (selT === hit) ? null : hit;
       }
       updateDetailText();
     }
@@ -510,14 +730,41 @@
   }, {passive:false});
 
   // ====== 渲染 ======
-  function render(){
+  function render(ts){
     ctx.setTransform(DPR,0,0,DPR,0,0);
     ctx.clearRect(0,0,W,H);
+
+    if (mode === "hex64"){
+      syncTControls();
+      if (lastTs == null) lastTs = ts;
+      const dt = ts - lastTs;
+      lastTs = ts;
+
+      if (auto4dOn){
+        // 轻量且稳定的 4D 自动旋转
+        aXW += dt * 0.00055;
+        aYW += dt * 0.00035;
+        aYZ += dt * 0.00045;
+      }
+    }
+
+    // 计算本帧 3D 点位
+    let pos3ByKey = new Map();
+    if (mode === "bagua"){
+      for (const v of vertices) pos3ByKey.set(v.key, v.world);
+    } else {
+      pos3ByKey = computeTesseractFrame();
+      // 真我状态会变：如果有选中点，实时刷新 detail
+      if (selT) updateDetailText();
+      updateCheckText();
+    }
 
     // build projection cache
     const projCache = new Map();
     for (const v of vertices){
-      projCache.set(v.key, project(v.world));
+      const p3 = pos3ByKey.get(v.key);
+      if (!p3) continue;
+      projCache.set(v.key, project(p3));
     }
     lastProjCache = projCache;
 
@@ -529,50 +776,44 @@
       return {e, pa, pb, z};
     }).sort((a,b) => b.z - a.z);
 
+    // selection helpers
+    const selKey = (mode==="bagua") ? selSingle : selT;
+    const selPair = (mode==="hex64" && selKey) ? tPair.get(selKey) : null;
+
     // draw edges
     for (const item of edgesSorted){
       const {e, pa, pb} = item;
       if (!pa || !pb) continue;
 
-      let isHi = false;
-      if (mode === "bagua"){
-        isHi = !!selSingle && (e.a===selSingle || e.b===selSingle);
-      } else {
-        isHi = (!!selLower && (e.a===selLower || e.b===selLower)) ||
-               (!!selUpper && (e.a===selUpper || e.b===selUpper));
-      }
+      const isSel = !!selKey && (e.a===selKey || e.b===selKey);
+      const isPair= !!selPair && (e.a===selPair || e.b===selPair);
+      const isHi  = isSel || isPair;
 
       ctx.beginPath();
       ctx.moveTo(pa.x, pa.y);
       ctx.lineTo(pb.x, pb.y);
 
-      if (e.type === "link"){
-        ctx.lineWidth = 2.4;
-        ctx.strokeStyle = COLOR_LINK;
+      if (e.type === "wlink"){
+        ctx.lineWidth = isHi ? 5.2 : 2.2;
+        ctx.strokeStyle = isHi ? COLOR_HI : COLOR_LINK;
         ctx.setLineDash([6,6]);
         ctx.stroke();
         ctx.setLineDash([]);
         continue;
       }
 
+      // edge within cube
       ctx.lineWidth = isHi ? 6.2 : 3.2;
-      ctx.strokeStyle = isHi ? COLOR_HI : (e.val===0 ? COLOR_YANG : COLOR_YIN);
-      ctx.stroke();
-    }
-
-    // selected cross-cube line (64模式)：下卦->上卦
-    if (mode === "hex64" && selLower && selUpper){
-      const pl = projCache.get(selLower);
-      const pu = projCache.get(selUpper);
-      if (pl && pu){
-        ctx.beginPath();
-        ctx.moveTo(pl.x, pl.y);
-        ctx.lineTo(pu.x, pu.y);
-        ctx.lineWidth = 5.5;
-        ctx.strokeStyle = COLOR_HI;
-        ctx.setLineDash([10,8]);
+      const baseColor = (e.val===0 ? COLOR_YANG : COLOR_YIN);
+      if (mode==="hex64" && e.role==="true"){
+        // 真我层稍微透明一点
+        ctx.strokeStyle = isHi ? COLOR_HI : baseColor;
+        if (!isHi) ctx.globalAlpha = 0.70;
         ctx.stroke();
-        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.strokeStyle = isHi ? COLOR_HI : baseColor;
+        ctx.stroke();
       }
     }
 
@@ -583,24 +824,53 @@
 
     for (const {v, p} of vertsSorted){
       const r = 7 + (p.k/110);
-      const isSel = (mode==="bagua" && selSingle===v.key) ||
-                    (mode==="hex64" && (selLower===v.key || selUpper===v.key));
+      const isSelected = (mode==="bagua" && selSingle===v.key) ||
+                         (mode==="hex64" && (selT===v.key));
+      const isPaired = (mode==="hex64" && selPair===v.key);
 
-      // node
+      // node fill
+      let fill = COLOR_NODE;
+      if (mode==="hex64"){
+        fill = (v.role==="reality") ? COLOR_REAL : COLOR_TRUE;
+      }
+      if (isSelected || isPaired) fill = COLOR_HI;
+
       ctx.beginPath();
-      ctx.arc(p.x, p.y, isSel ? r*1.25 : r, 0, Math.PI*2);
-      ctx.fillStyle = isSel ? COLOR_HI : COLOR_NODE;
+      ctx.arc(p.x, p.y, (isSelected||isPaired) ? r*1.25 : r, 0, Math.PI*2);
+      ctx.fillStyle = fill;
       ctx.globalAlpha = 0.92;
       ctx.fill();
       ctx.globalAlpha = 1;
 
       // label
-      if (v.showLabel){
-        ctx.fillStyle = COLOR_LABEL;
-        ctx.font = "14px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(`${v.name} ${v.bits}`, p.x, p.y - (isSel ? r*1.5 : r*1.25));
+      if (mode==="bagua"){
+        if (v.showLabel){
+          ctx.fillStyle = COLOR_LABEL;
+          ctx.font = "14px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(`${v.name} ${v.bits}`, p.x, p.y - ((isSelected)? r*1.6 : r*1.25));
+        }
+      } else {
+        // tesseract labels：现实始终显示；真我可选显示（或被选中/配对时显示）
+        const showLabel = (v.role==="reality") || showTrueOn || isSelected || isPaired;
+        if (showLabel){
+          let text = "";
+          if (v.role === "reality"){
+            text = `${v.name} ${v.bits}`; // 下卦固定
+          } else {
+            const st = tTrueState.get(v.key);
+            const ub = st ? st.upperBits : v.invBits;
+            const un = st ? st.upperName : v.invName;
+            text = showTrueOn ? `${un} ${ub}` : "∑"; // 不开“显示真我”时只给个叠加符号
+          }
+
+          ctx.fillStyle = COLOR_LABEL;
+          ctx.font = "13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(text, p.x, p.y - ((isSelected||isPaired)? r*1.6 : r*1.25));
+        }
       }
     }
 
@@ -613,6 +883,7 @@
     btnMode8.classList.toggle("active", mode==="bagua");
     btnMode64.classList.toggle("active", mode==="hex64");
     buildScene();
+    resetView();
   }
 
   function setProj(newProj){
@@ -623,8 +894,6 @@
   }
 
   function snapDiagonal(){
-    // 让乾(-1,-1,-1) 与 坤(1,1,1) 投影重合：对准体对角线
-    // yaw = -45°, pitch = arctan(1/sqrt(2)) ≈ 35.264°
     rotY = -Math.PI/4;
     rotX = Math.atan(1/Math.sqrt(2));
   }
@@ -632,7 +901,7 @@
   function resetView(){
     rotX = -0.6;
     rotY = 0.8;
-    zoom = (mode==="hex64") ? 0.9 : 1.1;
+    zoom = (mode==="hex64") ? 1.0 : 1.1;
   }
 
   btnMode8.addEventListener("click", () => setMode("bagua"));
@@ -642,16 +911,14 @@
   btnSnap.addEventListener("click", () => { setProj("ortho"); snapDiagonal(); });
   btnReset.addEventListener("click", () => resetView());
 
-  // 镜像选项 / 64选项变更后重建
+  // 8卦镜像选项变更后重建
   [mxp,mxn,myp,myn,mzp,mzn].forEach(el => el.addEventListener("change", () => buildScene()));
-  showLinks.addEventListener("change", () => buildScene());
 
   // ====== init ======
   resize();
   buildScene();
   resetView();
-  render();
-
+  requestAnimationFrame(render);
 })();
 </script>
 </body>
