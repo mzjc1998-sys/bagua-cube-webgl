@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bagua Cube WebGL</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #f5f5f5;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.8);
+      font-family: sans-serif;
+      font-size: 14px;
+      color: #000;
+      border-radius: 4px;
+    }
+    a {
+      color: #1565c0;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">
+    <strong>先天八卦立方体</strong><br />
+    拖拽旋转，滚轮缩放。<br />
+    边的颜色：浅色=阳爻，深色=阴爻。
+  </div>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/controls/OrbitControls.js';
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf5f5f5);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(4, 4, 6);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.1;
+    controls.minDistance = 3;
+    controls.maxDistance = 15;
+
+    // Materials for yin/yang edges
+    const matYang = new THREE.MeshPhongMaterial({ color: 0xf0f0f0 });
+    const matYin  = new THREE.MeshPhongMaterial({ color: 0x333333 });
+
+    // Light
+    const light1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    light1.position.set(5, 10, 7);
+    scene.add(light1);
+    const light2 = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(light2);
+
+    // Helper: create canvas-based sprite for labels
+    function createLabel(text) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const size = 256;
+      canvas.width = size;
+      canvas.height = size;
+      ctx.fillStyle = 'rgba(255,255,255,0)';
+      ctx.fillRect(0, 0, size, size);
+      ctx.font = 'bold 72px Noto Sans, sans-serif';
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // Split two lines
+      const lines = text.split('\n');
+      if (lines.length === 1) {
+        ctx.fillText(lines[0], size / 2, size / 2);
+      } else {
+        const lineHeight = 72;
+        const startY = size / 2 - (lines.length - 1) * lineHeight / 2;
+        lines.forEach((l, i) => {
+          ctx.fillText(l, size / 2, startY + i * lineHeight);
+        });
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      return new THREE.Sprite(material);
+    }
+
+    // Bagua mapping: positions and labels
+    // Coordinates: (x,y,z) -> Chinese name + binary (0=阳,1=阴)
+    const vertices = [
+      { pos: [0,0,0], name: '乾', bits: '000' },
+      { pos: [1,0,0], name: '兑', bits: '001' },
+      { pos: [0,0,1], name: '离', bits: '010' },
+      { pos: [1,0,1], name: '震', bits: '011' },
+      { pos: [0,1,0], name: '巽', bits: '100' },
+      { pos: [1,1,0], name: '坎', bits: '101' },
+      { pos: [0,1,1], name: '艮', bits: '110' },
+      { pos: [1,1,1], name: '坤', bits: '111' },
+    ];
+
+    // Scale factor for spacing
+    const scale = 2.0;
+    // Sphere radius
+    const sphereRadius = 0.08 * scale;
+    // Cylinder radius
+    const edgeRadius = 0.02 * scale;
+
+    // Create vertex spheres and labels
+    const sphereGeom = new THREE.SphereGeometry(sphereRadius, 32, 32);
+    const sphereMat  = new THREE.MeshPhongMaterial({ color: 0x1565c0 });
+    vertices.forEach(item => {
+      const [x, y, z] = item.pos;
+      const mesh = new THREE.Mesh(sphereGeom, sphereMat);
+      mesh.position.set((x - 0.5) * scale * 2, (y - 0.5) * scale * 2, (z - 0.5) * scale * 2);
+      scene.add(mesh);
+      // Label sprite
+      const label = createLabel(item.name + '\n' + item.bits);
+      label.scale.set(0.6 * scale, 0.6 * scale, 0.6 * scale);
+      label.position.set((x - 0.5) * scale * 2, (y - 0.5) * scale * 2 + sphereRadius + 0.1 * scale, (z - 0.5) * scale * 2);
+      scene.add(label);
+    });
+
+    // Create edges: Determine yin/yang by rules: X-edge: val = y, Y-edge: val = z, Z-edge: val = x
+    // Edges list from vertices positions
+    function createEdge(pos1, pos2, val) {
+      const start = new THREE.Vector3().fromArray(pos1);
+      const end   = new THREE.Vector3().fromArray(pos2);
+      // Translate to centered positions
+      start.sub(new THREE.Vector3(0.5,0.5,0.5)).multiplyScalar(scale * 2);
+      end.sub(new THREE.Vector3(0.5,0.5,0.5)).multiplyScalar(scale * 2);
+      const dir = new THREE.Vector3().subVectors(end, start);
+      const len = dir.length();
+      const geom = new THREE.CylinderGeometry(edgeRadius, edgeRadius, len, 8, 1, true);
+      const material = val === 0 ? matYang : matYin;
+      const cylinder = new THREE.Mesh(geom, material);
+      // Position cylinder
+      const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+      cylinder.position.copy(mid);
+      // Align cylinder to direction
+      cylinder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      scene.add(cylinder);
+    }
+
+    // Generate edges along X
+    for (let y = 0; y <= 1; y++) {
+      for (let z = 0; z <= 1; z++) {
+        const p1 = [0, y, z];
+        const p2 = [1, y, z];
+        const val = y; // rule: val=y for X edges
+        createEdge(p1, p2, val);
+      }
+    }
+    // Generate edges along Y
+    for (let x = 0; x <= 1; x++) {
+      for (let z = 0; z <= 1; z++) {
+        const p1 = [x, 0, z];
+        const p2 = [x, 1, z];
+        const val = z; // rule: val=z for Y edges
+        createEdge(p1, p2, val);
+      }
+    }
+    // Generate edges along Z
+    for (let x = 0; x <= 1; x++) {
+      for (let y = 0; y <= 1; y++) {
+        const p1 = [x, y, 0];
+        const p2 = [x, y, 1];
+        const val = x; // rule: val=x for Z edges
+        createEdge(p1, p2, val);
+      }
+    }
+
+    // Render loop
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Responsive resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
