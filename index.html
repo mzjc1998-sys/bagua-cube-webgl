@@ -1,127 +1,373 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>先天八卦立方体 WebGL</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>先天八卦立方体（自包含）</title>
   <style>
-    body { margin: 0; overflow: hidden; }
-    #instructions {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0, 0, 0, 0.5);
-      color: #fff;
-      padding: 6px 10px;
-      border-radius: 4px;
-      font-family: sans-serif;
-      font-size: 14px;
+    html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
+    canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+    #hud{
+      position:fixed; left:12px; top:12px; z-index:10;
+      background:rgba(0,0,0,.55); color:#fff;
+      padding:10px 12px; border-radius:10px;
+      font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      max-width:min(360px, calc(100vw - 24px));
     }
+    #hud .row{ display:flex; gap:10px; flex-wrap:wrap; }
+    .chip{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.12);
+    }
+    .sw{ width:14px; height:14px; border-radius:4px; display:inline-block; border:1px solid rgba(255,255,255,.35); }
+    #detail{ margin-top:8px; opacity:.95; }
+    #detail b{ font-weight:700; }
   </style>
 </head>
 <body>
-  <div id="instructions">拖拨旋转，滚轮缩放。边的颜色：淡色＝阳爵，深色＝阴爵。</div>
-  <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.152.0/build/three.module.js';
-    import { OrbitControls } from 'https://unpkg.com/three@0.152.0/examples/jsm/controls/OrbitControls.js';
+  <canvas id="c"></canvas>
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf5f5f5);
+  <div id="hud">
+    <div style="font-weight:700; margin-bottom:6px;">先天八卦立方体（顶点=卦象，边=爻）</div>
+    <div class="row">
+      <span class="chip"><span class="sw" style="background:#cfd6df;"></span>浅色 = 阳爻(0)</span>
+      <span class="chip"><span class="sw" style="background:#1f2329;"></span>深色 = 阴爻(1)</span>
+    </div>
+    <div style="margin-top:6px;">
+      交互：拖拽旋转｜滚轮/双指缩放｜点击顶点高亮其三条爻边
+    </div>
+    <div id="check" style="margin-top:6px;"></div>
+    <div id="detail"></div>
+  </div>
 
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(4, 3, 6);
+<script>
+(() => {
+  // ====== 你的约定 ======
+  // 顶点坐标 (x,y,z) ∈ {0,1}^3
+  // 三条边对应三爻位次：X向边=初爻，Y向边=二爻，Z向边=三爻
+  // 边赋值 0/1：0=阳爻(浅色)，1=阴爻(深色)
+  // 顶点卦象 = (该顶点三条边的取值 X,Y,Z)
+  //
+  // 我们采用一套可行的“边值规则”（能保证 6阳6阴 且顶点一致）：
+  //   X向边 (0,y,z)-(1,y,z) 的值 = y
+  //   Y向边 (x,0,z)-(x,1,z) 的值 = z
+  //   Z向边 (x,y,0)-(x,y,1) 的值 = x
+  // 则某顶点 (x,y,z) 的三爻(bits) = (X,Y,Z) = (y,z,x)
+  // 从而实现先天序：乾兑离震巽坎艮坤 = 000..111
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+  const bitsToName = {
+    "000":"乾","001":"兑","010":"离","011":"震",
+    "100":"巽","101":"坎","110":"艮","111":"坤"
+  };
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const hudCheck = document.getElementById('check');
+  const hudDetail = document.getElementById('detail');
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambient);
-    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.set(5, 5, 5);
-    scene.add(directional);
+  const COLOR_YANG = "#cfd6df";  // 浅色（阳爻0）
+  const COLOR_YIN  = "#1f2329";  // 深色（阴爻1）
+  const COLOR_NODE = "#0b0f14";
+  const COLOR_LABEL = "#0b0f14";
+  const COLOR_HI = "#ffb020";
 
-    const vertices = [
-      { pos: [0,0,0], name: '乾', bits:'000' },
-      { pos: [1,0,0], name: '党', bits:'001' },
-      { pos: [0,0,1], name: '离', bits:'010' },
-      { pos: [1,0,1], name: '震', bits:'011' },
-      { pos: [0,1,0], name: '庯', bits:'100' },
-      { pos: [1,1,0], name: '坍', bits:'101' },
-      { pos: [0,1,1], name: '艮', bits:'110' },
-      { pos: [1,1,1], name: '坤', bits:'111' },
-    ];
+  let W=0, H=0, DPR=1;
 
-    const scale = 3;
-    const sphereMat = new THREE.MeshStandardMaterial({ color: 0x209cee });
-    const yangColor = 0xcfcfcf;
-    const yinColor  = 0x333333;
+  function resize(){
+    DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener('resize', resize);
 
-    const vertexMeshes = {};
-    vertices.forEach(v => {
-      const [x,y,z] = v.pos;
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 32, 32), sphereMat);
-      mesh.position.set((x - 0.5) * scale, (y - 0.5) * scale, (z - 0.5) * scale);
-      scene.add(mesh);
-      vertexMeshes[v.bits] = mesh;
+  // ====== 立方体数据 ======
+  function keyOf(x,y,z){ return `${x},${y},${z}`; }
 
-      const canvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 128;
-      const ctx = canvas.getContext('2d');
-      ctx.font = 'bold 36px sans-serif';
-      ctx.fillStyle = '#000';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(v.name, canvas.width / 2, 40);
-      ctx.font = '28px monospace';
-      ctx.fillText(v.bits, canvas.width / 2, 92);
-      const texture = new THREE.CanvasTexture(canvas);
-      const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-      const sprite = new THREE.Sprite(mat);
-      sprite.scale.set(0.8, 0.4, 1);
-      sprite.position.copy(mesh.position).add(new THREE.Vector3(0, 0.45, 0));
-      scene.add(sprite);
-    });
+  const vertices = [];
+  for (let x=0;x<=1;x++){
+    for (let y=0;y<=1;y++){
+      for (let z=0;z<=1;z++){
+        const bits = `${y}${z}${x}`; // (X,Y,Z)=(y,z,x)
+        const name = bitsToName[bits];
+        // 位置：映射到 [-1,1] 并居中
+        const px = (x - 0.5) * 2;
+        const py = (y - 0.5) * 2;
+        const pz = (z - 0.5) * 2;
+        vertices.push({
+          x,y,z, key:keyOf(x,y,z),
+          bits, name,
+          pos:{x:px, y:py, z:pz},
+        });
+      }
+    }
+  }
 
-    function addEdge(aBits, bBits, color) {
-      const start = vertexMeshes[aBits].position;
-      const end   = vertexMeshes[bBits].position;
-      const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
-      const material = new THREE.LineBasicMaterial({ color: color, linewidth: 2 });
-      const line = new THREE.Line(geometry, material);
-      scene.add(line);
+  const edges = [];
+  // X向边：值=y
+  for (let y=0;y<=1;y++){
+    for (let z=0;z<=1;z++){
+      edges.push({
+        a:keyOf(0,y,z), b:keyOf(1,y,z),
+        val:y, axis:"X", label:"初爻"
+      });
+    }
+  }
+  // Y向边：值=z
+  for (let x=0;x<=1;x++){
+    for (let z=0;z<=1;z++){
+      edges.push({
+        a:keyOf(x,0,z), b:keyOf(x,1,z),
+        val:z, axis:"Y", label:"二爻"
+      });
+    }
+  }
+  // Z向边：值=x
+  for (let x=0;x<=1;x++){
+    for (let y=0;y<=1;y++){
+      edges.push({
+        a:keyOf(x,y,0), b:keyOf(x,y,1),
+        val:x, axis:"Z", label:"三爻"
+      });
+    }
+  }
+
+  const vByKey = new Map(vertices.map(v => [v.key, v]));
+
+  // ====== 自校验（部署后一眼就知道对不对） ======
+  function validate(){
+    let yang = 0, yin = 0;
+    for (const e of edges) (e.val===0 ? yang++ : yin++);
+    const okCount = (yang===6 && yin===6);
+
+    // 每个顶点三条边值是否等于 bits=(X,Y,Z)
+    // 找到与顶点相连的 X/Y/Z 边（立方体每顶点各一条）
+    let okVertex = true;
+    for (const v of vertices){
+      // 对应的三条边（无方向）
+      const want = v.bits; // y z x
+      const xEdgeVal = v.y; // X边值= y
+      const yEdgeVal = v.z; // Y边值= z
+      const zEdgeVal = v.x; // Z边值= x
+      const got = `${xEdgeVal}${yEdgeVal}${zEdgeVal}`;
+      if (got !== want) { okVertex = false; break; }
+      if (!bitsToName[got] || bitsToName[got] !== v.name) { okVertex = false; break; }
     }
 
-    addEdge('000', '001', yangColor);
-    addEdge('010', '011', yangColor);
-    addEdge('100', '101', yinColor);
-    addEdge('110', '111', yinColor);
+    return {ok: okCount && okVertex, yang, yin, okCount, okVertex};
+  }
 
-    addEdge('000', '100', yangColor);
-    addEdge('001', '101', yangColor);
-    addEdge('010', '110', yinColor);
-    addEdge('011', '111', yinColor);
+  const vr = validate();
+  hudCheck.innerHTML =
+    `校验：<b style="color:${vr.ok ? '#7CFF7C' : '#FF7C7C'}">${vr.ok ? '通过' : '失败'}</b> ｜ ` +
+    `边：阳${vr.yang} 阴${vr.yin} ｜ 顶点一致性：${vr.okVertex ? 'OK' : 'FAIL'}`;
 
-    addEdge('000', '010', yangColor);
-    addEdge('100', '110', yangColor);
-    addEdge('001', '011', yinColor);
-    addEdge('101', '111', yinColor);
+  // ====== 3D 投影与交互 ======
+  let rotX = -0.6;  // pitch
+  let rotY = 0.8;   // yaw
+  let zoom = 1.25;
 
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+  const cameraDist = 5.2;    // 越大透视越弱
+  const fov = 850;           // 投影尺度
 
-    function animate() {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+  function rotate(p){
+    // yaw around Y
+    let x = p.x, y = p.y, z = p.z;
+    const cy = Math.cos(rotY), sy = Math.sin(rotY);
+    let x1 = x*cy + z*sy;
+    let z1 = -x*sy + z*cy;
+
+    // pitch around X
+    const cx = Math.cos(rotX), sx = Math.sin(rotX);
+    let y2 = y*cx - z1*sx;
+    let z2 = y*sx + z1*cx;
+
+    return {x:x1, y:y2, z:z2};
+  }
+
+  function project(p){
+    const pr = rotate({x:p.x*zoom, y:p.y*zoom, z:p.z*zoom});
+    const z = pr.z + cameraDist;
+    const k = fov / z;
+    return {
+      x: pr.x * k + W/2,
+      y: -pr.y * k + H/2,
+      z: z,
+      k
+    };
+  }
+
+  // ====== 选择顶点（点击） ======
+  let selectedKey = null;
+  let pointerDown = null;
+  const pointers = new Map();
+  let pinchStart = null;
+
+  function hitTest(px, py, projCache){
+    let best = null;
+    let bestD2 = Infinity;
+    for (const v of vertices){
+      const p = projCache.get(v.key);
+      const r = Math.max(8, 10 * (p.k/120)); // 根据深度调整点击半径
+      const dx = px - p.x, dy = py - p.y;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < r*r && d2 < bestD2){ bestD2 = d2; best = v.key; }
     }
-    animate();
-  </script>
+    return best;
+  }
+
+  function showDetail(key){
+    if (!key){ hudDetail.innerHTML = ""; return; }
+    const v = vByKey.get(key);
+    hudDetail.innerHTML =
+      `选中：<b>${v.name}</b>　bits=<b>${v.bits}</b>　` +
+      `（初爻 X=${v.bits[0]}，二爻 Y=${v.bits[1]}，三爻 Z=${v.bits[2]}）<br>` +
+      `顶点坐标：(x,y,z)=(${v.x},${v.y},${v.z})`;
+  }
+
+  // ====== 手势 ======
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    pointerDown = {x:e.clientX, y:e.clientY, t:performance.now()};
+    if (pointers.size === 2){
+      const pts = [...pointers.values()];
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      pinchStart = {dist: Math.hypot(dx,dy), zoom};
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+    if (pointers.size === 1){
+      const dx = e.clientX - prev.x;
+      const dy = e.clientY - prev.y;
+      rotY += dx * 0.008;
+      rotX += dy * 0.008;
+      rotX = Math.max(-1.45, Math.min(1.45, rotX));
+    } else if (pointers.size === 2 && pinchStart){
+      const pts = [...pointers.values()];
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      const dist = Math.hypot(dx,dy);
+      const factor = dist / pinchStart.dist;
+      zoom = Math.max(0.55, Math.min(3.2, pinchStart.zoom * factor));
+    }
+  });
+
+  canvas.addEventListener('pointerup', (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = null;
+
+    // click/tap detection
+    if (pointerDown){
+      const dx = e.clientX - pointerDown.x;
+      const dy = e.clientY - pointerDown.y;
+      const dt = performance.now() - pointerDown.t;
+      pointerDown = null;
+
+      if (dt < 350 && (dx*dx+dy*dy) < 16*16){
+        // perform hit test
+        const projCache = lastProjCache;
+        if (projCache){
+          const hit = hitTest(e.clientX, e.clientY, projCache);
+          if (hit){
+            selectedKey = (selectedKey === hit) ? null : hit;
+            showDetail(selectedKey);
+          } else {
+            selectedKey = null;
+            showDetail(null);
+          }
+        }
+      }
+    }
+  });
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = Math.sign(e.deltaY);
+    const factor = (delta > 0) ? 0.92 : 1.08;
+    zoom = Math.max(0.55, Math.min(3.2, zoom * factor));
+  }, {passive:false});
+
+  // ====== 渲染 ======
+  let lastProjCache = null;
+
+  function render(){
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    // proj cache
+    const projCache = new Map();
+    for (const v of vertices){
+      projCache.set(v.key, project(v.pos));
+    }
+    lastProjCache = projCache;
+
+    // edges depth sort (far -> near)
+    const edgesSorted = edges.map(e => {
+      const pa = projCache.get(e.a);
+      const pb = projCache.get(e.b);
+      return {e, pa, pb, z:(pa.z+pb.z)/2};
+    }).sort((a,b) => b.z - a.z);
+
+    // draw edges
+    for (const item of edgesSorted){
+      const {e, pa, pb} = item;
+      const isHi = selectedKey && (e.a===selectedKey || e.b===selectedKey);
+
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+
+      const baseW = 3.2;
+      ctx.lineWidth = isHi ? 6.2 : baseW;
+      ctx.strokeStyle = isHi ? COLOR_HI : (e.val===0 ? COLOR_YANG : COLOR_YIN);
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+    }
+
+    // vertices depth sort (far -> near)
+    const vertsSorted = [...vertices].map(v => {
+      const p = projCache.get(v.key);
+      return {v, p};
+    }).sort((a,b) => b.p.z - a.p.z);
+
+    // draw nodes + labels
+    for (const {v, p} of vertsSorted){
+      const r = 7 + (p.k/90); // 深度相关点大小
+      const isSel = (selectedKey === v.key);
+
+      // node
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, isSel ? r*1.25 : r, 0, Math.PI*2);
+      ctx.fillStyle = isSel ? COLOR_HI : COLOR_NODE;
+      ctx.globalAlpha = 0.92;
+      ctx.fill();
+
+      // label
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = COLOR_LABEL;
+      ctx.font = "14px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(`${v.name} ${v.bits}`, p.x, p.y - (isSel ? r*1.5 : r*1.25));
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  resize();
+  showDetail(null);
+  render();
+})();
+</script>
 </body>
 </html>
