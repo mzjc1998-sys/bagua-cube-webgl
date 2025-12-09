@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>先天八卦 / 64卦：卦网 + 超立方体展开（修复镜像宫位）</title>
+  <title>先天八卦 / 64卦：bit 立方体 + 宫视角</title>
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
     canvas { display:block; width:100vw; height:100vh; touch-action:none; }
@@ -13,7 +13,7 @@
       background:rgba(0,0,0,.56); color:#fff;
       padding:10px 12px; border-radius:14px;
       font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      max-width:min(600px, calc(100vw - 20px));
+      max-width:min(640px, calc(100vw - 20px));
       backdrop-filter: blur(6px);
     }
     #hudHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -58,6 +58,8 @@
     #check{ margin-top:8px; opacity:.95; }
     #detail{ margin-top:8px; opacity:.98; }
     #detail b{ font-weight:900; }
+
+    .palace-label{ font-weight:800; margin-right:4px; }
   </style>
 </head>
 <body>
@@ -65,7 +67,7 @@
 
 <div id="hud">
   <div id="hudHeader">
-    <div id="hudTitle">bit 立方体：8卦 / 64卦（卦网 + 展开）</div>
+    <div id="hudTitle">bit 立方体：8卦 / 64卦（宫视角 + 超立方体）</div>
     <button id="btnHudToggle" class="mini">☰</button>
   </div>
 
@@ -89,10 +91,26 @@
       <button id="btnReset" class="mini">重置</button>
     </div>
 
-    <div class="hint">交互：拖拽旋转｜滚轮/双指缩放｜点顶点查看该点的 8 条组合（=叠加态）</div>
+    <div class="row" id="palaceRow">
+      <span class="palace-label">宫视角(8卦)：</span>
+      <button class="mini palaceBtn" data-palace="乾">乾</button>
+      <button class="mini palaceBtn" data-palace="坤">坤</button>
+      <button class="mini palaceBtn" data-palace="兑">兑</button>
+      <button class="mini palaceBtn" data-palace="艮">艮</button>
+      <button class="mini palaceBtn" data-palace="离">离</button>
+      <button class="mini palaceBtn" data-palace="坎">坎</button>
+      <button class="mini palaceBtn" data-palace="震">震</button>
+      <button class="mini palaceBtn" data-palace="巽">巽</button>
+      <button id="btnPalaceFree" class="mini">自由旋转</button>
+    </div>
+
+    <div class="hint">
+      交互：拖拽旋转｜滚轮/双指缩放｜点顶点查看叠加信息。<br/>
+      宫视角：中心对角线两卦重合，近端卦 = 当前宫。
+    </div>
 
     <div id="mirrorPanel">
-      <div style="font-weight:900; margin-bottom:6px;">镜像立方体（按面生成）</div>
+      <div style="font-weight:900; margin-bottom:6px;">镜像立方体（按面生成，8卦模式）</div>
       <div class="row">
         <label><input id="mxp" type="checkbox">+X</label>
         <label><input id="mxn" type="checkbox">-X</label>
@@ -101,31 +119,22 @@
         <label><input id="mzp" type="checkbox">+Z</label>
         <label><input id="mzn" type="checkbox">-Z</label>
       </div>
-      <div class="hint">8卦模式：勾选后以该面四顶点为共享面生成镜像 cube。</div>
+      <div class="hint">勾选后以该面四顶点为“共享面”，生成镜像 cube，用来拼接八宫结构。</div>
     </div>
 
     <div id="hexPanel">
-      <div style="font-weight:900; margin-bottom:6px;">64卦（本我×真我 卦网）</div>
+      <div style="font-weight:900; margin-bottom:6px;">64卦（本我 × 真我 的超立方体）</div>
       <div class="row">
-        <label><input id="showHexNet" type="checkbox" checked>显示64卦虚线卦网(默认)</label>
-        <label><input id="showStructure" type="checkbox">显示结构棱(阴阳边+8条w)</label>
+        <label><input id="showHexNet" type="checkbox" checked>显示64卦虚线卦网</label>
+        <label><input id="showStructure" type="checkbox">显示结构棱</label>
       </div>
       <div class="row">
-        <label><input id="hideYellow" type="checkbox" checked>隐藏黄色卦象(默认)</label>
+        <label><input id="hideYellow" type="checkbox" checked>隐藏黄色卦象</label>
         <label><input id="showLabels64" type="checkbox">显示主顶点卦名/bit</label>
+        <label><input id="auto4d" type="checkbox">自动四维旋转</label>
       </div>
-      <div class="row">
-        <label><input id="auto4d" type="checkbox">自动四维旋转(折叠时有效)</label>
-      </div>
-
-      <div class="row">
-        <label><input id="labelShared" type="checkbox">展开标注共享顶点(会重叠)</label>
-      </div>
-
       <div class="hint">
-        ✅ 展开修复：侧面 6 cube 各自唯一宫位（mask XOR），并在 cube 中心标“××宫”。<br>
-        ✅ 默认只标“侧面外侧4点”，避免共享面叠字；如需看镜像对照，勾选“展开标注共享顶点”。<br>
-        你给的上下：底面=111/101/100/110，顶面=011/001/010/000。
+        折叠状态下：两个 3D 立方体（本我/真我）在四维中叠加成一个 tesseract；展开时逐渐拉开。
       </div>
     </div>
 
@@ -136,11 +145,12 @@
 
 <script>
 (() => {
-  // ====== 先天序：乾兑离震巽坎艮坤 = 000..111 ======
+  // ====== 先天八卦映射 ======
   const bitsToName = {
     "000":"乾","001":"兑","010":"离","011":"震",
     "100":"巽","101":"坎","110":"艮","111":"坤"
   };
+  const trigramBits = ["000","001","010","011","100","101","110","111"];
 
   // ====== 颜色 ======
   const COLOR_YANG = "#cfd6df";
@@ -148,16 +158,11 @@
   const COLOR_NODE = "#0b0f14";
   const COLOR_LABEL = "#0b0f14";
   const COLOR_HI = "#ffb020";
-
-  const COLOR_REAL = "#ffd24a"; // 黄
-  const COLOR_TRUE = "#5ad6ff"; // 蓝
+  const COLOR_REAL = "#ffd24a";
+  const COLOR_TRUE = "#5ad6ff";
   const COLOR_NEUTRAL = "rgba(20,25,30,.55)";
   const COLOR_NET = "rgba(30,40,55,.22)";
   const COLOR_WLINK = "rgba(40,50,60,.35)";
-
-  const COLOR_SIDE_E0 = "rgba(60,120,85,.35)";
-  const COLOR_SIDE_E1 = "rgba(30,70,55,.55)";
-  const COLOR_SIDE_TEXT = "rgba(10,14,18,.90)";
 
   // ====== DOM ======
   const canvas = document.getElementById("c");
@@ -175,9 +180,12 @@
   const btnUnfold = document.getElementById("btnUnfold");
   const btnReset  = document.getElementById("btnReset");
 
+  const palaceRow = document.getElementById("palaceRow");
+  const palaceBtns = Array.from(document.querySelectorAll(".palaceBtn"));
+  const btnPalaceFree = document.getElementById("btnPalaceFree");
+
   const mirrorPanel = document.getElementById("mirrorPanel");
   const hexPanel    = document.getElementById("hexPanel");
-
   const mxp = document.getElementById("mxp");
   const mxn = document.getElementById("mxn");
   const myp = document.getElementById("myp");
@@ -190,212 +198,204 @@
   const hideYellowEl   = document.getElementById("hideYellow");
   const showLabels64El = document.getElementById("showLabels64");
   const auto4dEl       = document.getElementById("auto4d");
-  const labelSharedEl  = document.getElementById("labelShared");
 
   const hudCheck  = document.getElementById("check");
   const hudDetail = document.getElementById("detail");
 
-  // ====== 视图 ======
+  // ====== 视图全局状态 ======
   let W=0, H=0, DPR=1;
-  let mode = "hex64";        // 默认：64卦
-  let projMode = "ortho";    // 默认：正交
+  let mode = "hex64";        // "bagua" | "hex64"
+  let projMode = "ortho";    // "ortho" | "persp"
   let rotX = 0;
   let rotY = 0;
-  let rotZ = Math.PI;        // 默认翻转：y=1(1xx)在下
+  let rotZ = Math.PI;        // 初始使底面在下
   let zoom = 1.05;
 
-  // unfold
+  // 4D / unfold
   let unfold = 0;
   let unfoldTarget = 0;
   let unfoldAnim = null;
   const UNFOLD_DUR = 1200;
-
-  // ====== 场景 ======
-  let vertices = [];
-  let edges = [];
-  let vByKey = new Map();
-  let sceneMaxAbs = 1;
-
-  let selKey = null;
-
-  // ====== 4D旋转 ======
   const W_DIST = 4.0;
   let aXW=0, aYW=0, aYZ=0;
   let lastTs=null;
 
-  // ====== util ======
-  const STEP = 2;
+  // 场景数据
+  let vertices = [];
+  let edges = [];
+  let vByKey = new Map();
+  let sceneMaxAbs = 3.2;
 
-  function invertBits3(bits){ return bits.replace(/[01]/g, c => c==="0"?"1":"0"); }
-  function xorBits3(a,b){
-    let out="";
-    for (let i=0;i<3;i++) out += (a[i]===b[i] ? "0":"1");
-    return out;
+  let selKey = null;
+  let lastProjCache = null;
+
+  // 宫视角：基础矩阵（world -> palace camera 坐标）
+  const ID_MAT = [1,0,0, 0,1,0, 0,0,1];
+  let palaceBases = {};
+  let currentPalace = "乾";
+  let palaceMat = ID_MAT.slice(); // 当前宫的矩阵（bagua 模式用）
+
+  // ====== 工具函数 ======
+  function resize(){
+    DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width  = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR,0,0,DPR,0,0);
   }
-  function keyOf(cubeId, x,y,z){ return `${cubeId}|${x},${y},${z}`; }
-  function bitsFromLocal(x,y,z){ return `${y}${z}${x}`; } // 先天映射
-  function trigramIndex(bits){ return (parseInt(bits,2)&7)+1; }
+  window.addEventListener("resize", resize);
 
+  function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
+  function clamp01(v){ return clamp(v,0,1); }
   function lerp(a,b,t){ return a + (b-a)*t; }
-  function lerp3(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t), z:lerp(p.z,q.z,t)}; }
-  function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+  function lerp3(a,b,t){ return {x:lerp(a.x,b.x,t), y:lerp(a.y,b.y,t), z:lerp(a.z,b.z,t)}; }
   function easeInOutCubic(t){
     t = clamp01(t);
-    return t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+    return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
   }
 
-  // 折叠/展开 bounds（避免展开后缩放不够导致挤在一起）
-  const BOUND_FOLDED = 3.2;
-  const BOUND_UNFOLDED = 6.2;
-  function boundAbs(){
-    if (mode==="hex64") return lerp(BOUND_FOLDED, BOUND_UNFOLDED, unfold);
-    return sceneMaxAbs;
+  function keyOf(cubeId,x,y,z){ return cubeId + "|" + x + "," + y + "," + z; }
+  function trigramIndex(bits){ return (parseInt(bits,2)&7)+1; }
+  function invertBits3(bits){ return bits.replace(/[01]/g, c => c==="0"?"1":"0"); }
+
+  // 计算三爻卦 -> 基本坐标（未旋转）
+  const trigramPos = {};
+  (function initTrigramPos(){
+    for (const bits of trigramBits){
+      const b0 = bits[0], b1 = bits[1], b2 = bits[2];
+      const x = (b2 === "1") ? 1 : -1;
+      const y = (b0 === "1") ? 1 : -1;
+      const z = (b1 === "1") ? 1 : -1;
+      trigramPos[bits] = {x,y,z};
+    }
+  })();
+
+  // ====== 宫视角基础矩阵（world -> camera） ======
+  function vecSub(a,b){ return {x:a.x-b.x, y:a.y-b.y, z:a.z-b.z}; }
+  function vecDot(a,b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
+  function vecScale(v,s){ return {x:v.x*s, y:v.y*s, z:v.z*s}; }
+  function vecAdd(a,b){ return {x:a.x+b.x, y:a.y+b.y, z:a.z+b.z}; }
+  function vecLength(v){ return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z); }
+  function vecNorm(v){ const L=vecLength(v)||1; return {x:v.x/L,y:v.y/L,z:v.z/L}; }
+  function vecCross(a,b){
+    return {x: a.y*b.z - a.z*b.y,
+            y: a.z*b.x - a.x*b.z,
+            z: a.x*b.y - a.y*b.x};
   }
 
-  // ====== 8卦 cube helpers ======
-  function makeCubeInstance({id, axisBase={x:-1,y:-1,z:-1}, axisMirror={x:false,y:false,z:false}, showLabels=true, pickable=true}) {
+  function neighborBitsForUp(bits){
+    // 翻转中间 bit (y bit)，保证是相邻顶点
+    const b0=bits[0], b1=bits[1], b2=bits[2];
+    const flipped = b1==="0" ? "1" : "0";
+    return "" + b0 + flipped + b2;
+  }
+
+  function basisForPalace(frontBits, backBits){
+    const pA = trigramPos[frontBits];
+    const pB = trigramPos[backBits];
+    const forward = vecNorm(vecSub(pB,pA)); // A->B
+
+    const qBits = neighborBitsForUp(frontBits);
+    const q = trigramPos[qBits];
+
+    let upCand = vecSub(q,pA);
+    const projLen = vecDot(upCand,forward);
+    upCand = vecSub(upCand, vecScale(forward, projLen));
+    const up = vecNorm(upCand);
+
+    let right = vecCross(up, forward);
+    right = vecNorm(right);
+
+    // row-major matrix: x' = row0·v, y' = row1·v, z' = row2·v
+    return [
+      right.x,  right.y,  right.z,
+      up.x,     up.y,     up.z,
+      forward.x,forward.y,forward.z
+    ];
+  }
+
+  function computePalaceBases(){
+    const pairs = {
+      "乾":["000","111"],
+      "坤":["111","000"],
+      "兑":["001","110"],
+      "艮":["110","001"],
+      "离":["010","101"],
+      "坎":["101","010"],
+      "震":["011","100"],
+      "巽":["100","011"]
+    };
+    palaceBases = {};
+    for (const name in pairs){
+      const [f,b] = pairs[name];
+      palaceBases[name] = basisForPalace(f,b);
+    }
+  }
+
+  function applyPalaceMat(p){
+    if (mode !== "bagua" || !palaceMat) return p;
+    const m = palaceMat;
     return {
-      id, showLabels, pickable,
-      ax: {
-        x:{base:axisBase.x,mirror:!!axisMirror.x},
-        y:{base:axisBase.y,mirror:!!axisMirror.y},
-        z:{base:axisBase.z,mirror:!!axisMirror.z},
-      }
+      x: m[0]*p.x + m[1]*p.y + m[2]*p.z,
+      y: m[3]*p.x + m[4]*p.y + m[5]*p.z,
+      z: m[6]*p.x + m[7]*p.y + m[8]*p.z
     };
   }
-  function worldPos(cube, xBit,yBit,zBit){
-    const bx = cube.ax.x.mirror ? (1-xBit) : xBit;
-    const by = cube.ax.y.mirror ? (1-yBit) : yBit;
-    const bz = cube.ax.z.mirror ? (1-zBit) : zBit;
-    return { x: cube.ax.x.base + STEP*bx, y: cube.ax.y.base + STEP*by, z: cube.ax.z.base + STEP*bz };
-  }
 
-  // ====== 默认视角：乾坤重合 + 六边形 ======
-  function snapHexView(){
-    rotY = -Math.PI/4;
-    rotX = Math.atan(1/Math.sqrt(2));
-    rotZ = Math.PI; // 确保底面在下
-  }
-  function resetView(){
-    projMode = "ortho";
-    zoom = (mode==="hex64") ? 1.05 : 1.12;
-    snapHexView();
-    updateHUD();
-  }
-  function toggleFlip(){
-    rotZ = (Math.abs((rotZ%(2*Math.PI)) - 0) < 1e-3) ? Math.PI : 0;
-    updateHUD();
-  }
-
-  // ====== Unfold net layout ======
-  const NET_REAL_BASE = {x:-1,y:-1,z:-1};
-  const NET_TRUE_BASE = {x:-1,y:-5,z:-1};
-
-  function netPosForMainVertex(v){
-    const {x,y,z} = v.local;
-    if (v.role==="real"){
-      const cube = makeCubeInstance({id:"NETR", axisBase:NET_REAL_BASE, axisMirror:{x:false,y:false,z:false}});
-      return worldPos(cube, x,y,z);
-    } else {
-      const cube = makeCubeInstance({id:"NETT", axisBase:NET_TRUE_BASE, axisMirror:{x:false,y:false,z:false}});
-      return worldPos(cube, x,y,z);
-    }
-  }
-
-  // ====== 侧面6个 cube 的宫位（关键修复点）=====
-  // 中央 real = 乾宫(000)
-  // 底部 true = 坤宫(111)
-  // 六个侧面 cell = 6个非零非全1 mask，各自唯一宫
-  const SIDE_DEFS = [
-    {dir:"+X", axis:"x", axisBase:{x: 1,y:-1,z:-1}, mirror:{x:true,y:false,z:false}, mask:"001"}, // 兑宫
-    {dir:"-X", axis:"x", axisBase:{x:-3,y:-1,z:-1}, mirror:{x:true,y:false,z:false}, mask:"110"}, // 艮宫
-    {dir:"+Y", axis:"y", axisBase:{x:-1,y: 1,z:-1}, mirror:{x:false,y:true,z:false}, mask:"100"}, // 巽宫
-    {dir:"-Y", axis:"y", axisBase:{x:-1,y:-3,z:-1}, mirror:{x:false,y:true,z:false}, mask:"011"}, // 震宫
-    {dir:"+Z", axis:"z", axisBase:{x:-1,y:-1,z: 1}, mirror:{x:false,y:false,z:true}, mask:"010"}, // 离宫
-    {dir:"-Z", axis:"z", axisBase:{x:-1,y:-1,z:-3}, mirror:{x:false,y:false,z:true}, mask:"101"}, // 坎宫（001->100 正好满足你的例子）
-  ];
-
-  function labelOffsetForDir(dir){
-    // 给共享顶点标签一个方向偏移，减少叠字
-    // 这里的偏移是屏幕像素级的“小挪动”，不影响几何本体
-    const d = 14;
-    switch(dir){
-      case "+X": return {dx:+d, dy:0};
-      case "-X": return {dx:-d, dy:0};
-      case "+Y": return {dx:0, dy:-d};
-      case "-Y": return {dx:0, dy:+d};
-      case "+Z": return {dx:+d*0.8, dy:-d*0.8};
-      case "-Z": return {dx:-d*0.8, dy:+d*0.8};
-      default: return {dx:0, dy:0};
-    }
-  }
-
-  function sideCellsAt(u){
-    const cb = NET_REAL_BASE;
-    const out=[];
-    for (const d of SIDE_DEFS){
-      const base = {
-        x: lerp(cb.x, d.axisBase.x, u),
-        y: lerp(cb.y, d.axisBase.y, u),
-        z: lerp(cb.z, d.axisBase.z, u),
-      };
-      const cube = makeCubeInstance({
-        id:"S"+d.dir,
-        axisBase: base,
-        axisMirror: d.mirror,
-        showLabels:true,
-        pickable:false
-      });
-      out.push({
-        dir: d.dir,
-        cube,
-        mask: d.mask,
-        palace: bitsToName[d.mask],
-        attachAxis: d.axis,
-        attachBit: (d.dir[0]==="+" ? 1 : 0),
-        labelOff: labelOffsetForDir(d.dir)
-      });
-    }
-    return out;
-  }
-
-  // ====== 4D rotate & project ======
+  // ====== 4D 旋转相关 ======
   function rotPlane(v, i, j, ang){
-    const c=Math.cos(ang), s=Math.sin(ang);
-    const a=v[i], b=v[j];
-    v[i]=a*c - b*s;
-    v[j]=a*s + b*c;
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const a = v[i], b = v[j];
+    v[i] = a*c - b*s;
+    v[j] = a*s + b*c;
   }
   function rotate4D(base4){
-    const v=[base4.x,base4.y,base4.z,base4.w];
+    const v = [base4.x, base4.y, base4.z, base4.w];
     rotPlane(v,0,3,aXW);
     rotPlane(v,1,3,aYW);
     rotPlane(v,1,2,aYZ);
     return v;
   }
   function project4Dto3D(v4){
-    const w=v4[3];
+    const w = v4[3];
     const f = W_DIST / (W_DIST - w);
     return { x:v4[0]*f, y:v4[1]*f, z:v4[2]*f };
   }
 
-  // ====== 3D rotate & project ======
+  // ====== 3D 旋转 & 投影 ======
   function rotate3D(p){
-    let x = p.x * zoom, y = p.y * zoom, z = p.z * zoom;
+    let v = p;
+    if (mode === "bagua"){
+      v = applyPalaceMat(p);
+    }
+    let x = v.x * zoom;
+    let y = v.y * zoom;
+    let z = v.z * zoom;
 
     const cy = Math.cos(rotY), sy = Math.sin(rotY);
-    const x1 = x*cy + z*sy;
-    const z1 = -x*sy + z*cy;
+    let x1 = x*cy + z*sy;
+    let z1 = -x*sy + z*cy;
 
     const cx = Math.cos(rotX), sx = Math.sin(rotX);
-    const y2 = y*cx - z1*sx;
-    const z2 = y*sx + z1*cx;
+    let y2 = y*cx - z1*sx;
+    let z2 = y*sx + z1*cx;
 
     const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
-    const x3 = x1*cz - y2*sz;
-    const y3 = x1*sz + y2*cz;
+    let x3 = x1*cz - y2*sz;
+    let y3 = x1*sz + y2*cz;
 
     return {x:x3, y:y3, z:z2};
+  }
+
+  function boundAbs(){
+    if (mode === "hex64"){
+      const folded = 3.2;
+      const unfolded = 6.2;
+      return lerp(folded, unfolded, unfold);
+    }
+    return sceneMaxAbs;
   }
 
   function getOrthoScale(){
@@ -416,200 +416,232 @@
     }
   }
 
-  // ====== buildScene ======
-  function buildScene(){
-    selKey = null;
-    vertices = [];
-    edges = [];
-
-    if (mode === "bagua"){
-      mirrorPanel.style.display = "block";
-      hexPanel.style.display = "none";
-      btnUnfold.disabled = true;
-
-      const cubes = [];
-      const base = makeCubeInstance({ id:"B", showLabels:true, pickable:true });
-      cubes.push(base);
-
-      const wantMirrors = [
-        {on: mxp.checked, id:"Mx+", axis:"x", base:  1, mirror:true},
-        {on: mxn.checked, id:"Mx-", axis:"x", base: -3, mirror:true},
-        {on: myp.checked, id:"My+", axis:"y", base:  1, mirror:true},
-        {on: myn.checked, id:"My-", axis:"y", base: -3, mirror:true},
-        {on: mzp.checked, id:"Mz+", axis:"z", base:  1, mirror:true},
-        {on: mzn.checked, id:"Mz-", axis:"z", base: -3, mirror:true},
-      ];
-
-      for (const m of wantMirrors){
-        if (!m.on) continue;
-        const axisBase = {x:-1,y:-1,z:-1};
-        const axisMirror = {x:false,y:false,z:false};
-        axisBase[m.axis] = m.base;
-        axisMirror[m.axis] = true;
-        cubes.push(makeCubeInstance({ id:m.id, axisBase, axisMirror, showLabels:false, pickable:false }));
-      }
-
-      for (const cube of cubes){
-        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          const bits = bitsFromLocal(x,y,z);
-          const key = keyOf(cube.id,x,y,z);
-          vertices.push({
-            key, mode:"bagua",
-            role:"bagua",
-            pickable:cube.pickable,
-            showLabel:cube.showLabels,
-            bits, name:bitsToName[bits],
-            local:{x,y,z},
-            world: worldPos(cube,x,y,z)
-          });
-        }
-        // edges (12) with yin/yang values
-        for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          edges.push({type:"edge", val:y, a:keyOf(cube.id,0,y,z), b:keyOf(cube.id,1,y,z)});
-        }
-        for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
-          edges.push({type:"edge", val:z, a:keyOf(cube.id,x,0,z), b:keyOf(cube.id,x,1,z)});
-        }
-        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
-          edges.push({type:"edge", val:x, a:keyOf(cube.id,x,y,0), b:keyOf(cube.id,x,y,1)});
-        }
-      }
-
-      sceneMaxAbs = 1;
-      vByKey = new Map(vertices.map(v => [v.key,v]));
-      for (const v of vertices){
-        sceneMaxAbs = Math.max(sceneMaxAbs, Math.abs(v.world.x), Math.abs(v.world.y), Math.abs(v.world.z));
-      }
-
-    } else {
-      mirrorPanel.style.display = "none";
-      hexPanel.style.display = "block";
-      btnUnfold.disabled = false;
-
-      // 两层：real(黄) 和 true(蓝，全反)
-      const roles = [
-        {role:"real", w:+1},
-        {role:"true", w:-1},
-      ];
-
-      for (const R of roles){
-        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          const coordBits = bitsFromLocal(x,y,z);
-          const bits = (R.role==="real") ? coordBits : invertBits3(coordBits);
-          const key = `${R.role}|${x},${y},${z}`;
-
-          const base4 = { x: x? +1:-1, y: y? +1:-1, z: z? +1:-1, w: R.w };
-
-          vertices.push({
-            key, mode:"hex64", role:R.role,
-            pickable:true, showLabel:true,
-            local:{x,y,z},
-            bits, name:bitsToName[bits],
-            coordBits,
-            base4
-          });
-        }
-      }
-
-      vByKey = new Map(vertices.map(v=>[v.key,v]));
-      sceneMaxAbs = 6.2; // 不再用作动态缩放核心，但给个大值也安全
-
-      // structure edges within each layer + w links
-      function addStructure(role){
-        // X edges val=y
-        for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          edges.push({type:"edge64", role, val:y, a:`${role}|0,${y},${z}`, b:`${role}|1,${y},${z}`});
-        }
-        // Y edges val=z
-        for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
-          edges.push({type:"edge64", role, val:z, a:`${role}|${x},0,${z}`, b:`${role}|${x},1,${z}`});
-        }
-        // Z edges val=x
-        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
-          edges.push({type:"edge64", role, val:x, a:`${role}|${x},${y},0`, b:`${role}|${x},${y},1`});
-        }
-      }
-      addStructure("real");
-      addStructure("true");
-
-      for (let x=0;x<=1;x++) for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-        edges.push({type:"wlink", a:`real|${x},${y},${z}`, b:`true|${x},${y},${z}`});
-      }
-
-      // 64卦卦网（real 8点 × true 8点）
-      const realVs = vertices.filter(v=>v.role==="real");
-      const trueVs = vertices.filter(v=>v.role==="true").slice().sort((a,b)=>a.bits.localeCompare(b.bits));
-      for (const rv of realVs){
-        const L = rv.bits;
-        const invL = invertBits3(L);
-        for (const tv of trueVs){
-          const U = tv.bits;
-          const mask = xorBits3(U, invL);      // 宫mask
-          const palace = bitsToName[mask];
-          const hexBits = `${U}${L}`;
-          const hexNum = (parseInt(hexBits,2) & 63) + 1;
-          edges.push({ type:"hex", a:rv.key, b:tv.key, mask, palace, hexBits, hexNum });
-        }
-      }
-    }
-
-    updateHUD();
-  }
-
-  // ====== HUD ======
-  function updateHUD(){
-    btnMode8.classList.toggle("active", mode==="bagua");
-    btnMode64.classList.toggle("active", mode==="hex64");
-    btnOrtho.classList.toggle("active", projMode==="ortho");
-    btnPersp.classList.toggle("active", projMode==="persp");
-
-    if (mode==="hex64"){
-      const unfolding = (unfold > 0.001 || !!unfoldAnim);
-      btnUnfold.textContent = (unfoldTarget > 0.5 || unfold > 0.5 || unfolding) ? "折叠超立方体" : "展开超立方体";
-    } else {
-      btnUnfold.textContent = "展开超立方体";
-    }
-
-    if (mode==="bagua"){
-      hudCheck.innerHTML = `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>`+
-                           `校验(本卦B)：阳6 阴6（镜像不参与校验显示）`;
-    } else {
-      hudCheck.innerHTML =
-        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b> ｜ 展开=<b>${Math.round(unfold*100)}%</b><br>`+
-        `卦网=${showHexNetEl.checked?"ON":"OFF"} ｜ 结构=${showStructureEl.checked?"ON":"OFF"} ｜ 隐黄=${hideYellowEl.checked?"ON":"OFF"} ｜ 主标签=${showLabels64El.checked?"ON":"OFF"} ｜ 共享标注=${labelSharedEl.checked?"ON":"OFF"}`;
-    }
-    if (!selKey) hudDetail.innerHTML = "";
-  }
-
-  // ====== unfold animation ======
-  function startUnfold(to){
-    unfoldTarget = to;
-    unfoldAnim = { start: performance.now(), dur: UNFOLD_DUR, from: unfold, to };
-    updateHUD();
-  }
-  function toggleUnfold(){
-    if (mode!=="hex64") return;
-    const to = (unfoldTarget>0.5 || unfold>0.5) ? 0 : 1;
-    startUnfold(to);
-  }
-
-  // ====== Hit test ======
-  let lastProjCache=null;
+  // ====== hit test ======
   function hitTest(px,py, projCache){
     let best=null, bestD2=Infinity;
     for (const v of vertices){
       if (!v.pickable) continue;
       const p = projCache.get(v.key);
       if (!p) continue;
-      const r = Math.max(9, 12*(p.k/150));
-      const dx=px-p.x, dy=py-p.y;
-      const d2=dx*dx+dy*dy;
-      if (d2<r*r && d2<bestD2){ bestD2=d2; best=v.key; }
+      const r = Math.max(9, 12 * (p.k/150));
+      const dx = px - p.x, dy = py - p.y;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < r*r && d2 < bestD2){ bestD2=d2; best=v.key; }
     }
     return best;
   }
 
-  // ====== detail panel ======
+  // ====== build 8卦场景 ======
+  function worldPosCube(cube,xBit,yBit,zBit){
+    // cube.ax: base + mirror
+    const bx = cube.ax.x.mirror ? (1-xBit) : xBit;
+    const by = cube.ax.y.mirror ? (1-yBit) : yBit;
+    const bz = cube.ax.z.mirror ? (1-zBit) : zBit;
+    return {
+      x: cube.ax.x.base + 2*bx,
+      y: cube.ax.y.base + 2*by,
+      z: cube.ax.z.base + 2*bz
+    };
+  }
+
+  function makeCubeInstance({id, axisBase={x:-1,y:-1,z:-1}, axisMirror={x:false,y:false,z:false}, showLabels=true, pickable=true}){
+    return {
+      id, showLabels, pickable,
+      ax:{
+        x:{base:axisBase.x, mirror:!!axisMirror.x},
+        y:{base:axisBase.y, mirror:!!axisMirror.y},
+        z:{base:axisBase.z, mirror:!!axisMirror.z}
+      }
+    };
+  }
+
+  function buildSceneBagua(){
+    vertices = [];
+    edges = [];
+    vByKey.clear();
+    sceneMaxAbs = 1;
+
+    const cubes = [];
+    const base = makeCubeInstance({id:"B", showLabels:true, pickable:true});
+    cubes.push(base);
+
+    const mirrorCfgs = [
+      {on: mxp.checked, id:"Mx+", axis:"x", base:  1, mirror:true},
+      {on: mxn.checked, id:"Mx-", axis:"x", base: -3, mirror:true},
+      {on: myp.checked, id:"My+", axis:"y", base:  1, mirror:true},
+      {on: myn.checked, id:"My-", axis:"y", base: -3, mirror:true},
+      {on: mzp.checked, id:"Mz+", axis:"z", base:  1, mirror:true},
+      {on: mzn.checked, id:"Mz-", axis:"z", base: -3, mirror:true}
+    ];
+    for (const m of mirrorCfgs){
+      if (!m.on) continue;
+      const axisBase = {x:-1,y:-1,z:-1};
+      const axisMirror = {x:false,y:false,z:false};
+      axisBase[m.axis] = m.base;
+      axisMirror[m.axis] = true;
+      cubes.push(makeCubeInstance({id:m.id, axisBase, axisMirror, showLabels:false, pickable:false}));
+    }
+
+    for (const cube of cubes){
+      for (let x=0;x<=1;x++){
+        for (let y=0;y<=1;y++){
+          for (let z=0;z<=1;z++){
+            const bits = "" + y + z + x; // (X,Y,Z)=(y,z,x)
+            const w = worldPosCube(cube,x,y,z);
+            const key = keyOf(cube.id,x,y,z);
+            const v = {
+              key, mode:"bagua", cubeId:cube.id,
+              role:"bagua", pickable:cube.pickable,
+              showLabel:cube.showLabels,
+              local:{x,y,z},
+              bits, name:bitsToName[bits],
+              world:w
+            };
+            vertices.push(v);
+            vByKey.set(key,v);
+            sceneMaxAbs = Math.max(sceneMaxAbs, Math.abs(w.x), Math.abs(w.y), Math.abs(w.z));
+          }
+        }
+      }
+
+      // edges with yin/yang
+      for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
+        edges.push({type:"edge8", cubeId:cube.id, val:y, a:keyOf(cube.id,0,y,z), b:keyOf(cube.id,1,y,z)});
+      }
+      for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
+        edges.push({type:"edge8", cubeId:cube.id, val:z, a:keyOf(cube.id,x,0,z), b:keyOf(cube.id,x,1,z)});
+      }
+      for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
+        edges.push({type:"edge8", cubeId:cube.id, val:x, a:keyOf(cube.id,x,y,0), b:keyOf(cube.id,x,y,1)});
+      }
+    }
+  }
+
+  // ====== build 64卦场景（tesseract） ======
+  function buildSceneHex64(){
+    vertices = [];
+    edges = [];
+    vByKey.clear();
+    sceneMaxAbs = 6.0;
+
+    const roles = [
+      {role:"real", w:+1},
+      {role:"true", w:-1}
+    ];
+
+    for (const R of roles){
+      for (let x=0;x<=1;x++){
+        for (let y=0;y<=1;y++){
+          for (let z=0;z<=1;z++){
+            const coordBits = ""+y+z+x;
+            const bits = (R.role==="real") ? coordBits : invertBits3(coordBits);
+            const key = `${R.role}|${x},${y},${z}`;
+            const base4 = {
+              x: x?+1:-1,
+              y: y?+1:-1,
+              z: z?+1:-1,
+              w: R.w
+            };
+            const v = {
+              key, mode:"hex64", role:R.role,
+              pickable:true, showLabel:true,
+              local:{x,y,z},
+              coordBits,
+              bits, name:bitsToName[bits],
+              base4
+            };
+            vertices.push(v);
+            vByKey.set(key,v);
+          }
+        }
+      }
+    }
+
+    function addStruct(role){
+      for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
+        edges.push({type:"edge64", role, val:y, a:`${role}|0,${y},${z}`, b:`${role}|1,${y},${z}`});
+      }
+      for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
+        edges.push({type:"edge64", role, val:z, a:`${role}|${x},0,${z}`, b:`${role}|${x},1,${z}`});
+      }
+      for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
+        edges.push({type:"edge64", role, val:x, a:`${role}|${x},${y},0`, b:`${role}|${x},${y},1`});
+      }
+    }
+    addStruct("real");
+    addStruct("true");
+
+    // w-links
+    for (let x=0;x<=1;x++){
+      for (let y=0;y<=1;y++){
+        for (let z=0;z<=1;z++){
+          edges.push({type:"wlink", a:`real|${x},${y},${z}`, b:`true|${x},${y},${z}`});
+        }
+      }
+    }
+
+    // hex lines (each real vertex连所有true顶点)
+    const realVs = vertices.filter(v=>v.role==="real");
+    const trueVs = vertices.filter(v=>v.role==="true");
+    for (const rv of realVs){
+      const L = rv.bits;
+      for (const tv of trueVs){
+        const U = tv.bits;
+        const hexBits = U + L;
+        const num = (parseInt(hexBits,2)&63)+1;
+        edges.push({type:"hex", a:rv.key, b:tv.key, hexBits, hexNum:num});
+      }
+    }
+  }
+
+  // ====== 构建总场景 ======
+  function buildScene(){
+    selKey = null;
+    if (mode === "bagua"){
+      buildSceneBagua();
+    } else {
+      buildSceneHex64();
+    }
+    updateHUD();
+    hudDetail.innerHTML = "";
+  }
+
+  // ====== HUD 更新 ======
+  function updateHUD(){
+    btnMode8.classList.toggle("active", mode==="bagua");
+    btnMode64.classList.toggle("active", mode==="hex64");
+    btnOrtho.classList.toggle("active", projMode==="ortho");
+    btnPersp.classList.toggle("active", projMode==="persp");
+
+    mirrorPanel.style.display = (mode==="bagua") ? "block" : "none";
+    hexPanel.style.display    = (mode==="hex64") ? "block" : "none";
+    palaceRow.style.display   = (mode==="bagua") ? "flex"  : "none";
+
+    if (mode==="hex64"){
+      const unfolding = (unfoldTarget>0.5 || unfold>0.5 || !!unfoldAnim);
+      btnUnfold.textContent = unfolding ? "折叠超立方体" : "展开超立方体";
+    } else {
+      btnUnfold.textContent = "展开超立方体";
+    }
+
+    // 宫按钮状态
+    for (const btn of palaceBtns){
+      btn.classList.toggle("active", mode==="bagua" && currentPalace===btn.dataset.palace);
+    }
+    btnPalaceFree.classList.toggle("active", mode==="bagua" && !currentPalace);
+
+    if (mode==="bagua"){
+      hudCheck.innerHTML =
+        `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>` +
+        (currentPalace ? ` ｜ 宫视角：<b>${currentPalace}宫</b>` : " ｜ 宫视角：自由");
+    } else {
+      hudCheck.innerHTML =
+        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>` +
+        ` ｜ 展开：<b>${Math.round(unfold*100)}%</b>`;
+    }
+  }
+
+  // ====== detail ======
   function updateDetail(){
     if (!selKey){ hudDetail.innerHTML=""; return; }
     const v = vByKey.get(selKey);
@@ -617,51 +649,81 @@
 
     if (mode==="bagua"){
       hudDetail.innerHTML =
-        `选中：<b>${v.name}</b> bits=<b class="mono">${v.bits}</b>（先天序号=${trigramIndex(v.bits)}）<br>`+
-        `local(x,y,z)=(${v.local.x},${v.local.y},${v.local.z}) ｜ cube=${v.key.split("|")[0]}`;
+        `选中：<b>${v.name}</b> bits=<b class="mono">${v.bits}</b>（先天序=${trigramIndex(v.bits)}）<br>` +
+        `local(x,y,z)=(${v.local.x},${v.local.y},${v.local.z}) ｜ cube=${v.cubeId}`;
       return;
     }
 
-    // 64：显示该点的 8 条组合（叠加态）
+    // hex64: 展示该点与对方世界的所有组合
     const isReal = (v.role==="real");
-    const Lbits = isReal ? v.bits : null;
-    const Ubits = (!isReal) ? v.bits : null;
+    const thisRole = isReal ? "本我(下卦)" : "真我(上卦)";
+    const otherRole = isReal ? "真我" : "本我";
+    const thisBits = v.bits;
 
-    const reals = vertices.filter(x=>x.role==="real").slice().sort((a,b)=>a.bits.localeCompare(b.bits));
-    const trues = vertices.filter(x=>x.role==="true").slice().sort((a,b)=>a.bits.localeCompare(b.bits));
+    const others = vertices.filter(x => x.role !== v.role)
+                           .slice().sort((a,b)=>a.bits.localeCompare(b.bits));
 
-    if (isReal){
-      let html = `选中：<b>本我(下卦点)</b> 下卦=<b>${v.name}</b> <span class="mono">${Lbits}</span><br>`;
-      html += `<div style="margin-top:6px; font-weight:900;">该点的 8 条组合（=64卦中的 8 卦）：</div>`;
-      const invL = invertBits3(Lbits);
-      for (const tv of trues){
-        const U = tv.bits;
-        const hexBits = `${U}${Lbits}`;
-        const num = (parseInt(hexBits,2)&63)+1;
-        const mask = xorBits3(U, invL);
-        const palace = bitsToName[mask];
-        html += `上${tv.name}(<span class="mono">${U}</span>) + 下${v.name}(<span class="mono">${Lbits}</span>) `
-              + `= <span class="mono">${hexBits}</span> #<b>${num}</b> ｜ 宫=<b>${palace}</b>(<span class="mono">${mask}</span>)<br>`;
-      }
-      hudDetail.innerHTML = html;
-    } else {
-      let html = `选中：<b>真我(上卦点)</b> 上卦=<b>${v.name}</b> <span class="mono">${Ubits}</span><br>`;
-      html += `<div style="margin-top:6px; font-weight:900;">该点的 8 条组合（=64卦中的 8 卦）：</div>`;
-      for (const rv of reals){
-        const L = rv.bits;
-        const hexBits = `${Ubits}${L}`;
-        const num = (parseInt(hexBits,2)&63)+1;
-        const invL = invertBits3(L);
-        const mask = xorBits3(Ubits, invL);
-        const palace = bitsToName[mask];
-        html += `上${v.name}(<span class="mono">${Ubits}</span>) + 下${rv.name}(<span class="mono">${L}</span>) `
-              + `= <span class="mono">${hexBits}</span> #<b>${num}</b> ｜ 宫=<b>${palace}</b>(<span class="mono">${mask}</span>)<br>`;
-      }
-      hudDetail.innerHTML = html;
+    let html = `选中：<b>${thisRole}</b> 卦=<b>${v.name}</b> <span class="mono">${thisBits}</span><br>`;
+    html += `<div style="margin-top:6px; font-weight:900;">与${otherRole}8点叠加得到的 8 个卦：</div>`;
+    for (const o of others){
+      const U = isReal ? o.bits : thisBits;
+      const L = isReal ? thisBits : o.bits;
+      const hexBits = U + L;
+      const num = (parseInt(hexBits,2)&63)+1;
+      html += `${isReal?"上":"下"}${o.name}(<span class="mono">${o.bits}</span>) `
+           + `× ${isReal?"下":"上"}${v.name}(<span class="mono">${thisBits}</span>) `
+           + `= <span class="mono">${hexBits}</span> #<b>${num}</b><br>`;
     }
+    hudDetail.innerHTML = html;
   }
 
-  // ====== render ======
+  // ====== 视角控制 ======
+  function snapHexViewFor64(){
+    rotY = -Math.PI/4;
+    rotX = Math.atan(1/Math.sqrt(2));
+    rotZ = Math.PI;
+  }
+  function resetView(){
+    projMode = "ortho";
+    zoom = (mode==="hex64") ? 1.05 : 1.12;
+    if (mode==="hex64"){
+      snapHexViewFor64();
+    } else {
+      rotX = rotY = 0;
+      rotZ = Math.PI;
+    }
+    updateHUD();
+  }
+  function toggleFlip(){
+    const zNorm = ((rotZ % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+    rotZ = (Math.abs(zNorm) < 1e-3) ? Math.PI : 0;
+    updateHUD();
+  }
+  function startUnfold(to){
+    unfoldTarget = to;
+    unfoldAnim = { start: performance.now(), from: unfold, to, dur:UNFOLD_DUR };
+  }
+  function toggleUnfold(){
+    if (mode!=="hex64") return;
+    const to = (unfoldTarget>0.5 || unfold>0.5) ? 0 : 1;
+    startUnfold(to);
+    updateHUD();
+  }
+
+  function setPalace(name){
+    if (!name){
+      currentPalace = null;
+      palaceMat = ID_MAT.slice();
+    } else {
+      currentPalace = name;
+      palaceMat = palaceBases[name] || ID_MAT.slice();
+    }
+    rotX = rotY = 0;
+    rotZ = Math.PI; // 保持“底面在下”的直观感受
+    updateHUD();
+  }
+
+  // ====== 渲染循环 ======
   function render(ts){
     ctx.setTransform(DPR,0,0,DPR,0,0);
     ctx.clearRect(0,0,W,H);
@@ -670,7 +732,6 @@
       if (lastTs==null) lastTs=ts;
       const dt = ts-lastTs; lastTs=ts;
 
-      // unfold tween
       if (unfoldAnim){
         const t = (ts - unfoldAnim.start) / unfoldAnim.dur;
         const k = easeInOutCubic(t);
@@ -679,31 +740,30 @@
           unfold = unfoldAnim.to;
           unfoldAnim = null;
         }
-        updateHUD();
       }
 
-      // auto 4D rotate (only while mostly folded)
-      if (auto4dEl.checked && unfold < 0.35){
+      if (auto4dEl.checked){
         aXW += dt*0.00055;
         aYW += dt*0.00035;
         aYZ += dt*0.00045;
       }
     }
 
-    // compute 3D positions for main vertices
     const pos3ByKey = new Map();
     if (mode==="bagua"){
-      for (const v of vertices) pos3ByKey.set(v.key, v.world);
+      for (const v of vertices){
+        pos3ByKey.set(v.key, v.world);
+      }
     } else {
       for (const v of vertices){
         const v4 = rotate4D(v.base4);
         const pFold = project4Dto3D(v4);
-        const pNet = netPosForMainVertex(v);
-        pos3ByKey.set(v.key, lerp3(pFold, pNet, unfold));
+        const offset = (v.role==="real") ? 0 : lerp(0, -4, unfold);
+        const p3 = {x:pFold.x, y:pFold.y + offset, z:pFold.z};
+        pos3ByKey.set(v.key, p3);
       }
     }
 
-    // projection cache
     const projCache = new Map();
     for (const v of vertices){
       const p3 = pos3ByKey.get(v.key);
@@ -712,170 +772,59 @@
     }
     lastProjCache = projCache;
 
-    // toggles
-    const unfoldingNow = (mode==="hex64") && (unfold > 0.02);
-    const showHexNet = (mode==="hex64") ? !!showHexNetEl.checked : true;
-    const showStructure = (mode==="hex64") ? (!!showStructureEl.checked || unfoldingNow) : true;
+    const showHexNet = (mode==="hex64") && showHexNetEl.checked;
+    const showStructure = (mode==="hex64") ? showStructureEl.checked : true;
+    const hideYellow = (mode==="hex64") ? hideYellowEl.checked : false;
+    const showLabels64 = (mode==="hex64") ? showLabels64El.checked : true;
 
-    const hideYellow = (mode==="hex64") ? (!!hideYellowEl.checked && !unfoldingNow) : false;
-    const showLabels64 = (mode==="hex64") ? (!!showLabels64El.checked || unfoldingNow) : true;
-
-    // edges to draw
-    const drawableEdges = edges.filter(e => {
-      if (mode==="bagua") return e.type==="edge";
+    const drawableEdges = edges.filter(e=>{
+      if (mode==="bagua") return e.type==="edge8";
       if (e.type==="hex") return showHexNet;
       if (e.type==="edge64" || e.type==="wlink") return showStructure;
       return false;
     });
 
-    // sort edges
     const edgesSorted = drawableEdges.map(e=>{
-      const pa=projCache.get(e.a), pb=projCache.get(e.b);
-      const z = ((pa?.z??1e9)+(pb?.z??1e9))*0.5;
+      const pa = projCache.get(e.a);
+      const pb = projCache.get(e.b);
+      const z = ((pa?.z ?? 1e9) + (pb?.z ?? 1e9))/2;
       return {e,pa,pb,z};
     }).sort((a,b)=>b.z-a.z);
 
-    function isIncident(e){
+    function incident(e){
       if (!selKey) return false;
       return e.a===selKey || e.b===selKey;
     }
 
-    // draw main edges
     for (const it of edgesSorted){
       const {e,pa,pb}=it;
-      if (!pa||!pb) continue;
-      const hi = isIncident(e);
-
+      if (!pa || !pb) continue;
+      const hi = incident(e);
       ctx.beginPath();
       ctx.moveTo(pa.x,pa.y);
       ctx.lineTo(pb.x,pb.y);
 
       if (mode==="hex64" && e.type==="hex"){
         ctx.setLineDash([6,6]);
-        ctx.lineWidth = hi ? 4.8 : 2.0;
-        ctx.strokeStyle = hi ? COLOR_HI : COLOR_NET;
+        ctx.lineWidth = hi?4.6:2.0;
+        ctx.strokeStyle = hi?COLOR_HI:COLOR_NET;
         ctx.stroke();
         ctx.setLineDash([]);
         continue;
       }
-
       if (mode==="hex64" && e.type==="wlink"){
         ctx.setLineDash([10,8]);
-        ctx.lineWidth = hi ? 4.6 : 2.2;
-        ctx.strokeStyle = hi ? COLOR_HI : COLOR_WLINK;
+        ctx.lineWidth = hi?4.6:2.2;
+        ctx.strokeStyle = hi?COLOR_HI:COLOR_WLINK;
         ctx.stroke();
         ctx.setLineDash([]);
         continue;
       }
-
-      ctx.lineWidth = hi ? 6.0 : 3.0;
-      ctx.strokeStyle = hi ? COLOR_HI : (e.val===0 ? COLOR_YANG : COLOR_YIN);
+      ctx.lineWidth = hi?6.0:3.0;
+      ctx.strokeStyle = hi?COLOR_HI:(e.val===0?COLOR_YANG:COLOR_YIN);
       ctx.stroke();
     }
 
-    // ====== unfolded: draw 6 side cubes with palace masks (修复区) ======
-    if (mode==="hex64" && unfold > 0.02){
-      const appear = clamp01((unfold - 0.18) / 0.82);
-      const sideAlpha = 0.10 + 0.90*appear;
-
-      const sideCells = sideCellsAt(appear);
-
-      // collect edges & vertex labels
-      const sideEdges = [];
-      const sideVerts = [];
-      const sideCenters = [];
-
-      for (const sc of sideCells){
-        const cube = sc.cube;
-
-        // cube center
-        let cx=0, cy=0, cz=0;
-        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          const p3 = worldPos(cube,x,y,z);
-          cx += p3.x; cy += p3.y; cz += p3.z;
-
-          // label bits = (local bits) XOR (宫mask)
-          const rawBits = bitsFromLocal(x,y,z);
-          const labBits = xorBits3(rawBits, sc.mask);
-          const name = bitsToName[labBits];
-
-          // 是否共享面顶点
-          let shared=false;
-          if (sc.attachAxis==="x") shared = (x===sc.attachBit);
-          if (sc.attachAxis==="y") shared = (y===sc.attachBit);
-          if (sc.attachAxis==="z") shared = (z===sc.attachBit);
-
-          // 默认：只标“外侧4点”，避免重叠
-          // 如果用户勾选 labelShared，则共享面也标（并做偏移）
-          if (!shared || labelSharedEl.checked){
-            const p2 = project(p3);
-            const off = shared ? sc.labelOff : {dx:0, dy:0};
-            sideVerts.push({
-              p2,
-              text: `${name} ${labBits}`,
-              dx: off.dx,
-              dy: off.dy
-            });
-          }
-        }
-        sideCenters.push({
-          p2: project({x:cx/8, y:cy/8, z:cz/8}),
-          text: `${sc.palace}宫 ${sc.mask}`
-        });
-
-        // edges 12 (use yin/yang val like base rule)
-        for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          sideEdges.push({val:y, a:worldPos(cube,0,y,z), b:worldPos(cube,1,y,z)});
-        }
-        for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
-          sideEdges.push({val:z, a:worldPos(cube,x,0,z), b:worldPos(cube,x,1,z)});
-        }
-        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
-          sideEdges.push({val:x, a:worldPos(cube,x,y,0), b:worldPos(cube,x,y,1)});
-        }
-      }
-
-      ctx.save();
-      ctx.globalAlpha = sideAlpha;
-
-      // draw side edges
-      for (const e of sideEdges){
-        const pa = project(e.a), pb = project(e.b);
-        ctx.beginPath();
-        ctx.moveTo(pa.x, pa.y);
-        ctx.lineTo(pb.x, pb.y);
-        ctx.lineWidth = 2.6;
-        ctx.strokeStyle = (e.val===0) ? COLOR_SIDE_E0 : COLOR_SIDE_E1;
-        ctx.stroke();
-      }
-
-      // cube center palace labels
-      ctx.fillStyle = COLOR_SIDE_TEXT;
-      ctx.font = "12px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      for (const c of sideCenters){
-        ctx.fillText(c.text, c.p2.x, c.p2.y);
-      }
-
-      // side vertex dots + labels
-      ctx.font = "12px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-      for (const sv of sideVerts){
-        ctx.beginPath();
-        ctx.arc(sv.p2.x, sv.p2.y, 5.0, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(20,25,30,.85)";
-        ctx.fill();
-
-        ctx.fillStyle = COLOR_SIDE_TEXT;
-        ctx.fillText(sv.text, sv.p2.x + sv.dx, sv.p2.y - 7 + sv.dy);
-      }
-
-      ctx.restore();
-    }
-
-    // ====== draw main vertices ======
     const vertsSorted = vertices.map(v=>({v,p:projCache.get(v.key)}))
       .filter(x=>!!x.p)
       .sort((a,b)=>b.p.z-a.p.z);
@@ -894,73 +843,47 @@
       }
 
       ctx.beginPath();
-      ctx.arc(p.x,p.y, isSel ? r*1.25 : r, 0, Math.PI*2);
+      ctx.arc(p.x,p.y, isSel?r*1.25:r, 0, Math.PI*2);
       ctx.fillStyle = fill;
       ctx.globalAlpha = 0.92;
       ctx.fill();
       ctx.globalAlpha = 1;
 
-      // labels (main)
-      let showLabel = false;
+      let showLabel=false;
       if (mode==="bagua"){
         showLabel = v.showLabel;
       } else {
         showLabel = showLabels64 || isSel;
-        if (hideYellow && v.role==="real" && !isSel) showLabel = false;
+        if (hideYellow && v.role==="real" && !isSel) showLabel=false;
       }
-
       if (showLabel){
         ctx.fillStyle = COLOR_LABEL;
         ctx.font = "13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
-        ctx.fillText(`${v.name} ${v.bits}`, p.x, p.y - (isSel ? r*1.6 : r*1.25));
-      }
-    }
-
-    // ====== (optional) center labels for 乾宫/坤宫 during unfold ======
-    if (mode==="hex64" && unfold > 0.02){
-      // compute centers from current pos3
-      let cr={x:0,y:0,z:0}, ct={x:0,y:0,z:0};
-      let nr=0, nt=0;
-      for (const v of vertices){
-        const p3 = pos3ByKey.get(v.key);
-        if (!p3) continue;
-        if (v.role==="real"){ cr.x+=p3.x; cr.y+=p3.y; cr.z+=p3.z; nr++; }
-        if (v.role==="true"){ ct.x+=p3.x; ct.y+=p3.y; ct.z+=p3.z; nt++; }
-      }
-      if (nr>0 && nt>0){
-        cr.x/=nr; cr.y/=nr; cr.z/=nr;
-        ct.x/=nt; ct.y/=nt; ct.z/=nt;
-        const pr = project(cr), pt = project(ct);
-        ctx.fillStyle = "rgba(10,14,18,.85)";
-        ctx.font = "13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(`乾宫 000`, pr.x, pr.y);
-        ctx.fillText(`坤宫 111`, pt.x, pt.y);
+        ctx.fillText(v.name + " " + v.bits, p.x, p.y - (isSel? r*1.6 : r*1.25));
       }
     }
 
     requestAnimationFrame(render);
   }
 
-  // ====== interaction ======
+  // ====== 交互 ======
   const pointers = new Map();
   let pointerDown = null;
   let pinchStart = null;
 
-  canvas.addEventListener("pointerdown",(e)=>{
+  canvas.addEventListener("pointerdown", e=>{
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
     pointerDown = {x:e.clientX, y:e.clientY, t:performance.now()};
     if (pointers.size===2){
       const pts=[...pointers.values()];
-      pinchStart = {dist:Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y), zoom};
+      const dist=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      pinchStart = {dist, zoom};
     }
   });
-
-  canvas.addEventListener("pointermove",(e)=>{
+  canvas.addEventListener("pointermove", e=>{
     if (!pointers.has(e.pointerId)) return;
     const prev = pointers.get(e.pointerId);
     pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
@@ -969,16 +892,15 @@
       const dx = e.clientX - prev.x;
       const dy = e.clientY - prev.y;
       rotY += dx*0.008;
-      rotX += dy*0.008; // 不限制俯仰
+      rotX += dy*0.008; // 不再限制俯仰
     } else if (pointers.size===2 && pinchStart){
       const pts=[...pointers.values()];
       const dist=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
       const factor = dist / pinchStart.dist;
-      zoom = Math.max(0.55, Math.min(3.2, pinchStart.zoom*factor));
+      zoom = clamp( pinchStart.zoom * factor, 0.55, 3.2 );
     }
   });
-
-  canvas.addEventListener("pointerup",(e)=>{
+  canvas.addEventListener("pointerup", e=>{
     pointers.delete(e.pointerId);
     if (pointers.size<2) pinchStart=null;
 
@@ -986,7 +908,6 @@
     const dx=e.clientX-pointerDown.x, dy=e.clientY-pointerDown.y;
     const dt=performance.now()-pointerDown.t;
     pointerDown=null;
-
     if (dt<350 && (dx*dx+dy*dy)<16*16){
       const pc = lastProjCache;
       if (!pc) return;
@@ -996,70 +917,73 @@
       updateDetail();
     }
   });
-
-  canvas.addEventListener("wheel",(e)=>{
+  canvas.addEventListener("wheel", e=>{
     e.preventDefault();
     const delta=Math.sign(e.deltaY);
-    zoom = Math.max(0.55, Math.min(3.2, zoom*(delta>0?0.92:1.08)));
+    zoom = clamp( zoom * (delta>0?0.92:1.08), 0.55, 3.2 );
   }, {passive:false});
 
-  // ====== UI ======
+  // ====== UI 事件 ======
   btnMode8.addEventListener("click", ()=>{
     mode="bagua";
-    unfold = 0; unfoldTarget = 0; unfoldAnim = null;
+    rotX=rotY=0; rotZ=Math.PI;
+    unfold = unfoldTarget = 0;
+    selKey=null;
     buildScene();
-    resetView();
   });
   btnMode64.addEventListener("click", ()=>{
     mode="hex64";
+    selKey=null;
     buildScene();
-    resetView();
+    snapHexViewFor64();
   });
-
   btnOrtho.addEventListener("click", ()=>{ projMode="ortho"; updateHUD(); });
   btnPersp.addEventListener("click", ()=>{ projMode="persp"; updateHUD(); });
-
   btnSnap.addEventListener("click", ()=>{
-    projMode="ortho";
-    snapHexView();
-    updateHUD();
+    if (mode==="hex64"){
+      snapHexViewFor64();
+    } else {
+      setPalace(currentPalace || "乾");
+    }
   });
-
-  btnFlip.addEventListener("click", ()=>{ toggleFlip(); });
-  btnUnfold.addEventListener("click", ()=>{ toggleUnfold(); });
+  btnFlip.addEventListener("click", toggleFlip);
+  btnUnfold.addEventListener("click", toggleUnfold);
   btnReset.addEventListener("click", ()=>{ resetView(); });
 
-  [mxp,mxn,myp,myn,mzp,mzn].forEach(el=> el.addEventListener("change", ()=>{ if(mode==="bagua") buildScene(); }));
-  [showHexNetEl, showStructureEl, hideYellowEl, showLabels64El, auto4dEl, labelSharedEl].forEach(el=>{
+  [mxp,mxn,myp,myn,mzp,mzn].forEach(el=>{
+    el.addEventListener("change", ()=>{ if(mode==="bagua") buildScene(); });
+  });
+  [showHexNetEl, showStructureEl, hideYellowEl, showLabels64El, auto4dEl].forEach(el=>{
     el.addEventListener("change", ()=>{ if(mode==="hex64") updateHUD(); });
   });
 
-  // HUD collapse
+  // 宫视角按钮
+  for (const btn of palaceBtns){
+    btn.addEventListener("click", ()=>{
+      if (mode!=="bagua") mode="bagua";
+      setPalace(btn.dataset.palace);
+    });
+  }
+  btnPalaceFree.addEventListener("click", ()=>{
+    setPalace(null);
+  });
+
+  // HUD 折叠
   function setHudCollapsed(c){
     hud.classList.toggle("collapsed", c);
     btnHudToggle.textContent = c ? "☰" : "✕";
   }
-  btnHudToggle.addEventListener("click", ()=>{ setHudCollapsed(!hud.classList.contains("collapsed")); });
+  btnHudToggle.addEventListener("click", ()=>{
+    setHudCollapsed(!hud.classList.contains("collapsed"));
+  });
 
-  // resize
-  function resize(){
-    DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    W=window.innerWidth; H=window.innerHeight;
-    canvas.width=Math.floor(W*DPR);
-    canvas.height=Math.floor(H*DPR);
-    canvas.style.width=W+"px";
-    canvas.style.height=H+"px";
-    ctx.setTransform(DPR,0,0,DPR,0,0);
-  }
-  window.addEventListener("resize", resize);
-
-  // init
+  // ====== 初始化 ======
   resize();
+  computePalaceBases();
+  setPalace("乾");
   buildScene();
   resetView();
-
   if (window.innerWidth <= 640) setHudCollapsed(true);
-  else setHudCollapsed(false);
 
   requestAnimationFrame(render);
 })();
