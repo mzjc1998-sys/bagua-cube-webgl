@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>先天八卦 / 64卦：tesseract 卦网</title>
+  <title>先天八卦 / 64卦：tesseract 卦网 + 展开动画</title>
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
     canvas { display:block; width:100vw; height:100vh; touch-action:none; }
@@ -13,19 +13,14 @@
       background:rgba(0,0,0,.56); color:#fff;
       padding:10px 12px; border-radius:14px;
       font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      max-width:min(520px, calc(100vw - 20px));
+      max-width:min(560px, calc(100vw - 20px));
       backdrop-filter: blur(6px);
     }
-    #hudHeader{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-    }
+    #hudHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
     #hudTitle{ font-weight:900; }
     #hudBody{ margin-top:8px; }
 
-    #hud.collapsed{
-      padding:8px 10px;
-      max-width:min(260px, calc(100vw - 20px));
-    }
+    #hud.collapsed{ padding:8px 10px; max-width:min(260px, calc(100vw - 20px)); }
     #hud.collapsed #hudBody{ display:none; }
 
     .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
@@ -39,17 +34,17 @@
       appearance:none; border:1px solid rgba(255,255,255,.25);
       background:rgba(255,255,255,.10);
       color:#fff; border-radius:10px;
-      padding:6px 10px; cursor:pointer;
-      font:inherit;
+      padding:6px 10px; cursor:pointer; font:inherit;
     }
     button.active{ background:rgba(255,255,255,.22); border-color:rgba(255,255,255,.45); }
     button:active{ transform:translateY(1px); }
+    button:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+
     .mini{ padding:4px 8px; border-radius:999px; }
     .sep{ width:1px; height:22px; background:rgba(255,255,255,.2); }
 
     label{ display:inline-flex; align-items:center; gap:6px; }
     input[type="checkbox"]{ width:16px; height:16px; }
-    input[type="range"]{ width:min(260px, 62vw); }
     .hint{ opacity:.85; font-size:12px; margin-top:8px; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 
@@ -70,7 +65,7 @@
 
 <div id="hud">
   <div id="hudHeader">
-    <div id="hudTitle">bit 立方体：8卦 / 64卦（卦网）</div>
+    <div id="hudTitle">bit 立方体：8卦 / 64卦（卦网 + 展开）</div>
     <button id="btnHudToggle" class="mini">☰</button>
   </div>
 
@@ -89,6 +84,8 @@
       <button id="btnOrtho" class="active">正交</button>
       <button id="btnPersp">透视</button>
       <button id="btnSnap" class="mini">乾坤重合(六边形)</button>
+      <button id="btnFlip" class="mini">上下翻转(底/顶)</button>
+      <button id="btnUnfold" class="mini">展开超立方体</button>
       <button id="btnReset" class="mini">重置</button>
     </div>
 
@@ -120,9 +117,11 @@
       <div class="row">
         <label><input id="auto4d" type="checkbox">自动四维旋转(可选)</label>
       </div>
+
       <div class="hint">
-        默认只显示“64条虚线卦网”。<br>
-        你给的空间关系：顶面(011 001 010 000)，底面(111 101 100 110) —— 本质是 y-bit 分面；本视角沿体对角线让 000 与 111 投影重合形成正六边形。
+        ✅ 默认视角：000乾 与 111坤 投影重叠→正六边形；<br>
+        ✅ 默认上下：底面 = 111/101/100/110，顶面 = 011/001/010/000。<br>
+        “展开超立方体”会进入展开网动画，并强制显示每个点的八卦标签。
       </div>
     </div>
 
@@ -134,9 +133,6 @@
 <script>
 (() => {
   // ====== 先天序：乾兑离震巽坎艮坤 = 000..111 ======
-  // 顶点卦bits约定：X向边=初爻、Y向边=二爻、Z向边=三爻，边值 0阳 1阴
-  // 采用可解规则：X边值=yBit，Y边值=zBit，Z边值=xBit
-  // 所以 顶点bits = (y,z,x) => `${y}${z}${x}`
   const bitsToName = {
     "000":"乾","001":"兑","010":"离","011":"震",
     "100":"巽","101":"坎","110":"艮","111":"坤"
@@ -151,9 +147,10 @@
 
   const COLOR_REAL = "#ffd24a"; // 黄
   const COLOR_TRUE = "#5ad6ff"; // 蓝
-  const COLOR_NEUTRAL = "rgba(20,25,30,.55)"; // 隐藏黄时的“占位点”
+  const COLOR_NEUTRAL = "rgba(20,25,30,.55)";
   const COLOR_NET = "rgba(30,40,55,.22)";
   const COLOR_WLINK = "rgba(40,50,60,.35)";
+  const COLOR_SIDE = "rgba(60,120,85,.35)"; // 展开时侧面cube线(淡)
 
   // ====== DOM ======
   const canvas = document.getElementById("c");
@@ -167,6 +164,8 @@
   const btnOrtho  = document.getElementById("btnOrtho");
   const btnPersp  = document.getElementById("btnPersp");
   const btnSnap   = document.getElementById("btnSnap");
+  const btnFlip   = document.getElementById("btnFlip");
+  const btnUnfold = document.getElementById("btnUnfold");
   const btnReset  = document.getElementById("btnReset");
 
   const mirrorPanel = document.getElementById("mirrorPanel");
@@ -190,11 +189,18 @@
 
   // ====== 视图 ======
   let W=0, H=0, DPR=1;
-  let mode = "hex64";     // 默认：64卦
-  let projMode = "ortho"; // 默认：正交（保证六边形）
+  let mode = "hex64";        // 默认：64卦
+  let projMode = "ortho";    // 默认：正交（保证六边形）
   let rotX = 0;
   let rotY = 0;
+  let rotZ = Math.PI;        // ✅ 默认翻转：让 y=1(1xx) 作为“底面”显示在下方
   let zoom = 1.05;
+
+  // ====== unfold animation ======
+  let unfold = 0;            // 0=折叠(四维投影), 1=展开网
+  let unfoldTarget = 0;
+  let unfoldAnim = null;     // {start, dur, from, to}
+  const UNFOLD_DUR = 1200;
 
   // ====== 场景 ======
   let vertices = [];
@@ -211,6 +217,7 @@
 
   // ====== util ======
   const STEP = 2;
+
   function invertBits3(bits){ return bits.replace(/[01]/g, c => c==="0"?"1":"0"); }
   function xorBits3(a,b){
     let out="";
@@ -220,35 +227,44 @@
   function keyOf(cubeId, x,y,z){ return `${cubeId}|${x},${y},${z}`; }
   function bitsFromLocal(x,y,z){ return `${y}${z}${x}`; }
   function trigramIndex(bits){ return (parseInt(bits,2)&7)+1; }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function lerp3(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t), z:lerp(p.z,q.z,t)}; }
+  function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+  function easeInOutCubic(t){
+    t = clamp01(t);
+    return t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+  }
 
-  // 8卦世界坐标
+  // ====== 8卦 world ======
   function makeCubeInstance({id, axisBase={x:-1,y:-1,z:-1}, axisMirror={x:false,y:false,z:false}, showLabels=true, pickable=true}) {
-    return { id, showLabels, pickable, ax: {x:{base:axisBase.x,mirror:!!axisMirror.x}, y:{base:axisBase.y,mirror:!!axisMirror.y}, z:{base:axisBase.z,mirror:!!axisMirror.z}} };
+    return {
+      id, showLabels, pickable,
+      ax: {x:{base:axisBase.x,mirror:!!axisMirror.x}, y:{base:axisBase.y,mirror:!!axisMirror.y}, z:{base:axisBase.z,mirror:!!axisMirror.z}}
+    };
   }
   function worldPos(cube, xBit,yBit,zBit){
     const bx = cube.ax.x.mirror ? (1-xBit) : xBit;
     const by = cube.ax.y.mirror ? (1-yBit) : yBit;
     const bz = cube.ax.z.mirror ? (1-zBit) : zBit;
-    return {
-      x: cube.ax.x.base + STEP*bx,
-      y: cube.ax.y.base + STEP*by,
-      z: cube.ax.z.base + STEP*bz
-    };
+    return { x: cube.ax.x.base + STEP*bx, y: cube.ax.y.base + STEP*by, z: cube.ax.z.base + STEP*bz };
   }
 
-  // ====== 默认视角：乾(000)与坤(111)重叠 → 正六边形 ======
-  // 你想要的“六边形对角视图”
+  // ====== 默认视角：乾坤重合 + 正六边形 + 底面1xx在下 ======
   function snapHexView(){
-    // yaw = -45°, pitch = arctan(1/sqrt(2))
     rotY = -Math.PI/4;
     rotX = Math.atan(1/Math.sqrt(2));
+    rotZ = Math.PI; // ✅ 确保底面1xx在下
   }
   function resetView(){
     projMode = "ortho";
-    btnOrtho.classList.add("active");
-    btnPersp.classList.remove("active");
     zoom = (mode==="hex64") ? 1.05 : 1.12;
     snapHexView();
+    updateHUD();
+  }
+
+  function toggleFlip(){
+    // 绕视线轴翻转180°（roll）
+    rotZ = (Math.abs((rotZ%(2*Math.PI)) - 0) < 1e-3) ? Math.PI : 0;
     updateHUD();
   }
 
@@ -261,6 +277,7 @@
     if (mode === "bagua"){
       mirrorPanel.style.display = "block";
       hexPanel.style.display = "none";
+      btnUnfold.disabled = true;
 
       const cubes = [];
       const base = makeCubeInstance({ id:"B", showLabels:true, pickable:true });
@@ -298,7 +315,7 @@
             world: worldPos(cube,x,y,z)
           });
         }
-        // edges
+        // edges (12) with yin/yang values
         for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
           edges.push({type:"edge", val:y, a:keyOf(cube.id,0,y,z), b:keyOf(cube.id,1,y,z)});
         }
@@ -319,10 +336,9 @@
     } else {
       mirrorPanel.style.display = "none";
       hexPanel.style.display = "block";
+      btnUnfold.disabled = false;
 
-      // 64模式：两层立方体（real/true）用于4D投影
-      // 真实层：bits=L=yzx
-      // 真我层：bits=~(yzx)（全反）
+      // 两层：real(黄) 和 true(蓝，全反)
       const roles = [
         {role:"real", w:+1},
         {role:"true", w:-1},
@@ -334,18 +350,11 @@
           const bits = (R.role==="real") ? coordBits : invertBits3(coordBits);
           const key = `${R.role}|${x},${y},${z}`;
 
-          const base4 = {
-            x: x? +1:-1,
-            y: y? +1:-1,
-            z: z? +1:-1,
-            w: R.w
-          };
+          const base4 = { x: x? +1:-1, y: y? +1:-1, z: z? +1:-1, w: R.w };
 
           vertices.push({
-            key, mode:"hex64",
-            role:R.role,
-            pickable:true,
-            showLabel:true,
+            key, mode:"hex64", role:R.role,
+            pickable:true, showLabel:true,
             local:{x,y,z},
             bits, name:bitsToName[bits],
             coordBits,
@@ -357,17 +366,14 @@
       vByKey = new Map(vertices.map(v=>[v.key,v]));
       sceneMaxAbs = 3.2;
 
-      // 结构棱（各层12条）+ w连接（8条）
+      // structure edges within each layer + w links
       function addStructure(role){
-        // X向：val=y
         for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
           edges.push({type:"edge64", role, val:y, a:`${role}|0,${y},${z}`, b:`${role}|1,${y},${z}`});
         }
-        // Y向：val=z
         for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
           edges.push({type:"edge64", role, val:z, a:`${role}|${x},0,${z}`, b:`${role}|${x},1,${z}`});
         }
-        // Z向：val=x
         for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
           edges.push({type:"edge64", role, val:x, a:`${role}|${x},${y},0`, b:`${role}|${x},${y},1`});
         }
@@ -379,8 +385,7 @@
         edges.push({type:"wlink", a:`real|${x},${y},${z}`, b:`true|${x},${y},${z}`});
       }
 
-      // 64卦卦网：对每个 real(L) 与 true(U) 都连一条虚线
-      // 同时计算该线对应的“宫mask”：mask = U XOR ~L
+      // 64卦卦网（real 8点 × true 8点）
       const realVs = vertices.filter(v=>v.role==="real");
       const trueVs = vertices.filter(v=>v.role==="true").slice().sort((a,b)=>a.bits.localeCompare(b.bits));
       for (const rv of realVs){
@@ -388,17 +393,11 @@
         const invL = invertBits3(L);
         for (const tv of trueVs){
           const U = tv.bits;
-          const mask = xorBits3(U, invL);      // 000..111
-          const palace = bitsToName[mask];     // 乾兑离震巽坎艮坤
+          const mask = xorBits3(U, invL);      // 宫mask
+          const palace = bitsToName[mask];
           const hexBits = `${U}${L}`;
-          const hexNum = (parseInt(hexBits,2) & 63) + 1; // 二进制1..64
-          edges.push({
-            type:"hex",
-            a: rv.key,
-            b: tv.key,
-            mask, palace,
-            hexBits, hexNum
-          });
+          const hexNum = (parseInt(hexBits,2) & 63) + 1;
+          edges.push({ type:"hex", a:rv.key, b:tv.key, mask, palace, hexBits, hexNum });
         }
       }
     }
@@ -413,12 +412,15 @@
     btnOrtho.classList.toggle("active", projMode==="ortho");
     btnPersp.classList.toggle("active", projMode==="persp");
 
+    // Unfold button text
+    const unfolding = unfold > 0.001 || !!unfoldAnim;
+    if (mode==="hex64"){
+      btnUnfold.textContent = (unfoldTarget > 0.5 || unfold > 0.5 || unfolding) ? "折叠超立方体" : "展开超立方体";
+    } else {
+      btnUnfold.textContent = "展开超立方体";
+    }
+
     if (mode==="bagua"){
-      let yang=0, yin=0;
-      for (const e of edges){
-        if (e.type!=="edge") continue;
-        e.val===0? yang++ : yin++;
-      }
       hudCheck.innerHTML = `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>`+
                            `校验(本卦B)：阳6 阴6（镜像不参与校验显示）`;
     } else {
@@ -428,25 +430,32 @@
       const showLabels = !!showLabels64El.checked;
       const auto4d = !!auto4dEl.checked;
       hudCheck.innerHTML =
-        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>`+
+        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b> ｜ 展开=<b>${Math.round(unfold*100)}%</b><br>`+
         `显示：卦网=${showHexNet?"ON":"OFF"} ｜ 结构棱=${showStructure?"ON":"OFF"} ｜ 隐黄=${hideYellow?"ON":"OFF"} ｜ 标签=${showLabels?"ON":"OFF"} ｜ 自动4D=${auto4d?"ON":"OFF"}`;
     }
     if (!selKey) hudDetail.innerHTML = "";
   }
 
-  // ====== 投影 ======
+  // ====== 投影（含 roll rotZ） ======
   function rotate3D(p){
     let x = p.x * zoom, y = p.y * zoom, z = p.z * zoom;
 
+    // yaw around Y
     const cy = Math.cos(rotY), sy = Math.sin(rotY);
     const x1 = x*cy + z*sy;
     const z1 = -x*sy + z*cy;
 
+    // pitch around X
     const cx = Math.cos(rotX), sx = Math.sin(rotX);
     const y2 = y*cx - z1*sx;
     const z2 = y*sx + z1*cx;
 
-    return {x:x1, y:y2, z:z2};
+    // roll around Z (for flip bottom/top)
+    const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
+    const x3 = x1*cz - y2*sz;
+    const y3 = x1*sz + y2*cz;
+
+    return {x:x3, y:y3, z:z2};
   }
 
   function getOrthoScale(){
@@ -487,6 +496,58 @@
     return { x:v4[0]*f, y:v4[1]*f, z:v4[2]*f };
   }
 
+  // ====== Unfold target positions (3D展开网) ======
+  // central real cube base (-1,-1,-1)
+  const NET_REAL_BASE = {x:-1,y:-1,z:-1};
+  // bottom true cube base (-1,-5,-1) 形成“中央->-Y->真我”竖向三节
+  const NET_TRUE_BASE = {x:-1,y:-5,z:-1};
+
+  function netPosForMainVertex(v){
+    const {x,y,z} = v.local;
+    if (v.role==="real"){
+      const cube = makeCubeInstance({id:"NETR", axisBase:NET_REAL_BASE, axisMirror:{x:false,y:false,z:false}});
+      return worldPos(cube, x,y,z);
+    } else {
+      const cube = makeCubeInstance({id:"NETT", axisBase:NET_TRUE_BASE, axisMirror:{x:false,y:false,z:false}});
+      return worldPos(cube, x,y,z);
+    }
+  }
+
+  // side cubes (6) slide out from central base when unfolding
+  function sideCubesAt(u){
+    const cb = NET_REAL_BASE; // start from central base
+    const defs = [
+      {id:"+X", axisBase:{x: 1,y:-1,z:-1}, mirror:{x:true,y:false,z:false}},
+      {id:"-X", axisBase:{x:-3,y:-1,z:-1}, mirror:{x:true,y:false,z:false}},
+      {id:"+Y", axisBase:{x:-1,y: 1,z:-1}, mirror:{x:false,y:true,z:false}},
+      {id:"-Y", axisBase:{x:-1,y:-3,z:-1}, mirror:{x:false,y:true,z:false}},
+      {id:"+Z", axisBase:{x:-1,y:-1,z: 1}, mirror:{x:false,y:false,z:true}},
+      {id:"-Z", axisBase:{x:-1,y:-1,z:-3}, mirror:{x:false,y:false,z:true}},
+    ];
+    const out=[];
+    for (const d of defs){
+      const base = {
+        x: lerp(cb.x, d.axisBase.x, u),
+        y: lerp(cb.y, d.axisBase.y, u),
+        z: lerp(cb.z, d.axisBase.z, u),
+      };
+      out.push(makeCubeInstance({ id:"S"+d.id, axisBase:base, axisMirror:d.mirror, showLabels:true, pickable:false }));
+    }
+    return out;
+  }
+
+  // ====== unfold animation ======
+  function startUnfold(to){
+    unfoldTarget = to;
+    unfoldAnim = { start: performance.now(), dur: UNFOLD_DUR, from: unfold, to };
+    updateHUD();
+  }
+  function toggleUnfold(){
+    if (mode!=="hex64") return;
+    const to = (unfoldTarget>0.5 || unfold>0.5) ? 0 : 1;
+    startUnfold(to);
+  }
+
   // ====== Hit test ======
   let lastProjCache=null;
   function hitTest(px,py, projCache){
@@ -501,157 +562,6 @@
       if (d2<r*r && d2<bestD2){ bestD2=d2; best=v.key; }
     }
     return best;
-  }
-
-  // ====== render ======
-  function render(ts){
-    ctx.setTransform(DPR,0,0,DPR,0,0);
-    ctx.clearRect(0,0,W,H);
-
-    // 64模式：可选自动4D旋转
-    if (mode==="hex64"){
-      if (lastTs==null) lastTs=ts;
-      const dt = ts-lastTs; lastTs=ts;
-      if (auto4dEl.checked){
-        aXW += dt*0.00055;
-        aYW += dt*0.00035;
-        aYZ += dt*0.00045;
-      }
-    }
-
-    // 本帧 3D位置
-    const pos3ByKey = new Map();
-    if (mode==="bagua"){
-      for (const v of vertices) pos3ByKey.set(v.key, v.world);
-    } else {
-      for (const v of vertices){
-        const v4 = rotate4D(v.base4);
-        const p3 = project4Dto3D(v4);
-        pos3ByKey.set(v.key, p3);
-      }
-    }
-
-    // projection cache
-    const projCache = new Map();
-    for (const v of vertices){
-      const p3 = pos3ByKey.get(v.key);
-      if (!p3) continue;
-      projCache.set(v.key, project(p3));
-    }
-    lastProjCache = projCache;
-
-    // edge draw list by toggles
-    const showHexNet = (mode==="hex64") ? !!showHexNetEl.checked : true;
-    const showStructure = (mode==="hex64") ? !!showStructureEl.checked : true;
-
-    const drawableEdges = edges.filter(e => {
-      if (mode==="bagua") return e.type==="edge";
-      if (e.type==="hex") return showHexNet;
-      if (e.type==="edge64" || e.type==="wlink") return showStructure;
-      return false;
-    });
-
-    // sort edges by depth
-    const edgesSorted = drawableEdges.map(e=>{
-      const pa=projCache.get(e.a), pb=projCache.get(e.b);
-      const z = ((pa?.z??1e9)+(pb?.z??1e9))*0.5;
-      return {e,pa,pb,z};
-    }).sort((a,b)=>b.z-a.z);
-
-    // helper: selection incident?
-    function isIncident(e){
-      if (!selKey) return false;
-      return e.a===selKey || e.b===selKey;
-    }
-
-    // draw edges
-    for (const it of edgesSorted){
-      const {e,pa,pb}=it;
-      if (!pa||!pb) continue;
-      const hi = isIncident(e);
-
-      ctx.beginPath();
-      ctx.moveTo(pa.x,pa.y);
-      ctx.lineTo(pb.x,pb.y);
-
-      if (mode==="hex64" && e.type==="hex"){
-        ctx.setLineDash([6,6]);
-        ctx.lineWidth = hi ? 4.8 : 2.0;
-        ctx.strokeStyle = hi ? COLOR_HI : COLOR_NET;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        continue;
-      }
-
-      if (mode==="hex64" && e.type==="wlink"){
-        ctx.setLineDash([10,8]);
-        ctx.lineWidth = hi ? 4.6 : 2.2;
-        ctx.strokeStyle = hi ? COLOR_HI : COLOR_WLINK;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        continue;
-      }
-
-      // structure/bagua edges use yin/yang
-      ctx.lineWidth = hi ? 6.0 : 3.0;
-      ctx.strokeStyle = hi ? COLOR_HI : (e.val===0 ? COLOR_YANG : COLOR_YIN);
-      ctx.stroke();
-    }
-
-    // draw vertices
-    const hideYellow = (mode==="hex64") ? !!hideYellowEl.checked : false;
-    const showLabels64 = (mode==="hex64") ? !!showLabels64El.checked : true;
-
-    const vertsSorted = vertices.map(v=>({v,p:projCache.get(v.key)}))
-      .filter(x=>!!x.p)
-      .sort((a,b)=>b.p.z-a.p.z);
-
-    for (const {v,p} of vertsSorted){
-      const isSel = (selKey===v.key);
-      const r = 7 + (p.k/110);
-
-      // node color
-      let fill = COLOR_NODE;
-      if (mode==="bagua"){
-        fill = isSel ? COLOR_HI : COLOR_NODE;
-      } else {
-        if (isSel) fill = COLOR_HI;
-        else if (v.role==="true") fill = COLOR_TRUE;
-        else {
-          // real layer
-          fill = hideYellow ? COLOR_NEUTRAL : COLOR_REAL;
-        }
-      }
-
-      ctx.beginPath();
-      ctx.arc(p.x,p.y, isSel ? r*1.25 : r, 0, Math.PI*2);
-      ctx.fillStyle = fill;
-      ctx.globalAlpha = 0.92;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      // labels
-      let showLabel = false;
-      if (mode==="bagua"){
-        showLabel = v.showLabel;
-      } else {
-        // 默认不显示标签（除非用户打开）
-        showLabel = showLabels64 || isSel;
-        // 如果隐藏黄色，则 real 的标签默认不显示（除非被选中）
-        if (hideYellow && v.role==="real" && !isSel) showLabel = false;
-      }
-
-      if (showLabel){
-        ctx.fillStyle = COLOR_LABEL;
-        ctx.font = "13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        const text = `${v.name} ${v.bits}`;
-        ctx.fillText(text, p.x, p.y - (isSel ? r*1.6 : r*1.25));
-      }
-    }
-
-    requestAnimationFrame(render);
   }
 
   // ====== detail panel ======
@@ -672,7 +582,6 @@
     const Lbits = isReal ? v.bits : null;
     const Ubits = (!isReal) ? v.bits : null;
 
-    // collect opposite vertices
     const reals = vertices.filter(x=>x.role==="real").slice().sort((a,b)=>a.bits.localeCompare(b.bits));
     const trues = vertices.filter(x=>x.role==="true").slice().sort((a,b)=>a.bits.localeCompare(b.bits));
 
@@ -707,12 +616,242 @@
     }
   }
 
-  // ====== input ======
+  // ====== render ======
+  function render(ts){
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    if (mode==="hex64"){
+      if (lastTs==null) lastTs=ts;
+      const dt = ts-lastTs; lastTs=ts;
+
+      // unfold tween
+      if (unfoldAnim){
+        const t = (ts - unfoldAnim.start) / unfoldAnim.dur;
+        const k = easeInOutCubic(t);
+        unfold = lerp(unfoldAnim.from, unfoldAnim.to, k);
+        if (t>=1){
+          unfold = unfoldAnim.to;
+          unfoldAnim = null;
+        }
+        updateHUD();
+      }
+
+      // optional auto 4D rotate (only meaningful while folded-ish)
+      if (auto4dEl.checked && unfold < 0.35){
+        aXW += dt*0.00055;
+        aYW += dt*0.00035;
+        aYZ += dt*0.00045;
+      }
+    }
+
+    // ----- compute 3D positions for main vertices -----
+    const pos3ByKey = new Map();
+    if (mode==="bagua"){
+      for (const v of vertices) pos3ByKey.set(v.key, v.world);
+    } else {
+      for (const v of vertices){
+        // folded 4D projection
+        const v4 = rotate4D(v.base4);
+        const pFold = project4Dto3D(v4);
+
+        // unfolded net target (3D net)
+        const pNet = netPosForMainVertex(v);
+
+        // blend
+        const p = lerp3(pFold, pNet, unfold);
+        pos3ByKey.set(v.key, p);
+      }
+    }
+
+    // projection cache
+    const projCache = new Map();
+    for (const v of vertices){
+      const p3 = pos3ByKey.get(v.key);
+      if (!p3) continue;
+      projCache.set(v.key, project(p3));
+    }
+    lastProjCache = projCache;
+
+    // toggles (force on during unfolding)
+    const unfoldingNow = (mode==="hex64") && (unfold > 0.02);
+    const showHexNet = (mode==="hex64") ? (!!showHexNetEl.checked) : true;
+    const showStructure = (mode==="hex64") ? (!!showStructureEl.checked || unfoldingNow) : true;
+    const hideYellow = (mode==="hex64") ? (!!hideYellowEl.checked && !unfoldingNow) : false;
+    const showLabels64 = (mode==="hex64") ? (!!showLabels64El.checked || unfoldingNow) : true;
+
+    // ----- edges draw list -----
+    const drawableEdges = edges.filter(e => {
+      if (mode==="bagua") return e.type==="edge";
+      if (e.type==="hex") return showHexNet;
+      if (e.type==="edge64" || e.type==="wlink") return showStructure;
+      return false;
+    });
+
+    // sort edges by depth
+    const edgesSorted = drawableEdges.map(e=>{
+      const pa=projCache.get(e.a), pb=projCache.get(e.b);
+      const z = ((pa?.z??1e9)+(pb?.z??1e9))*0.5;
+      return {e,pa,pb,z};
+    }).sort((a,b)=>b.z-a.z);
+
+    function isIncident(e){
+      if (!selKey) return false;
+      return e.a===selKey || e.b===selKey;
+    }
+
+    // draw edges
+    for (const it of edgesSorted){
+      const {e,pa,pb}=it;
+      if (!pa||!pb) continue;
+      const hi = isIncident(e);
+
+      ctx.beginPath();
+      ctx.moveTo(pa.x,pa.y);
+      ctx.lineTo(pb.x,pb.y);
+
+      if (mode==="hex64" && e.type==="hex"){
+        ctx.setLineDash([6,6]);
+        ctx.lineWidth = hi ? 4.8 : 2.0;
+        ctx.strokeStyle = hi ? COLOR_HI : COLOR_NET;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        continue;
+      }
+
+      if (mode==="hex64" && e.type==="wlink"){
+        ctx.setLineDash([10,8]);
+        ctx.lineWidth = hi ? 4.6 : 2.2;
+        ctx.strokeStyle = hi ? COLOR_HI : COLOR_WLINK;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        continue;
+      }
+
+      ctx.lineWidth = hi ? 6.0 : 3.0;
+      ctx.strokeStyle = hi ? COLOR_HI : (e.val===0 ? COLOR_YANG : COLOR_YIN);
+      ctx.stroke();
+    }
+
+    // ----- unfolded: draw 6 side cubes (展开网) -----
+    if (mode==="hex64" && unfold > 0.02){
+      const appear = clamp01((unfold - 0.18) / 0.82); // 先移动主两层，再出现侧面网
+      const sideAlpha = 0.10 + 0.90*appear;
+
+      const cubes = sideCubesAt(appear); // 使用 appear 让侧面“后出现更稳”
+      // Precompute side vertex projections
+      const sideVerts = [];
+      const sideEdges = [];
+
+      for (const cube of cubes){
+        // vertices
+        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
+          const bits = bitsFromLocal(x,y,z);
+          const p3 = worldPos(cube,x,y,z);
+          const p2 = project(p3);
+          sideVerts.push({cubeId:cube.id, x,y,z, bits, name:bitsToName[bits], p2});
+        }
+        // edges (12) with yin/yang val
+        // X edges val=y
+        for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
+          sideEdges.push({val:y, a:worldPos(cube,0,y,z), b:worldPos(cube,1,y,z)});
+        }
+        // Y edges val=z
+        for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
+          sideEdges.push({val:z, a:worldPos(cube,x,0,z), b:worldPos(cube,x,1,z)});
+        }
+        // Z edges val=x
+        for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
+          sideEdges.push({val:x, a:worldPos(cube,x,y,0), b:worldPos(cube,x,y,1)});
+        }
+      }
+
+      // draw side edges (use yin/yang but with greenish tint + alpha)
+      ctx.save();
+      ctx.globalAlpha = sideAlpha;
+
+      // edges
+      for (const e of sideEdges){
+        const pa = project(e.a), pb = project(e.b);
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.lineWidth = 2.6;
+        // mix yin/yang with a side color
+        ctx.strokeStyle = (e.val===0) ? COLOR_SIDE : "rgba(30,70,55,.55)";
+        ctx.stroke();
+      }
+
+      // vertices + labels
+      for (const sv of sideVerts){
+        ctx.beginPath();
+        ctx.arc(sv.p2.x, sv.p2.y, 5.2, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(20,25,30,.85)";
+        ctx.fill();
+
+        // label every point during unfolding
+        ctx.fillStyle = COLOR_LABEL;
+        ctx.font = "12px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(`${sv.name} ${sv.bits}`, sv.p2.x, sv.p2.y - 7);
+      }
+
+      ctx.restore();
+    }
+
+    // ----- draw main vertices -----
+    const vertsSorted = vertices.map(v=>({v,p:projCache.get(v.key)}))
+      .filter(x=>!!x.p)
+      .sort((a,b)=>b.p.z-a.p.z);
+
+    for (const {v,p} of vertsSorted){
+      const isSel = (selKey===v.key);
+      const r = 7 + (p.k/110);
+
+      let fill = COLOR_NODE;
+      if (mode==="bagua"){
+        fill = isSel ? COLOR_HI : COLOR_NODE;
+      } else {
+        if (isSel) fill = COLOR_HI;
+        else if (v.role==="true") fill = COLOR_TRUE;
+        else fill = hideYellow ? COLOR_NEUTRAL : COLOR_REAL;
+      }
+
+      ctx.beginPath();
+      ctx.arc(p.x,p.y, isSel ? r*1.25 : r, 0, Math.PI*2);
+      ctx.fillStyle = fill;
+      ctx.globalAlpha = 0.92;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // label
+      let showLabel = false;
+      if (mode==="bagua"){
+        showLabel = v.showLabel;
+      } else {
+        showLabel = showLabels64 || isSel;
+        if (hideYellow && v.role==="real" && !isSel) showLabel = false;
+      }
+
+      if (showLabel){
+        ctx.fillStyle = COLOR_LABEL;
+        ctx.font = "13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(`${v.name} ${v.bits}`, p.x, p.y - (isSel ? r*1.6 : r*1.25));
+      }
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  // ====== interaction ======
   const pointers = new Map();
   let pointerDown = null;
   let pinchStart = null;
 
-  canvas.addEventListener("pointerdown", (e)=>{
+  canvas.addEventListener("pointerdown",(e)=>{
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
     pointerDown = {x:e.clientX, y:e.clientY, t:performance.now()};
@@ -722,7 +861,7 @@
     }
   });
 
-  canvas.addEventListener("pointermove", (e)=>{
+  canvas.addEventListener("pointermove",(e)=>{
     if (!pointers.has(e.pointerId)) return;
     const prev = pointers.get(e.pointerId);
     pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
@@ -731,7 +870,7 @@
       const dx = e.clientX - prev.x;
       const dy = e.clientY - prev.y;
       rotY += dx*0.008;
-      rotX += dy*0.008;     // ✅ 取消俯仰 clamp（旋转不受限）
+      rotX += dy*0.008; // ✅ 不再限制俯仰（取消受限）
     } else if (pointers.size===2 && pinchStart){
       const pts=[...pointers.values()];
       const dist=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
@@ -740,7 +879,7 @@
     }
   });
 
-  canvas.addEventListener("pointerup", (e)=>{
+  canvas.addEventListener("pointerup",(e)=>{
     pointers.delete(e.pointerId);
     if (pointers.size<2) pinchStart=null;
 
@@ -768,6 +907,7 @@
   // ====== UI events ======
   btnMode8.addEventListener("click", ()=>{
     mode="bagua";
+    unfold = 0; unfoldTarget = 0; unfoldAnim = null;
     buildScene();
     resetView();
   });
@@ -777,22 +917,22 @@
     resetView();
   });
 
-  btnOrtho.addEventListener("click", ()=>{
-    projMode="ortho";
-    updateHUD();
-  });
-  btnPersp.addEventListener("click", ()=>{
-    projMode="persp";
-    updateHUD();
-  });
+  btnOrtho.addEventListener("click", ()=>{ projMode="ortho"; updateHUD(); });
+  btnPersp.addEventListener("click", ()=>{ projMode="persp"; updateHUD(); });
+
   btnSnap.addEventListener("click", ()=>{
     projMode="ortho";
     snapHexView();
     updateHUD();
   });
-  btnReset.addEventListener("click", ()=>{
-    resetView();
+
+  btnFlip.addEventListener("click", ()=>{ toggleFlip(); });
+
+  btnUnfold.addEventListener("click", ()=>{
+    toggleUnfold();
   });
+
+  btnReset.addEventListener("click", ()=>{ resetView(); });
 
   [mxp,mxn,myp,myn,mzp,mzn].forEach(el=> el.addEventListener("change", ()=>{ if(mode==="bagua") buildScene(); }));
   [showHexNetEl, showStructureEl, hideYellowEl, showLabels64El, auto4dEl].forEach(el=>{
@@ -804,11 +944,9 @@
     hud.classList.toggle("collapsed", c);
     btnHudToggle.textContent = c ? "☰" : "✕";
   }
-  btnHudToggle.addEventListener("click", ()=>{
-    setHudCollapsed(!hud.classList.contains("collapsed"));
-  });
+  btnHudToggle.addEventListener("click", ()=>{ setHudCollapsed(!hud.classList.contains("collapsed")); });
 
-  // ====== resize ======
+  // resize
   function resize(){
     DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     W=window.innerWidth; H=window.innerHeight;
@@ -820,12 +958,12 @@
   }
   window.addEventListener("resize", resize);
 
-  // ====== init ======
+  // init
   resize();
   buildScene();
   resetView();
 
-  // 手机默认折叠HUD（不挡画面）
+  // 手机默认折叠HUD
   if (window.innerWidth <= 640) setHudCollapsed(true);
   else setHudCollapsed(false);
 
