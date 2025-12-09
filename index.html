@@ -75,7 +75,7 @@
     <div class="row">
       <span class="chip"><span class="sw" style="background:#cfd6df;"></span>浅色=阳爻(0)</span>
       <span class="chip"><span class="sw" style="background:#1f2329;"></span>深色=阴爻(1)</span>
-      <!-- 这里按照你的设定：黄=坤宫(本我)，蓝=乾宫(真我) -->
+      <!-- 黄=坤宫 / 本我，下卦；蓝=乾宫 / 真我，上卦 -->
       <span class="chip"><span class="sw" style="background:#ffd24a;"></span>黄点=坤宫 / 本我(下卦)</span>
       <span class="chip"><span class="sw" style="background:#5ad6ff;"></span>蓝点=乾宫 / 真我(上卦)</span>
     </div>
@@ -126,16 +126,18 @@
     <div id="hexPanel">
       <div style="font-weight:900; margin-bottom:6px;">64卦（本我 × 真我 的超立方体）</div>
       <div class="row">
-        <label><input id="showHexNet" type="checkbox" checked>显示64卦虚线卦网</label>
-        <label><input id="showStructure" type="checkbox">显示结构棱</label>
+        <!-- 默认只开结构棱 -->
+        <label><input id="showHexNet" type="checkbox">显示64卦虚线卦网</label>
+        <label><input id="showStructure" type="checkbox" checked>显示结构棱</label>
       </div>
       <div class="row">
-        <label><input id="hideYellow" type="checkbox" checked>隐藏黄色卦象</label>
-        <label><input id="showLabels64" type="checkbox">显示主顶点卦名/bit</label>
+        <label><input id="hideYellow" type="checkbox">隐藏黄色卦象</label>
+        <label><input id="showLabels64" type="checkbox" checked>显示主顶点卦名/bit</label>
         <label><input id="auto4d" type="checkbox">自动四维旋转</label>
       </div>
       <div class="hint">
-        折叠状态下：两个 3D 立方体（坤宫=黄，本我；乾宫=蓝，真我）在四维中叠加成一个 tesseract；展开时蓝色立方体向上分离。
+        折叠：两个 3D 立方体（坤宫=黄，本我；乾宫=蓝，真我）在四维中叠加。<br/>
+        展开：中心黄 cube + 6 个镜像 cube + 底部蓝 cube，形成 8 立方体展开图。
       </div>
     </div>
 
@@ -146,6 +148,9 @@
 
 <script>
 (() => {
+  // ====== 配置持久化 ======
+  const STORAGE_KEY = "bagua_cube_settings_v1";
+
   // ====== 先天八卦映射 ======
   const bitsToName = {
     "000":"乾","001":"兑","010":"离","011":"震",
@@ -159,11 +164,12 @@
   const COLOR_NODE = "#0b0f14";
   const COLOR_LABEL = "#0b0f14";
   const COLOR_HI = "#ffb020";
-  const COLOR_REAL = "#ffd24a"; // 坤宫/本我
-  const COLOR_TRUE = "#5ad6ff"; // 乾宫/真我
+  const COLOR_REAL = "#ffd24a"; // 坤宫 / 本我
+  const COLOR_TRUE = "#5ad6ff"; // 乾宫 / 真我
   const COLOR_NEUTRAL = "rgba(20,25,30,.55)";
   const COLOR_NET = "rgba(30,40,55,.22)";
   const COLOR_WLINK = "rgba(40,50,60,.35)";
+  const COLOR_NETCUBE = "rgba(110,130,150,.55)";
 
   // ====== DOM ======
   const canvas = document.getElementById("c");
@@ -205,7 +211,7 @@
 
   // ====== 视图状态 ======
   let W=0, H=0, DPR=1;
-  let mode = "hex64";
+  let mode = "hex64";          // 默认 64 卦视图
   let projMode = "ortho";
   let rotX = 0;
   let rotY = 0;
@@ -245,12 +251,11 @@
     canvas.style.height = H + "px";
     ctx.setTransform(DPR,0,0,DPR,0,0);
   }
-  window.addEventListener("resize", resize);
+  window.addEventListener("resize", () => { resize(); });
 
   function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
   function clamp01(v){ return clamp(v,0,1); }
   function lerp(a,b,t){ return a + (b-a)*t; }
-  function lerp3(a,b,t){ return {x:lerp(a.x,b.x,t), y:lerp(a.y,b.y,t), z:lerp(a.z,b.z,t)}; }
   function easeInOutCubic(t){
     t = clamp01(t);
     return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
@@ -258,10 +263,10 @@
   function trigramIndex(bits){ return (parseInt(bits,2)&7)+1; }
   function invertBits3(bits){ return bits.replace(/[01]/g, c => c==="0"?"1":"0"); }
 
-  function vecSub(a,b){ return {x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}; }
-  function vecDot(a,b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
-  function vecScale(v,s){ return {x:v.x*s,y:v.y*s,z:v.z*s}; }
   function vecAdd(a,b){ return {x:a.x+b.x,y:a.y+b.y,z:a.z+b.z}; }
+  function vecSub(a,b){ return {x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}; }
+  function vecScale(v,s){ return {x:v.x*s,y:v.y*s,z:v.z*s}; }
+  function vecDot(a,b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
   function vecLength(v){ return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z); }
   function vecNorm(v){ const L=vecLength(v)||1; return {x:v.x/L,y:v.y/L,z:v.z/L}; }
   function vecCross(a,b){
@@ -272,11 +277,91 @@
 
   function keyOf(cubeId,x,y,z){ return cubeId+"|"+x+","+y+","+z; }
 
-  // 三爻卦在立方体中的基础坐标
+  // ====== HUD 折叠（要在持久化之前定义） ======
+  function setHudCollapsed(collapsed){
+    hud.classList.toggle("collapsed", !!collapsed);
+    btnHudToggle.textContent = collapsed ? "☰" : "✕";
+  }
+
+  // ====== 持久化 ======
+  function saveSettings(){
+    try{
+      const data = {
+        hudCollapsed: hud.classList.contains("collapsed"),
+        mode,
+        projMode,
+        rot:{x:rotX,y:rotY,z:rotZ},
+        zoom,
+        currentPalace,
+        mirrors:{
+          mxp: mxp.checked,
+          mxn: mxn.checked,
+          myp: myp.checked,
+          myn: myn.checked,
+          mzp: mzp.checked,
+          mzn: mzn.checked
+        },
+        hex:{
+          showHexNet: showHexNetEl.checked,
+          showStructure: showStructureEl.checked,
+          hideYellow: hideYellowEl.checked,
+          showLabels64: showLabels64El.checked,
+          auto4d: auto4dEl.checked
+        },
+        unfoldTarget
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }catch(e){}
+  }
+
+  function loadSettings(){
+    let ok=false;
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      ok = true;
+
+      if (typeof data.mode==="string") mode=data.mode;
+      if (typeof data.projMode==="string") projMode=data.projMode;
+      if (data.rot){
+        if (typeof data.rot.x==="number") rotX=data.rot.x;
+        if (typeof data.rot.y==="number") rotY=data.rot.y;
+        if (typeof data.rot.z==="number") rotZ=data.rot.z;
+      }
+      if (typeof data.zoom==="number") zoom=data.zoom;
+      if ("currentPalace" in data) currentPalace=data.currentPalace;
+
+      if (data.mirrors){
+        mxp.checked=!!data.mirrors.mxp;
+        mxn.checked=!!data.mirrors.mxn;
+        myp.checked=!!data.mirrors.myp;
+        myn.checked=!!data.mirrors.myn;
+        mzp.checked=!!data.mirrors.mzp;
+        mzn.checked=!!data.mirrors.mzn;
+      }
+      if (data.hex){
+        showHexNetEl.checked   = !!data.hex.showHexNet;
+        showStructureEl.checked= !!data.hex.showStructure;
+        hideYellowEl.checked   = !!data.hex.hideYellow;
+        showLabels64El.checked = !!data.hex.showLabels64;
+        auto4dEl.checked       = !!data.hex.auto4d;
+      }
+      if (typeof data.unfoldTarget==="number"){
+        unfoldTarget = clamp01(data.unfoldTarget);
+        unfold = unfoldTarget;
+      }
+
+      if (data.hudCollapsed) setHudCollapsed(true);
+    }catch(e){}
+    return ok;
+  }
+
+  // ====== 三爻卦在立方体中的基础坐标 (按照你的先天序编码) ======
   const trigramPos = {};
   (function initTrigramPos(){
     for (const bits of trigramBits){
-      const b0 = bits[0], b1 = bits[1], b2 = bits[2];
+      const b0=bits[0], b1=bits[1], b2=bits[2];
       const x = (b2==="1")? 1:-1;
       const y = (b0==="1")? 1:-1;
       const z = (b1==="1")? 1:-1;
@@ -297,12 +382,10 @@
 
     const qBits = neighborBitsForUp(frontBits);
     const q = trigramPos[qBits];
-
     let upCand = vecSub(q,pA);
     const projLen = vecDot(upCand,forward);
     upCand = vecSub(upCand, vecScale(forward,projLen));
     const up = vecNorm(upCand);
-
     let right = vecCross(up,forward);
     right = vecNorm(right);
 
@@ -326,7 +409,7 @@
     };
     palaceBases = {};
     for (const name in pairs){
-      const [f,b]=pairs[name];
+      const [f,b] = pairs[name];
       palaceBases[name] = basisForPalace(f,b);
     }
   }
@@ -396,11 +479,11 @@
     if (projMode==="ortho"){
       const s=getOrthoScale();
       return {x:pr.x*s+W/2, y:-pr.y*s+H/2, z:pr.z, k:s};
-    }else{
+    } else {
       const cameraDist = boundAbs()*4.2+2.0;
       const fov = Math.min(W,H)*1.25;
-      const z=pr.z+cameraDist;
-      const k=fov/z;
+      const z = pr.z + cameraDist;
+      const k = fov / z;
       return {x:pr.x*k+W/2, y:-pr.y*k+H/2, z, k};
     }
   }
@@ -557,7 +640,7 @@
     palaceRow.style.display   = (mode==="bagua")?"flex":"none";
 
     if (mode==="hex64"){
-      const unfolding=(unfoldTarget>0.5||unfold>0.5||!!unfoldAnim);
+      const unfolding=(unfoldTarget>0.5 || unfold>0.5 || !!unfoldAnim);
       btnUnfold.textContent = unfolding ? "折叠超立方体" : "展开超立方体";
     } else {
       btnUnfold.textContent="展开超立方体";
@@ -570,11 +653,11 @@
 
     if (mode==="bagua"){
       hudCheck.innerHTML =
-        `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>` +
+        `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>`+
         (currentPalace?` ｜ 宫视角：<b>${currentPalace}宫</b>`:" ｜ 宫视角：自由");
     } else {
       hudCheck.innerHTML =
-        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>` +
+        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>`+
         ` ｜ 展开：<b>${Math.round(unfold*100)}%</b>`;
     }
   }
@@ -625,26 +708,87 @@
     if (mode==="hex64") snapHexViewFor64();
     else { rotX=rotY=0; rotZ=Math.PI; }
     updateHUD();
+    saveSettings();
   }
   function toggleFlip(){
     const zNorm=((rotZ%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
     rotZ=(Math.abs(zNorm)<1e-3)?Math.PI:0;
-    updateHUD();
+    updateHUD(); saveSettings();
   }
   function startUnfold(to){
     unfoldTarget=to;
     unfoldAnim={start:performance.now(),from:unfold,to,dur:UNFOLD_DUR};
+    saveSettings();
   }
   function toggleUnfold(){
     if (mode!=="hex64") return;
     const to=(unfoldTarget>0.5 || unfold>0.5)?0:1;
-    startUnfold(to); updateHUD();
+    startUnfold(to);
+    updateHUD();
   }
-  function setPalace(name){
+  function setPalace(name, resetRot=true){
     if (!name){ currentPalace=null; palaceMat=ID_MAT.slice(); }
     else { currentPalace=name; palaceMat=palaceBases[name] || ID_MAT.slice(); }
-    rotX=rotY=0; rotZ=Math.PI;
+    if (resetRot){ rotX=rotY=0; rotZ=Math.PI; }
     updateHUD();
+    saveSettings();
+  }
+
+  // ===== 渲染辅助：绘制展开的 6 个镜像立方体 =====
+  function drawNetCubes(pos3ByKey){
+    if (mode!=="hex64") return;
+    if (!showStructureEl.checked) return;
+    if (unfold <= 0.001) return;
+
+    const p000 = pos3ByKey.get("real|0,0,0");
+    const p100 = pos3ByKey.get("real|1,0,0");
+    const p010 = pos3ByKey.get("real|0,1,0");
+    const p001 = pos3ByKey.get("real|0,0,1");
+    if (!p000 || !p100 || !p010 || !p001) return;
+
+    const vx = vecSub(p100,p000);
+    const vy = vecSub(p010,p000);
+    const vz = vecSub(p001,p000);
+    const lx = vecLength(vx), ly = vecLength(vy), lz = vecLength(vz);
+    const edge = (lx+ly+lz)/3 || 1;
+    const ux = vecScale(vx,1/(lx||1));
+    const uy = vecScale(vy,1/(ly||1));
+    const uz = vecScale(vz,1/(lz||1));
+
+    // “一格”：两倍边长，乘以 unfold 作为动画
+    const mag = edge * 2.1 * unfold;
+    const shifts = [
+      vecScale(ux, mag),
+      vecScale(ux,-mag),
+      vecScale(uy, mag),
+      vecScale(uy,-mag),
+      vecScale(uz, mag),
+      vecScale(uz,-mag)
+    ];
+
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = COLOR_NETCUBE;
+    ctx.globalAlpha = 0.45 + 0.35 * unfold;
+
+    for (const s of shifts){
+      for (const e of edges){
+        if (e.type!=="edge64" || e.role!=="real") continue;
+        const pa = pos3ByKey.get(e.a);
+        const pb = pos3ByKey.get(e.b);
+        if (!pa || !pb) continue;
+        const pa2 = vecAdd(pa,s);
+        const pb2 = vecAdd(pb,s);
+        const Pa = project(pa2);
+        const Pb = project(pb2);
+        ctx.beginPath();
+        ctx.moveTo(Pa.x,Pa.y);
+        ctx.lineTo(Pb.x,Pb.y);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
   }
 
   // ===== 渲染循环 =====
@@ -676,8 +820,8 @@
       for (const v of vertices){
         const v4=rotate4D(v.base4);
         const pFold=project4Dto3D(v4);
-        // 关键修改：蓝色 true 立方体向“上”移动，黄色 real 留在中间
-        const offsetY = (v.role==="true") ? lerp(0, +4, unfold) : 0;
+        // 关键：蓝色 true 立方体向“下方”展开，黄立方体在中间
+        const offsetY = (v.role==="true") ? lerp(0, -4, unfold) : 0;
         const p3={x:pFold.x, y:pFold.y + offsetY, z:pFold.z};
         pos3ByKey.set(v.key,p3);
       }
@@ -711,6 +855,7 @@
 
     function incident(e){ return selKey && (e.a===selKey || e.b===selKey); }
 
+    // 先画“中心 + 底部”的结构棱
     for (const it of edgesSorted){
       const {e,pa,pb}=it;
       if (!pa||!pb) continue;
@@ -733,6 +878,9 @@
       ctx.strokeStyle=hi?COLOR_HI:(e.val===0?COLOR_YANG:COLOR_YIN);
       ctx.stroke();
     }
+
+    // 再画 6 个镜像立方体（展开图）
+    drawNetCubes(pos3ByKey);
 
     const vertsSorted=vertices.map(v=>({v,p:projCache.get(v.key)}))
       .filter(x=>!!x.p).sort((a,b)=>b.p.z-a.p.z);
@@ -768,7 +916,7 @@
       }
     }
 
-    // 额外：在 64 卦模式下标出两个立方体的“宫名”
+    // 额外：标出两个主 cube 的“宫名”
     if (mode==="hex64"){
       let cr={x:0,y:0,z:0}, ct={x:0,y:0,z:0}, nr=0, nt=0;
       for (const v of vertices){
@@ -836,62 +984,81 @@
       if (!hit) return;
       selKey=(selKey===hit)?null:hit;
       updateDetail();
+      saveSettings();
+    } else {
+      saveSettings();
     }
   });
   canvas.addEventListener("wheel",e=>{
     e.preventDefault();
     const delta=Math.sign(e.deltaY);
     zoom=clamp(zoom*(delta>0?0.92:1.08),0.55,3.2);
+    saveSettings();
   },{passive:false});
 
   // ===== UI 事件 =====
   btnMode8.addEventListener("click",()=>{
     mode="bagua"; rotX=rotY=0; rotZ=Math.PI;
     unfold=unfoldTarget=0; selKey=null;
-    buildScene();
+    buildScene(); saveSettings();
   });
   btnMode64.addEventListener("click",()=>{
     mode="hex64"; selKey=null;
-    buildScene(); snapHexViewFor64();
+    buildScene(); snapHexViewFor64(); saveSettings();
   });
-  btnOrtho.addEventListener("click",()=>{ projMode="ortho"; updateHUD(); });
-  btnPersp.addEventListener("click",()=>{ projMode="persp"; updateHUD(); });
+  btnOrtho.addEventListener("click",()=>{ projMode="ortho"; updateHUD(); saveSettings(); });
+  btnPersp.addEventListener("click",()=>{ projMode="persp"; updateHUD(); saveSettings(); });
   btnSnap.addEventListener("click",()=>{
     if (mode==="hex64") snapHexViewFor64();
     else setPalace(currentPalace||"乾");
+    saveSettings();
   });
   btnFlip.addEventListener("click",toggleFlip);
   btnUnfold.addEventListener("click",toggleUnfold);
   btnReset.addEventListener("click",()=>{ resetView(); });
 
   [mxp,mxn,myp,myn,mzp,mzn].forEach(el=>{
-    el.addEventListener("change",()=>{ if(mode==="bagua") buildScene(); });
+    el.addEventListener("change",()=>{ if(mode==="bagua") buildScene(); saveSettings(); });
   });
   [showHexNetEl,showStructureEl,hideYellowEl,showLabels64El,auto4dEl]
-    .forEach(el=>el.addEventListener("change",()=>{ if(mode==="hex64") updateHUD(); }));
+    .forEach(el=>el.addEventListener("change",()=>{ if(mode==="hex64") updateHUD(); saveSettings(); }));
 
   for (const btn of palaceBtns){
     btn.addEventListener("click",()=>{
       if (mode!=="bagua") mode="bagua";
       setPalace(btn.dataset.palace);
       buildScene();
+      saveSettings();
     });
   }
-  btnPalaceFree.addEventListener("click",()=>{ setPalace(null); buildScene(); });
+  btnPalaceFree.addEventListener("click",()=>{
+    setPalace(null);
+    buildScene();
+    saveSettings();
+  });
 
-  function setHudCollapsed(c){
-    hud.classList.toggle("collapsed",c);
-    btnHudToggle.textContent=c?"☰":"✕";
-  }
-  btnHudToggle.addEventListener("click",()=>{ setHudCollapsed(!hud.classList.contains("collapsed")); });
+  btnHudToggle.addEventListener("click",()=>{
+    setHudCollapsed(!hud.classList.contains("collapsed"));
+    saveSettings();
+  });
 
   // ===== 初始化 =====
   resize();
   computePalaceBases();
-  setPalace("乾");
+  const loaded = loadSettings();
+
+  // 如果没有保存过视角，给一个默认
+  if (!currentPalace) currentPalace="乾";
+  setPalace(currentPalace, false);     // 不重置旋转，用已保存的
   buildScene();
-  resetView();
-  if (window.innerWidth<=640) setHudCollapsed(true);
+  if (!loaded){
+    // 第一次打开，用默认视角
+    resetView();
+    if (window.innerWidth<=640) setHudCollapsed(true);
+  } else {
+    updateHUD();
+  }
+
   requestAnimationFrame(render);
 })();
 </script>
