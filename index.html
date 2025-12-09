@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>先天八卦 / 64卦：tesseract 卦网 + 展开动画</title>
+  <title>先天八卦 / 64卦：卦网 + 超立方体展开（修复镜像宫位）</title>
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
     canvas { display:block; width:100vw; height:100vh; touch-action:none; }
@@ -13,7 +13,7 @@
       background:rgba(0,0,0,.56); color:#fff;
       padding:10px 12px; border-radius:14px;
       font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      max-width:min(560px, calc(100vw - 20px));
+      max-width:min(600px, calc(100vw - 20px));
       backdrop-filter: blur(6px);
     }
     #hudHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -112,16 +112,20 @@
       </div>
       <div class="row">
         <label><input id="hideYellow" type="checkbox" checked>隐藏黄色卦象(默认)</label>
-        <label><input id="showLabels64" type="checkbox">显示顶点卦名/bit</label>
+        <label><input id="showLabels64" type="checkbox">显示主顶点卦名/bit</label>
       </div>
       <div class="row">
-        <label><input id="auto4d" type="checkbox">自动四维旋转(可选)</label>
+        <label><input id="auto4d" type="checkbox">自动四维旋转(折叠时有效)</label>
+      </div>
+
+      <div class="row">
+        <label><input id="labelShared" type="checkbox">展开标注共享顶点(会重叠)</label>
       </div>
 
       <div class="hint">
-        ✅ 默认视角：000乾 与 111坤 投影重叠→正六边形；<br>
-        ✅ 默认上下：底面 = 111/101/100/110，顶面 = 011/001/010/000。<br>
-        “展开超立方体”会进入展开网动画，并强制显示每个点的八卦标签。
+        ✅ 展开修复：侧面 6 cube 各自唯一宫位（mask XOR），并在 cube 中心标“××宫”。<br>
+        ✅ 默认只标“侧面外侧4点”，避免共享面叠字；如需看镜像对照，勾选“展开标注共享顶点”。<br>
+        你给的上下：底面=111/101/100/110，顶面=011/001/010/000。
       </div>
     </div>
 
@@ -150,7 +154,10 @@
   const COLOR_NEUTRAL = "rgba(20,25,30,.55)";
   const COLOR_NET = "rgba(30,40,55,.22)";
   const COLOR_WLINK = "rgba(40,50,60,.35)";
-  const COLOR_SIDE = "rgba(60,120,85,.35)"; // 展开时侧面cube线(淡)
+
+  const COLOR_SIDE_E0 = "rgba(60,120,85,.35)";
+  const COLOR_SIDE_E1 = "rgba(30,70,55,.55)";
+  const COLOR_SIDE_TEXT = "rgba(10,14,18,.90)";
 
   // ====== DOM ======
   const canvas = document.getElementById("c");
@@ -183,6 +190,7 @@
   const hideYellowEl   = document.getElementById("hideYellow");
   const showLabels64El = document.getElementById("showLabels64");
   const auto4dEl       = document.getElementById("auto4d");
+  const labelSharedEl  = document.getElementById("labelShared");
 
   const hudCheck  = document.getElementById("check");
   const hudDetail = document.getElementById("detail");
@@ -190,23 +198,23 @@
   // ====== 视图 ======
   let W=0, H=0, DPR=1;
   let mode = "hex64";        // 默认：64卦
-  let projMode = "ortho";    // 默认：正交（保证六边形）
+  let projMode = "ortho";    // 默认：正交
   let rotX = 0;
   let rotY = 0;
-  let rotZ = Math.PI;        // ✅ 默认翻转：让 y=1(1xx) 作为“底面”显示在下方
+  let rotZ = Math.PI;        // 默认翻转：y=1(1xx)在下
   let zoom = 1.05;
 
-  // ====== unfold animation ======
-  let unfold = 0;            // 0=折叠(四维投影), 1=展开网
+  // unfold
+  let unfold = 0;
   let unfoldTarget = 0;
-  let unfoldAnim = null;     // {start, dur, from, to}
+  let unfoldAnim = null;
   const UNFOLD_DUR = 1200;
 
   // ====== 场景 ======
   let vertices = [];
   let edges = [];
   let vByKey = new Map();
-  let sceneMaxAbs = 3.2;
+  let sceneMaxAbs = 1;
 
   let selKey = null;
 
@@ -225,8 +233,9 @@
     return out;
   }
   function keyOf(cubeId, x,y,z){ return `${cubeId}|${x},${y},${z}`; }
-  function bitsFromLocal(x,y,z){ return `${y}${z}${x}`; }
+  function bitsFromLocal(x,y,z){ return `${y}${z}${x}`; } // 先天映射
   function trigramIndex(bits){ return (parseInt(bits,2)&7)+1; }
+
   function lerp(a,b,t){ return a + (b-a)*t; }
   function lerp3(p,q,t){ return {x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t), z:lerp(p.z,q.z,t)}; }
   function clamp01(x){ return Math.max(0, Math.min(1, x)); }
@@ -235,11 +244,23 @@
     return t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
   }
 
-  // ====== 8卦 world ======
+  // 折叠/展开 bounds（避免展开后缩放不够导致挤在一起）
+  const BOUND_FOLDED = 3.2;
+  const BOUND_UNFOLDED = 6.2;
+  function boundAbs(){
+    if (mode==="hex64") return lerp(BOUND_FOLDED, BOUND_UNFOLDED, unfold);
+    return sceneMaxAbs;
+  }
+
+  // ====== 8卦 cube helpers ======
   function makeCubeInstance({id, axisBase={x:-1,y:-1,z:-1}, axisMirror={x:false,y:false,z:false}, showLabels=true, pickable=true}) {
     return {
       id, showLabels, pickable,
-      ax: {x:{base:axisBase.x,mirror:!!axisMirror.x}, y:{base:axisBase.y,mirror:!!axisMirror.y}, z:{base:axisBase.z,mirror:!!axisMirror.z}}
+      ax: {
+        x:{base:axisBase.x,mirror:!!axisMirror.x},
+        y:{base:axisBase.y,mirror:!!axisMirror.y},
+        z:{base:axisBase.z,mirror:!!axisMirror.z},
+      }
     };
   }
   function worldPos(cube, xBit,yBit,zBit){
@@ -249,11 +270,11 @@
     return { x: cube.ax.x.base + STEP*bx, y: cube.ax.y.base + STEP*by, z: cube.ax.z.base + STEP*bz };
   }
 
-  // ====== 默认视角：乾坤重合 + 正六边形 + 底面1xx在下 ======
+  // ====== 默认视角：乾坤重合 + 六边形 ======
   function snapHexView(){
     rotY = -Math.PI/4;
     rotX = Math.atan(1/Math.sqrt(2));
-    rotZ = Math.PI; // ✅ 确保底面1xx在下
+    rotZ = Math.PI; // 确保底面在下
   }
   function resetView(){
     projMode = "ortho";
@@ -261,11 +282,138 @@
     snapHexView();
     updateHUD();
   }
-
   function toggleFlip(){
-    // 绕视线轴翻转180°（roll）
     rotZ = (Math.abs((rotZ%(2*Math.PI)) - 0) < 1e-3) ? Math.PI : 0;
     updateHUD();
+  }
+
+  // ====== Unfold net layout ======
+  const NET_REAL_BASE = {x:-1,y:-1,z:-1};
+  const NET_TRUE_BASE = {x:-1,y:-5,z:-1};
+
+  function netPosForMainVertex(v){
+    const {x,y,z} = v.local;
+    if (v.role==="real"){
+      const cube = makeCubeInstance({id:"NETR", axisBase:NET_REAL_BASE, axisMirror:{x:false,y:false,z:false}});
+      return worldPos(cube, x,y,z);
+    } else {
+      const cube = makeCubeInstance({id:"NETT", axisBase:NET_TRUE_BASE, axisMirror:{x:false,y:false,z:false}});
+      return worldPos(cube, x,y,z);
+    }
+  }
+
+  // ====== 侧面6个 cube 的宫位（关键修复点）=====
+  // 中央 real = 乾宫(000)
+  // 底部 true = 坤宫(111)
+  // 六个侧面 cell = 6个非零非全1 mask，各自唯一宫
+  const SIDE_DEFS = [
+    {dir:"+X", axis:"x", axisBase:{x: 1,y:-1,z:-1}, mirror:{x:true,y:false,z:false}, mask:"001"}, // 兑宫
+    {dir:"-X", axis:"x", axisBase:{x:-3,y:-1,z:-1}, mirror:{x:true,y:false,z:false}, mask:"110"}, // 艮宫
+    {dir:"+Y", axis:"y", axisBase:{x:-1,y: 1,z:-1}, mirror:{x:false,y:true,z:false}, mask:"100"}, // 巽宫
+    {dir:"-Y", axis:"y", axisBase:{x:-1,y:-3,z:-1}, mirror:{x:false,y:true,z:false}, mask:"011"}, // 震宫
+    {dir:"+Z", axis:"z", axisBase:{x:-1,y:-1,z: 1}, mirror:{x:false,y:false,z:true}, mask:"010"}, // 离宫
+    {dir:"-Z", axis:"z", axisBase:{x:-1,y:-1,z:-3}, mirror:{x:false,y:false,z:true}, mask:"101"}, // 坎宫（001->100 正好满足你的例子）
+  ];
+
+  function labelOffsetForDir(dir){
+    // 给共享顶点标签一个方向偏移，减少叠字
+    // 这里的偏移是屏幕像素级的“小挪动”，不影响几何本体
+    const d = 14;
+    switch(dir){
+      case "+X": return {dx:+d, dy:0};
+      case "-X": return {dx:-d, dy:0};
+      case "+Y": return {dx:0, dy:-d};
+      case "-Y": return {dx:0, dy:+d};
+      case "+Z": return {dx:+d*0.8, dy:-d*0.8};
+      case "-Z": return {dx:-d*0.8, dy:+d*0.8};
+      default: return {dx:0, dy:0};
+    }
+  }
+
+  function sideCellsAt(u){
+    const cb = NET_REAL_BASE;
+    const out=[];
+    for (const d of SIDE_DEFS){
+      const base = {
+        x: lerp(cb.x, d.axisBase.x, u),
+        y: lerp(cb.y, d.axisBase.y, u),
+        z: lerp(cb.z, d.axisBase.z, u),
+      };
+      const cube = makeCubeInstance({
+        id:"S"+d.dir,
+        axisBase: base,
+        axisMirror: d.mirror,
+        showLabels:true,
+        pickable:false
+      });
+      out.push({
+        dir: d.dir,
+        cube,
+        mask: d.mask,
+        palace: bitsToName[d.mask],
+        attachAxis: d.axis,
+        attachBit: (d.dir[0]==="+" ? 1 : 0),
+        labelOff: labelOffsetForDir(d.dir)
+      });
+    }
+    return out;
+  }
+
+  // ====== 4D rotate & project ======
+  function rotPlane(v, i, j, ang){
+    const c=Math.cos(ang), s=Math.sin(ang);
+    const a=v[i], b=v[j];
+    v[i]=a*c - b*s;
+    v[j]=a*s + b*c;
+  }
+  function rotate4D(base4){
+    const v=[base4.x,base4.y,base4.z,base4.w];
+    rotPlane(v,0,3,aXW);
+    rotPlane(v,1,3,aYW);
+    rotPlane(v,1,2,aYZ);
+    return v;
+  }
+  function project4Dto3D(v4){
+    const w=v4[3];
+    const f = W_DIST / (W_DIST - w);
+    return { x:v4[0]*f, y:v4[1]*f, z:v4[2]*f };
+  }
+
+  // ====== 3D rotate & project ======
+  function rotate3D(p){
+    let x = p.x * zoom, y = p.y * zoom, z = p.z * zoom;
+
+    const cy = Math.cos(rotY), sy = Math.sin(rotY);
+    const x1 = x*cy + z*sy;
+    const z1 = -x*sy + z*cy;
+
+    const cx = Math.cos(rotX), sx = Math.sin(rotX);
+    const y2 = y*cx - z1*sx;
+    const z2 = y*sx + z1*cx;
+
+    const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
+    const x3 = x1*cz - y2*sz;
+    const y3 = x1*sz + y2*cz;
+
+    return {x:x3, y:y3, z:z2};
+  }
+
+  function getOrthoScale(){
+    return 0.42 * Math.min(W,H) / Math.max(1e-6, boundAbs());
+  }
+
+  function project(p3){
+    const pr = rotate3D(p3);
+    if (projMode === "ortho"){
+      const s = getOrthoScale();
+      return { x: pr.x*s + W/2, y: -pr.y*s + H/2, z: pr.z, k:s };
+    } else {
+      const cameraDist = boundAbs() * 4.2 + 2.0;
+      const fov = Math.min(W,H) * 1.25;
+      const z = pr.z + cameraDist;
+      const k = fov / z;
+      return { x: pr.x*k + W/2, y: -pr.y*k + H/2, z, k };
+    }
   }
 
   // ====== buildScene ======
@@ -364,16 +512,19 @@
       }
 
       vByKey = new Map(vertices.map(v=>[v.key,v]));
-      sceneMaxAbs = 3.2;
+      sceneMaxAbs = 6.2; // 不再用作动态缩放核心，但给个大值也安全
 
       // structure edges within each layer + w links
       function addStructure(role){
+        // X edges val=y
         for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
           edges.push({type:"edge64", role, val:y, a:`${role}|0,${y},${z}`, b:`${role}|1,${y},${z}`});
         }
+        // Y edges val=z
         for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
           edges.push({type:"edge64", role, val:z, a:`${role}|${x},0,${z}`, b:`${role}|${x},1,${z}`});
         }
+        // Z edges val=x
         for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
           edges.push({type:"edge64", role, val:x, a:`${role}|${x},${y},0`, b:`${role}|${x},${y},1`});
         }
@@ -405,16 +556,15 @@
     updateHUD();
   }
 
-  // ====== HUD texts ======
+  // ====== HUD ======
   function updateHUD(){
     btnMode8.classList.toggle("active", mode==="bagua");
     btnMode64.classList.toggle("active", mode==="hex64");
     btnOrtho.classList.toggle("active", projMode==="ortho");
     btnPersp.classList.toggle("active", projMode==="persp");
 
-    // Unfold button text
-    const unfolding = unfold > 0.001 || !!unfoldAnim;
     if (mode==="hex64"){
+      const unfolding = (unfold > 0.001 || !!unfoldAnim);
       btnUnfold.textContent = (unfoldTarget > 0.5 || unfold > 0.5 || unfolding) ? "折叠超立方体" : "展开超立方体";
     } else {
       btnUnfold.textContent = "展开超立方体";
@@ -424,116 +574,11 @@
       hudCheck.innerHTML = `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b><br>`+
                            `校验(本卦B)：阳6 阴6（镜像不参与校验显示）`;
     } else {
-      const showHexNet = !!showHexNetEl.checked;
-      const showStructure = !!showStructureEl.checked;
-      const hideYellow = !!hideYellowEl.checked;
-      const showLabels = !!showLabels64El.checked;
-      const auto4d = !!auto4dEl.checked;
       hudCheck.innerHTML =
         `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b> ｜ 展开=<b>${Math.round(unfold*100)}%</b><br>`+
-        `显示：卦网=${showHexNet?"ON":"OFF"} ｜ 结构棱=${showStructure?"ON":"OFF"} ｜ 隐黄=${hideYellow?"ON":"OFF"} ｜ 标签=${showLabels?"ON":"OFF"} ｜ 自动4D=${auto4d?"ON":"OFF"}`;
+        `卦网=${showHexNetEl.checked?"ON":"OFF"} ｜ 结构=${showStructureEl.checked?"ON":"OFF"} ｜ 隐黄=${hideYellowEl.checked?"ON":"OFF"} ｜ 主标签=${showLabels64El.checked?"ON":"OFF"} ｜ 共享标注=${labelSharedEl.checked?"ON":"OFF"}`;
     }
     if (!selKey) hudDetail.innerHTML = "";
-  }
-
-  // ====== 投影（含 roll rotZ） ======
-  function rotate3D(p){
-    let x = p.x * zoom, y = p.y * zoom, z = p.z * zoom;
-
-    // yaw around Y
-    const cy = Math.cos(rotY), sy = Math.sin(rotY);
-    const x1 = x*cy + z*sy;
-    const z1 = -x*sy + z*cy;
-
-    // pitch around X
-    const cx = Math.cos(rotX), sx = Math.sin(rotX);
-    const y2 = y*cx - z1*sx;
-    const z2 = y*sx + z1*cx;
-
-    // roll around Z (for flip bottom/top)
-    const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
-    const x3 = x1*cz - y2*sz;
-    const y3 = x1*sz + y2*cz;
-
-    return {x:x3, y:y3, z:z2};
-  }
-
-  function getOrthoScale(){
-    return 0.42 * Math.min(W,H) / Math.max(1e-6, sceneMaxAbs);
-  }
-
-  function project(p3){
-    const pr = rotate3D(p3);
-    if (projMode === "ortho"){
-      const s = getOrthoScale();
-      return { x: pr.x*s + W/2, y: -pr.y*s + H/2, z: pr.z, k:s };
-    } else {
-      const cameraDist = sceneMaxAbs * 4.2 + 2.0;
-      const fov = Math.min(W,H) * 1.25;
-      const z = pr.z + cameraDist;
-      const k = fov / z;
-      return { x: pr.x*k + W/2, y: -pr.y*k + H/2, z, k };
-    }
-  }
-
-  // ====== 4D rotate & project ======
-  function rotPlane(v, i, j, ang){
-    const c=Math.cos(ang), s=Math.sin(ang);
-    const a=v[i], b=v[j];
-    v[i]=a*c - b*s;
-    v[j]=a*s + b*c;
-  }
-  function rotate4D(base4){
-    const v=[base4.x,base4.y,base4.z,base4.w];
-    rotPlane(v,0,3,aXW);
-    rotPlane(v,1,3,aYW);
-    rotPlane(v,1,2,aYZ);
-    return v;
-  }
-  function project4Dto3D(v4){
-    const w=v4[3];
-    const f = W_DIST / (W_DIST - w);
-    return { x:v4[0]*f, y:v4[1]*f, z:v4[2]*f };
-  }
-
-  // ====== Unfold target positions (3D展开网) ======
-  // central real cube base (-1,-1,-1)
-  const NET_REAL_BASE = {x:-1,y:-1,z:-1};
-  // bottom true cube base (-1,-5,-1) 形成“中央->-Y->真我”竖向三节
-  const NET_TRUE_BASE = {x:-1,y:-5,z:-1};
-
-  function netPosForMainVertex(v){
-    const {x,y,z} = v.local;
-    if (v.role==="real"){
-      const cube = makeCubeInstance({id:"NETR", axisBase:NET_REAL_BASE, axisMirror:{x:false,y:false,z:false}});
-      return worldPos(cube, x,y,z);
-    } else {
-      const cube = makeCubeInstance({id:"NETT", axisBase:NET_TRUE_BASE, axisMirror:{x:false,y:false,z:false}});
-      return worldPos(cube, x,y,z);
-    }
-  }
-
-  // side cubes (6) slide out from central base when unfolding
-  function sideCubesAt(u){
-    const cb = NET_REAL_BASE; // start from central base
-    const defs = [
-      {id:"+X", axisBase:{x: 1,y:-1,z:-1}, mirror:{x:true,y:false,z:false}},
-      {id:"-X", axisBase:{x:-3,y:-1,z:-1}, mirror:{x:true,y:false,z:false}},
-      {id:"+Y", axisBase:{x:-1,y: 1,z:-1}, mirror:{x:false,y:true,z:false}},
-      {id:"-Y", axisBase:{x:-1,y:-3,z:-1}, mirror:{x:false,y:true,z:false}},
-      {id:"+Z", axisBase:{x:-1,y:-1,z: 1}, mirror:{x:false,y:false,z:true}},
-      {id:"-Z", axisBase:{x:-1,y:-1,z:-3}, mirror:{x:false,y:false,z:true}},
-    ];
-    const out=[];
-    for (const d of defs){
-      const base = {
-        x: lerp(cb.x, d.axisBase.x, u),
-        y: lerp(cb.y, d.axisBase.y, u),
-        z: lerp(cb.z, d.axisBase.z, u),
-      };
-      out.push(makeCubeInstance({ id:"S"+d.id, axisBase:base, axisMirror:d.mirror, showLabels:true, pickable:false }));
-    }
-    return out;
   }
 
   // ====== unfold animation ======
@@ -637,7 +682,7 @@
         updateHUD();
       }
 
-      // optional auto 4D rotate (only meaningful while folded-ish)
+      // auto 4D rotate (only while mostly folded)
       if (auto4dEl.checked && unfold < 0.35){
         aXW += dt*0.00055;
         aYW += dt*0.00035;
@@ -645,22 +690,16 @@
       }
     }
 
-    // ----- compute 3D positions for main vertices -----
+    // compute 3D positions for main vertices
     const pos3ByKey = new Map();
     if (mode==="bagua"){
       for (const v of vertices) pos3ByKey.set(v.key, v.world);
     } else {
       for (const v of vertices){
-        // folded 4D projection
         const v4 = rotate4D(v.base4);
         const pFold = project4Dto3D(v4);
-
-        // unfolded net target (3D net)
         const pNet = netPosForMainVertex(v);
-
-        // blend
-        const p = lerp3(pFold, pNet, unfold);
-        pos3ByKey.set(v.key, p);
+        pos3ByKey.set(v.key, lerp3(pFold, pNet, unfold));
       }
     }
 
@@ -673,14 +712,15 @@
     }
     lastProjCache = projCache;
 
-    // toggles (force on during unfolding)
+    // toggles
     const unfoldingNow = (mode==="hex64") && (unfold > 0.02);
-    const showHexNet = (mode==="hex64") ? (!!showHexNetEl.checked) : true;
+    const showHexNet = (mode==="hex64") ? !!showHexNetEl.checked : true;
     const showStructure = (mode==="hex64") ? (!!showStructureEl.checked || unfoldingNow) : true;
+
     const hideYellow = (mode==="hex64") ? (!!hideYellowEl.checked && !unfoldingNow) : false;
     const showLabels64 = (mode==="hex64") ? (!!showLabels64El.checked || unfoldingNow) : true;
 
-    // ----- edges draw list -----
+    // edges to draw
     const drawableEdges = edges.filter(e => {
       if (mode==="bagua") return e.type==="edge";
       if (e.type==="hex") return showHexNet;
@@ -688,7 +728,7 @@
       return false;
     });
 
-    // sort edges by depth
+    // sort edges
     const edgesSorted = drawableEdges.map(e=>{
       const pa=projCache.get(e.a), pb=projCache.get(e.b);
       const z = ((pa?.z??1e9)+(pb?.z??1e9))*0.5;
@@ -700,7 +740,7 @@
       return e.a===selKey || e.b===selKey;
     }
 
-    // draw edges
+    // draw main edges
     for (const it of edgesSorted){
       const {e,pa,pb}=it;
       if (!pa||!pb) continue;
@@ -733,74 +773,109 @@
       ctx.stroke();
     }
 
-    // ----- unfolded: draw 6 side cubes (展开网) -----
+    // ====== unfolded: draw 6 side cubes with palace masks (修复区) ======
     if (mode==="hex64" && unfold > 0.02){
-      const appear = clamp01((unfold - 0.18) / 0.82); // 先移动主两层，再出现侧面网
+      const appear = clamp01((unfold - 0.18) / 0.82);
       const sideAlpha = 0.10 + 0.90*appear;
 
-      const cubes = sideCubesAt(appear); // 使用 appear 让侧面“后出现更稳”
-      // Precompute side vertex projections
-      const sideVerts = [];
-      const sideEdges = [];
+      const sideCells = sideCellsAt(appear);
 
-      for (const cube of cubes){
-        // vertices
+      // collect edges & vertex labels
+      const sideEdges = [];
+      const sideVerts = [];
+      const sideCenters = [];
+
+      for (const sc of sideCells){
+        const cube = sc.cube;
+
+        // cube center
+        let cx=0, cy=0, cz=0;
         for (let x=0;x<=1;x++) for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
-          const bits = bitsFromLocal(x,y,z);
           const p3 = worldPos(cube,x,y,z);
-          const p2 = project(p3);
-          sideVerts.push({cubeId:cube.id, x,y,z, bits, name:bitsToName[bits], p2});
+          cx += p3.x; cy += p3.y; cz += p3.z;
+
+          // label bits = (local bits) XOR (宫mask)
+          const rawBits = bitsFromLocal(x,y,z);
+          const labBits = xorBits3(rawBits, sc.mask);
+          const name = bitsToName[labBits];
+
+          // 是否共享面顶点
+          let shared=false;
+          if (sc.attachAxis==="x") shared = (x===sc.attachBit);
+          if (sc.attachAxis==="y") shared = (y===sc.attachBit);
+          if (sc.attachAxis==="z") shared = (z===sc.attachBit);
+
+          // 默认：只标“外侧4点”，避免重叠
+          // 如果用户勾选 labelShared，则共享面也标（并做偏移）
+          if (!shared || labelSharedEl.checked){
+            const p2 = project(p3);
+            const off = shared ? sc.labelOff : {dx:0, dy:0};
+            sideVerts.push({
+              p2,
+              text: `${name} ${labBits}`,
+              dx: off.dx,
+              dy: off.dy
+            });
+          }
         }
-        // edges (12) with yin/yang val
-        // X edges val=y
+        sideCenters.push({
+          p2: project({x:cx/8, y:cy/8, z:cz/8}),
+          text: `${sc.palace}宫 ${sc.mask}`
+        });
+
+        // edges 12 (use yin/yang val like base rule)
         for (let y=0;y<=1;y++) for (let z=0;z<=1;z++){
           sideEdges.push({val:y, a:worldPos(cube,0,y,z), b:worldPos(cube,1,y,z)});
         }
-        // Y edges val=z
         for (let x=0;x<=1;x++) for (let z=0;z<=1;z++){
           sideEdges.push({val:z, a:worldPos(cube,x,0,z), b:worldPos(cube,x,1,z)});
         }
-        // Z edges val=x
         for (let x=0;x<=1;x++) for (let y=0;y<=1;y++){
           sideEdges.push({val:x, a:worldPos(cube,x,y,0), b:worldPos(cube,x,y,1)});
         }
       }
 
-      // draw side edges (use yin/yang but with greenish tint + alpha)
       ctx.save();
       ctx.globalAlpha = sideAlpha;
 
-      // edges
+      // draw side edges
       for (const e of sideEdges){
         const pa = project(e.a), pb = project(e.b);
         ctx.beginPath();
         ctx.moveTo(pa.x, pa.y);
         ctx.lineTo(pb.x, pb.y);
         ctx.lineWidth = 2.6;
-        // mix yin/yang with a side color
-        ctx.strokeStyle = (e.val===0) ? COLOR_SIDE : "rgba(30,70,55,.55)";
+        ctx.strokeStyle = (e.val===0) ? COLOR_SIDE_E0 : COLOR_SIDE_E1;
         ctx.stroke();
       }
 
-      // vertices + labels
+      // cube center palace labels
+      ctx.fillStyle = COLOR_SIDE_TEXT;
+      ctx.font = "12px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (const c of sideCenters){
+        ctx.fillText(c.text, c.p2.x, c.p2.y);
+      }
+
+      // side vertex dots + labels
+      ctx.font = "12px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
       for (const sv of sideVerts){
         ctx.beginPath();
-        ctx.arc(sv.p2.x, sv.p2.y, 5.2, 0, Math.PI*2);
+        ctx.arc(sv.p2.x, sv.p2.y, 5.0, 0, Math.PI*2);
         ctx.fillStyle = "rgba(20,25,30,.85)";
         ctx.fill();
 
-        // label every point during unfolding
-        ctx.fillStyle = COLOR_LABEL;
-        ctx.font = "12px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText(`${sv.name} ${sv.bits}`, sv.p2.x, sv.p2.y - 7);
+        ctx.fillStyle = COLOR_SIDE_TEXT;
+        ctx.fillText(sv.text, sv.p2.x + sv.dx, sv.p2.y - 7 + sv.dy);
       }
 
       ctx.restore();
     }
 
-    // ----- draw main vertices -----
+    // ====== draw main vertices ======
     const vertsSorted = vertices.map(v=>({v,p:projCache.get(v.key)}))
       .filter(x=>!!x.p)
       .sort((a,b)=>b.p.z-a.p.z);
@@ -825,7 +900,7 @@
       ctx.fill();
       ctx.globalAlpha = 1;
 
-      // label
+      // labels (main)
       let showLabel = false;
       if (mode==="bagua"){
         showLabel = v.showLabel;
@@ -840,6 +915,30 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
         ctx.fillText(`${v.name} ${v.bits}`, p.x, p.y - (isSel ? r*1.6 : r*1.25));
+      }
+    }
+
+    // ====== (optional) center labels for 乾宫/坤宫 during unfold ======
+    if (mode==="hex64" && unfold > 0.02){
+      // compute centers from current pos3
+      let cr={x:0,y:0,z:0}, ct={x:0,y:0,z:0};
+      let nr=0, nt=0;
+      for (const v of vertices){
+        const p3 = pos3ByKey.get(v.key);
+        if (!p3) continue;
+        if (v.role==="real"){ cr.x+=p3.x; cr.y+=p3.y; cr.z+=p3.z; nr++; }
+        if (v.role==="true"){ ct.x+=p3.x; ct.y+=p3.y; ct.z+=p3.z; nt++; }
+      }
+      if (nr>0 && nt>0){
+        cr.x/=nr; cr.y/=nr; cr.z/=nr;
+        ct.x/=nt; ct.y/=nt; ct.z/=nt;
+        const pr = project(cr), pt = project(ct);
+        ctx.fillStyle = "rgba(10,14,18,.85)";
+        ctx.font = "13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`乾宫 000`, pr.x, pr.y);
+        ctx.fillText(`坤宫 111`, pt.x, pt.y);
       }
     }
 
@@ -870,7 +969,7 @@
       const dx = e.clientX - prev.x;
       const dy = e.clientY - prev.y;
       rotY += dx*0.008;
-      rotX += dy*0.008; // ✅ 不再限制俯仰（取消受限）
+      rotX += dy*0.008; // 不限制俯仰
     } else if (pointers.size===2 && pinchStart){
       const pts=[...pointers.values()];
       const dist=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
@@ -904,7 +1003,7 @@
     zoom = Math.max(0.55, Math.min(3.2, zoom*(delta>0?0.92:1.08)));
   }, {passive:false});
 
-  // ====== UI events ======
+  // ====== UI ======
   btnMode8.addEventListener("click", ()=>{
     mode="bagua";
     unfold = 0; unfoldTarget = 0; unfoldAnim = null;
@@ -927,15 +1026,11 @@
   });
 
   btnFlip.addEventListener("click", ()=>{ toggleFlip(); });
-
-  btnUnfold.addEventListener("click", ()=>{
-    toggleUnfold();
-  });
-
+  btnUnfold.addEventListener("click", ()=>{ toggleUnfold(); });
   btnReset.addEventListener("click", ()=>{ resetView(); });
 
   [mxp,mxn,myp,myn,mzp,mzn].forEach(el=> el.addEventListener("change", ()=>{ if(mode==="bagua") buildScene(); }));
-  [showHexNetEl, showStructureEl, hideYellowEl, showLabels64El, auto4dEl].forEach(el=>{
+  [showHexNetEl, showStructureEl, hideYellowEl, showLabels64El, auto4dEl, labelSharedEl].forEach(el=>{
     el.addEventListener("change", ()=>{ if(mode==="hex64") updateHUD(); });
   });
 
@@ -963,7 +1058,6 @@
   buildScene();
   resetView();
 
-  // 手机默认折叠HUD
   if (window.innerWidth <= 640) setHudCollapsed(true);
   else setHudCollapsed(false);
 
