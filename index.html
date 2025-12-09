@@ -1,4 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>先天八卦 / 64卦：bit 立方体 + 宫视角</title>
+  <style>
+    html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
+    canvas { display:block; width:100vw; height:100vh; touch-action:none; }
+
+    #hud{
+      position:fixed; left:10px; top:10px; z-index:10;
+      background:rgba(0,0,0,.56); color:#fff;
+      padding:10px 12px; border-radius:14px;
+      font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      max-width:min(640px, calc(100vw - 20px));
+      backdrop-filter: blur(6px);
+    }
+    #hudHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #hudTitle{ font-weight:900; }
+    #hudBody{ margin-top:8px; }
+
+    #hud.collapsed{ padding:8px 10px; max-width:min(260px, calc(100vw - 20px)); }
+    #hud.collapsed #hudBody{ display:none; }
+
+    .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+    .chip{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.12);
+    }
+    .sw{ width:14px; height:14px; border-radius:4px; display:inline-block; border:1px solid rgba(255,255,255,.35); }
+
+    button{
+      appearance:none; border:1px solid rgba(255,255,255,.25);
+      background:rgba(255,255,255,.10);
+      color:#fff; border-radius:10px;
+      padding:6px 10px; cursor:pointer; font:inherit;
+    }
+    button.active{ background:rgba(255,255,255,.22); border-color:rgba(255,255,255,.45); }
+    button:active{ transform:translateY(1px); }
+    button:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+
+    .mini{ padding:4px 8px; border-radius:999px; }
+    .sep{ width:1px; height:22px; background:rgba(255,255,255,.2); }
+
+    label{ display:inline-flex; align-items:center; gap:6px; }
+    input[type="checkbox"]{ width:16px; height:16px; }
+    .hint{ opacity:.85; font-size:12px; margin-top:8px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+    #mirrorPanel, #hexPanel{
+      margin-top:10px; padding-top:10px;
+      border-top:1px solid rgba(255,255,255,.18);
+    }
+    #mirrorPanel{ display:none; }
+    #hexPanel{ display:none; }
+
+    #check{ margin-top:8px; opacity:.95; }
+    #detail{ margin-top:8px; opacity:.98; }
+    #detail b{ font-weight:900; }
+
+    .palace-label{ font-weight:800; margin-right:4px; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="hudHeader">
+    <div id="hudTitle">bit 立方体：8卦 / 64卦（宫视角 + 超立方体）</div>
+    <button id="btnHudToggle" class="mini">☰</button>
+  </div>
+
+  <div id="hudBody">
+    <div class="row">
+      <span class="chip"><span class="sw" style="background:#cfd6df;"></span>浅色=阳爻(0)</span>
+      <span class="chip"><span class="sw" style="background:#1f2329;"></span>深色=阴爻(1)</span>
+      <span class="chip"><span class="sw" style="background:#ffd24a;"></span>黄点=坤宫 / 本我(下卦)</span>
+      <span class="chip"><span class="sw" style="background:#5ad6ff;"></span>蓝点=乾宫 / 真我(上卦)</span>
+    </div>
+
+    <div class="row">
+      <button id="btnMode8">8卦</button>
+      <button id="btnMode64" class="active">64卦</button>
+      <span class="sep"></span>
+      <button id="btnOrtho" class="active">正交</button>
+      <button id="btnPersp">透视</button>
+      <button id="btnSnap" class="mini">乾坤重合(六边形)</button>
+      <button id="btnFlip" class="mini">上下翻转(底/顶)</button>
+      <button id="btnUnfold" class="mini">展开超立方体</button>
+      <button id="btnReset" class="mini">重置</button>
+    </div>
+
+    <div class="row" id="palaceRow">
+      <span class="palace-label">宫视角(8卦)：</span>
+      <button class="mini palaceBtn" data-palace="乾">乾</button>
+      <button class="mini palaceBtn" data-palace="坤">坤</button>
+      <button class="mini palaceBtn" data-palace="兑">兑</button>
+      <button class="mini palaceBtn" data-palace="艮">艮</button>
+      <button class="mini palaceBtn" data-palace="离">离</button>
+      <button class="mini palaceBtn" data-palace="坎">坎</button>
+      <button class="mini palaceBtn" data-palace="震">震</button>
+      <button class="mini palaceBtn" data-palace="巽">巽</button>
+      <button id="btnPalaceFree" class="mini">自由旋转</button>
+    </div>
+
+    <div class="hint">
+      交互：拖拽旋转｜滚轮/双指缩放｜点顶点查看叠加信息。<br/>
+      宫视角：中心对角线两卦重叠，离玩家近的那个卦=当前宫。
+    </div>
+
+    <div id="mirrorPanel">
+      <div style="font-weight:900; margin-bottom:6px;">镜像立方体（按面生成，8卦模式）</div>
+      <div class="row">
+        <label><input id="mxp" type="checkbox">+X</label>
+        <label><input id="mxn" type="checkbox">-X</label>
+        <label><input id="myp" type="checkbox">+Y</label>
+        <label><input id="myn" type="checkbox">-Y</label>
+        <label><input id="mzp" type="checkbox">+Z</label>
+        <label><input id="mzn" type="checkbox">-Z</label>
+      </div>
+      <div class="hint">勾选后以该面四顶点为“共享面”，生成镜像 cube，用来拼接八宫结构。</div>
+    </div>
+
+    <div id="hexPanel">
+      <div style="font-weight:900; margin-bottom:6px;">64卦（本我 × 真我 的超立方体）</div>
+      <div class="row">
+        <label><input id="showHexNet" type="checkbox">显示64卦虚线卦网</label>
+        <label><input id="showStructure" type="checkbox" checked>显示结构棱</label>
+      </div>
+      <div class="row">
+        <label><input id="hideYellow" type="checkbox">隐藏黄色卦象</label>
+        <label><input id="showLabels64" type="checkbox" checked>显示主顶点卦名/bit</label>
+        <label><input id="auto4d" type="checkbox">自动四维旋转</label>
+      </div>
+      <div class="hint">
+        折叠：两个 3D 立方体（坤宫=黄，本我；乾宫=蓝，真我）在四维中叠加。<br/>
+        展开：中心黄 cube + 6 个镜像 cube + 底部蓝 cube，形成 8 立方体展开图。
+      </div>
+    </div>
+
+    <div id="check"></div>
+    <div id="detail"></div>
+  </div>
+</div>
+
 <script>
+window.addEventListener('DOMContentLoaded', () => {
 (() => {
   const STORAGE_KEY = "bagua_cube_settings_v1";
 
@@ -22,6 +169,7 @@
 
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
+
   const hud = document.getElementById("hud");
   const btnHudToggle = document.getElementById("btnHudToggle");
 
@@ -430,7 +578,6 @@
     addStruct("real");
     addStruct("true");
 
-    // real<->true 一一对应（乾×坤）
     for (let x=0;x<=1;x++)
       for (let y=0;y<=1;y++)
         for (let z=0;z<=1;z++)
@@ -635,14 +782,12 @@
       const baseKun3 = pos3ByKey.get(kunKey);
       if (!baseKun3) continue;
 
-      // 乾 × 坤
       const pKun2D = project(baseKun3);
       ctx.beginPath();
       ctx.moveTo(pSrc2D.x,pSrc2D.y);
       ctx.lineTo(pKun2D.x,pKun2D.y);
       ctx.stroke();
 
-      // 乾 × 其它六宫（用镜像 cube 的对应点）
       for (const s of shifts){
         const tgt3 = vecAdd(baseKun3, s);
         const pTgt2D = project(tgt3);
@@ -915,4 +1060,7 @@
 
   requestAnimationFrame(render);
 })();
+});
 </script>
+</body>
+</html>
