@@ -132,6 +132,7 @@
         <label><input id="hideYellow" type="checkbox">隐藏黄色卦象</label>
         <label><input id="showLabels64" type="checkbox" checked>显示主顶点卦名/bit</label>
         <label><input id="auto4d" type="checkbox">自动四维旋转</label>
+        <label><input id="lockStatic" type="checkbox">锁定展开图视角</label>
       </div>
       <div class="hint">
         折叠：两个 3D 立方体（坤宫=黄，本我；乾宫=蓝，真我）在四维中叠加。<br/>
@@ -211,6 +212,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const hideYellowEl   = document.getElementById("hideYellow");
   const showLabels64El = document.getElementById("showLabels64");
   const auto4dEl       = document.getElementById("auto4d");
+  const lockStaticEl   = document.getElementById("lockStatic");
 
   const hudCheck  = document.getElementById("check");
   const hudDetail = document.getElementById("detail");
@@ -299,7 +301,8 @@ window.addEventListener('DOMContentLoaded', () => {
           showStructure: showStructureEl.checked,
           hideYellow: hideYellowEl.checked,
           showLabels64: showLabels64El.checked,
-          auto4d: auto4dEl.checked
+          auto4d: auto4dEl.checked,
+          lockStatic: lockStaticEl.checked
         },
         unfoldTarget
       };
@@ -334,11 +337,12 @@ window.addEventListener('DOMContentLoaded', () => {
         mzn.checked=!!data.mirrors.mzn;
       }
       if (data.hex){
-        showHexNetEl.checked   = !!data.hex.showHexNet;
-        showStructureEl.checked= !!data.hex.showStructure;
-        hideYellowEl.checked   = !!data.hex.hideYellow;
-        showLabels64El.checked = !!data.hex.showLabels64;
-        auto4dEl.checked       = !!data.hex.auto4d;
+        showHexNetEl.checked    = !!data.hex.showHexNet;
+        showStructureEl.checked = !!data.hex.showStructure;
+        hideYellowEl.checked    = !!data.hex.hideYellow;
+        showLabels64El.checked  = !!data.hex.showLabels64;
+        auto4dEl.checked        = !!data.hex.auto4d;
+        lockStaticEl.checked    = !!data.hex.lockStatic;
       }
       if (typeof data.unfoldTarget==="number"){
         unfoldTarget = clamp01(data.unfoldTarget);
@@ -589,10 +593,24 @@ window.addEventListener('DOMContentLoaded', () => {
           edges.push({type:"wlink",a:`real|${x},${y},${z}`,b:`true|${x},${y},${z}`});
   }
 
+  function applyStaticLayoutIfNeeded() {
+    if (mode === "hex64" && lockStaticEl.checked) {
+      projMode = "ortho";           // 正交投影
+      unfold = unfoldTarget = 1;    // 完全展开
+      rotX = 0;
+      rotY = 0;
+      rotZ = 0;                     // 展开图朝上
+      auto4dEl.checked = false;     // 关闭自动四维旋转
+    }
+  }
+
   function buildScene(){
     selKey=null;
     if (mode==="bagua") buildSceneBagua();
     else buildSceneHex64();
+
+    applyStaticLayoutIfNeeded();    // ★ 锁定视角时强制应用布局
+
     updateHUD();
     hudDetail.innerHTML="";
   }
@@ -823,7 +841,7 @@ window.addEventListener('DOMContentLoaded', () => {
         unfold=lerp(unfoldAnim.from,unfoldAnim.to,k);
         if (t>=1){ unfold=unfoldAnim.to; unfoldAnim=null; }
       }
-      if (auto4dEl.checked){
+      if (auto4dEl.checked && !lockStaticEl.checked){
         aXW+=dt*0.00055;
         aYW+=dt*0.00035;
         aYZ+=dt*0.00045;
@@ -964,7 +982,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!pointers.has(e.pointerId)) return;
     const prev=pointers.get(e.pointerId);
     pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+
     if (pointers.size===1){
+      // 64卦 + 锁定展开图视角 时，不响应旋转
+      if (mode === "hex64" && lockStaticEl.checked) return;
       const dx=e.clientX-prev.x, dy=e.clientY-prev.y;
       rotY+=dx*0.008;
       rotX+=dy*0.008;
@@ -1025,8 +1046,14 @@ window.addEventListener('DOMContentLoaded', () => {
   [mxp,mxn,myp,myn,mzp,mzn].forEach(el=>{
     el.addEventListener("change",()=>{ if(mode==="bagua") buildSceneAndSave(); });
   });
-  [showHexNetEl,showStructureEl,hideYellowEl,showLabels64El,auto4dEl]
-    .forEach(el=>el.addEventListener("change",()=>{ if(mode==="hex64") updateHUD(); saveSettings(); }));
+  [showHexNetEl,showStructureEl,hideYellowEl,showLabels64El,auto4dEl,lockStaticEl]
+    .forEach(el=>el.addEventListener("change",()=>{
+      if (mode === "hex64") {
+        applyStaticLayoutIfNeeded();
+        updateHUD();
+      }
+      saveSettings();
+    }));
 
   for (const btn of palaceBtns){
     btn.addEventListener("click",()=>{
