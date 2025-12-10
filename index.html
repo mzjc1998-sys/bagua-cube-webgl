@@ -86,7 +86,7 @@
       <button id="btnOrtho" class="active">正交</button>
       <button id="btnPersp">透视</button>
       <button id="btnSnap" class="mini">乾坤重合(六边形)</button>
-      <button id="btnFlip" class="mini">上下翻转(底/顶)</button>
+      <button id="btnFlip" class="mini">上下翻转</button>
       <button id="btnUnfold" class="mini">展开超立方体</button>
       <button id="btnReset" class="mini">重置</button>
     </div>
@@ -167,8 +167,19 @@ window.addEventListener('DOMContentLoaded', () => {
   const COLOR_WLINK = "rgba(40,50,60,.35)";
   const COLOR_NETCUBE = "rgba(110,130,150,.55)";
 
-  const canvas = document.getElementById("c");
+  // ---- 关键修复：安全获取 canvas，如无则自动创建 ----
+  let canvas = document.getElementById("c");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.id = "c";
+    document.body.insertBefore(canvas, document.body.firstChild || null);
+  }
   const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    console.error("Canvas 2D context 不支持，无法绘制立方体。");
+    return;
+  }
+  // --------------------------------------------------
 
   const hud = document.getElementById("hud");
   const btnHudToggle = document.getElementById("btnHudToggle");
@@ -245,14 +256,8 @@ window.addEventListener('DOMContentLoaded', () => {
   function vecAdd(a,b){ return {x:a.x+b.x,y:a.y+b.y,z:a.z+b.z}; }
   function vecSub(a,b){ return {x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}; }
   function vecScale(v,s){ return {x:v.x*s,y:v.y*s,z:v.z*s}; }
-  function vecDot(a,b){ return a.x*b.x + a.y*b.y + a.z*b.z; }
   function vecLength(v){ return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z); }
   function vecNorm(v){ const L=vecLength(v)||1; return {x:v.x/L,y:v.y/L,z:v.z/L}; }
-  function vecCross(a,b){
-    return {x:a.y*b.z - a.z*b.y,
-            y:a.z*b.x - a.x*b.z,
-            z:a.x*b.y - a.y*b.x};
-  }
 
   function keyOf(cubeId,x,y,z){ return cubeId+"|"+x+","+y+","+z; }
 
@@ -265,7 +270,7 @@ window.addEventListener('DOMContentLoaded', () => {
     canvas.style.height = H + "px";
     ctx.setTransform(DPR,0,0,DPR,0,0);
   }
-  window.addEventListener("resize", () => { resize(); });
+  window.addEventListener("resize", resize);
 
   function setHudCollapsed(collapsed){
     hud.classList.toggle("collapsed", !!collapsed);
@@ -368,10 +373,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const qBits = neighborBitsForUp(frontBits);
     const q = trigramPos[qBits];
     let upCand = vecSub(q,pA);
-    const projLen = vecDot(upCand,forward);
-    upCand = vecSub(upCand, vecScale(forward,projLen));
+    const projLen = (upCand.x*forward.x + upCand.y*forward.y + upCand.z*forward.z);
+    upCand = {x:upCand.x-forward.x*projLen, y:upCand.y-forward.y*projLen, z:upCand.z-forward.z*projLen};
     const up = vecNorm(upCand);
-    let right = vecCross(up,forward);
+    let right = {x:up.y*forward.z-up.z*forward.y, y:up.z*forward.x-up.x*forward.z, z:up.x*forward.y-up.y*forward.x};
     right = vecNorm(right);
     return [
       right.x,  right.y,  right.z,
@@ -758,12 +763,12 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!layout) return;
     const {ux,uy,uz,mag} = layout;
     const shifts = [
-      vecScale(ux, mag),   // 兑宫方向
-      vecScale(ux,-mag),   // 艮宫方向
-      vecScale(uy, mag),   // 离宫方向
-      vecScale(uy,-mag),   // 坎宫方向
-      vecScale(uz, mag),   // 震宫方向
-      vecScale(uz,-mag)    // 巽宫方向
+      vecScale(ux, mag),
+      vecScale(ux,-mag),
+      vecScale(uy, mag),
+      vecScale(uy,-mag),
+      vecScale(uz, mag),
+      vecScale(uz,-mag)
     ];
 
     ctx.save();
@@ -772,7 +777,7 @@ window.addEventListener('DOMContentLoaded', () => {
     ctx.strokeStyle = COLOR_NET;
     ctx.globalAlpha = 0.85;
 
-    const qSources = vertices.filter(v=>v.mode==="hex64" && v.role==="true"); // 乾宫
+    const qSources = vertices.filter(v=>v.mode==="hex64" && v.role==="true");
     for (const v of qSources){
       const src3 = pos3ByKey.get(v.key);
       if (!src3) continue;
@@ -1040,16 +1045,11 @@ window.addEventListener('DOMContentLoaded', () => {
     saveSettings();
   });
 
-  function computePalaceBasesAndInit(){
-    computePalaceBases();
-  }
-
   resize();
-  computePalaceBasesAndInit();
+  computePalaceBases();
   const loaded = loadSettings();
-
   if (!currentPalace) currentPalace="乾";
-  setPalace(currentPalace, false);
+  setPalace(currentPalace,false);
   buildScene();
   if (!loaded){
     resetView();
