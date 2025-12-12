@@ -748,12 +748,8 @@ function gameLoop() {
   walkTime += 0.016; // 约60fps
 
   // 场景平移（模拟火柴人行走）
+  // sceneOffset 可以无限增长，元素坐标通过模运算循环
   sceneOffset += 0.003;
-
-  // 循环场景
-  if (sceneOffset > 1) {
-    sceneOffset = 0;
-  }
 
   draw();
   requestAnimationFrame(gameLoop);
