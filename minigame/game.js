@@ -192,6 +192,13 @@ let walkTime = 0;
 const CUBE_SIZE = 10; // 10米边长
 let sceneOffset = 0; // 场景偏移量
 
+// ===== 火柴人速度系统 =====
+// 速度范围: 0 (静止) - 1 (全速跑)
+let stickManSpeed = 0.7;        // 当前速度
+let targetSpeed = 0.7;          // 目标速度
+const SPEED_LERP = 0.05;        // 速度插值系数（平滑过渡）
+const BASE_SCENE_SPEED = 0.004; // 基础场景移动速度
+
 // 地面元素（全局，保持相对位置）
 // 坐标使用无限平面坐标系，不限于[0,1]范围
 const groundElements = [
@@ -697,25 +704,60 @@ class StickManVerlet {
 }
 
 // =============== Alan Becker 风格火柴人动画 ===============
-// 基于关键帧的流畅跑步动画
-// 参考: Alan Becker's Run Cycle Tutorial
-// 4个关键姿势: Contact, Passing, Kickoff, Up
-// 手臂与对侧腿反向摆动
+// 基于 Alan Becker 的动画12原则:
+// 1. Squash & Stretch - 挤压拉伸
+// 2. Anticipation - 预备动作
+// 3. Follow Through - 跟随动作
+// 4. Slow In/Slow Out - 缓入缓出
+// 5. Arcs - 弧线运动
+// 6. Secondary Action - 次要动作
+
+// 缓动函数 (Easing)
+function easeInOutSine(t) {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
+}
+
+function easeOutBack(t) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
 
 function drawStickManPhysics(x, y, scale, time) {
   const size = 50 * scale;
-  const runSpeed = 8;
+  const speed = stickManSpeed; // 使用全局速度变量
+
+  // 速度影响动画频率
+  const runSpeed = 4 + speed * 6; // 4-10 范围
   const phase = time * runSpeed;
 
-  // ===== 身体起伏 =====
-  // 在 Contact 时最低，Kickoff 后最高
-  const bounce = Math.sin(phase * 2) * 3 * scale;
+  // ===== Squash & Stretch (挤压拉伸) =====
+  // 落地时身体压缩，腾空时身体拉伸
+  const cyclePos = (phase % (Math.PI * 2)) / (Math.PI * 2);
+  const isContact = cyclePos < 0.15 || cyclePos > 0.85 || (cyclePos > 0.35 && cyclePos < 0.65);
 
-  // ===== 前倾角度 =====
-  const lean = 0.12; // 跑步时前倾约7度
+  // 身体挤压/拉伸比例
+  const squashStretch = isContact ?
+    1.0 - speed * 0.08 : // 落地时压缩
+    1.0 + speed * 0.05;  // 腾空时拉伸
+
+  // ===== 身体起伏 (更自然的弧线) =====
+  const bounceRaw = Math.sin(phase * 2);
+  const bounce = easeInOutSine((bounceRaw + 1) / 2) * 2 - 1;
+  const bounceY = bounce * 4 * scale * speed;
+
+  // ===== 前倾角度 (速度越快前倾越多) =====
+  const lean = 0.08 + speed * 0.12; // 0.08 - 0.20 弧度
+
+  // ===== Anticipation & Follow Through =====
+  // 头部和手有轻微延迟（跟随动作）
+  const followDelay = 0.15;
 
   ctx.save();
-  ctx.translate(x, y + bounce);
+  ctx.translate(x, y + bounceY);
+
+  // 应用挤压拉伸
+  ctx.scale(1 / Math.sqrt(squashStretch), squashStretch);
   ctx.rotate(lean);
 
   ctx.strokeStyle = '#333333';
@@ -724,136 +766,129 @@ function drawStickManPhysics(x, y, scale, time) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // ===== 骨骼尺寸 (Alan Becker 风格：简洁比例) =====
+  // ===== 骨骼尺寸 =====
   const headR = size * 0.10;
   const bodyLen = size * 0.35;
-  const upperLeg = size * 0.22;
-  const lowerLeg = size * 0.22;
+  const upperLeg = size * 0.23;
+  const lowerLeg = size * 0.23;
   const upperArm = size * 0.18;
   const lowerArm = size * 0.16;
 
   // 关节位置
-  const headY = -size * 0.85;
+  const headY = -size * 0.88;
   const shoulderY = headY + headR + size * 0.05;
   const hipY = shoulderY + bodyLen;
 
-  // ===== 腿部动画 (关键帧插值) =====
-  // 右腿: 大腿前后摆动
-  const rThighAngle = Math.sin(phase) * 0.75;
-  // 膝盖弯曲: 腿向前摆时弯曲更多
-  const rKneeAngle = 0.2 + Math.max(0, Math.sin(phase - 0.3)) * 1.0;
+  // ===== 腿部动画 =====
+  // 摆动幅度随速度增加
+  const legSwingAmp = 0.5 + speed * 0.4; // 0.5 - 0.9
 
-  // 左腿 (反相位)
-  const lThighAngle = Math.sin(phase + Math.PI) * 0.75;
-  const lKneeAngle = 0.2 + Math.max(0, Math.sin(phase + Math.PI - 0.3)) * 1.0;
+  const rThighAngle = Math.sin(phase) * legSwingAmp;
+  const lThighAngle = Math.sin(phase + Math.PI) * legSwingAmp;
 
-  // 右腿关节计算
+  // 膝盖弯曲 (腿向前摆时弯曲更多，速度快时弯曲更大)
+  const kneeFlexBase = 0.15 + speed * 0.1;
+  const kneeFlexAmp = 0.8 + speed * 0.4;
+  const rKneeAngle = kneeFlexBase + Math.max(0, Math.sin(phase - 0.4)) * kneeFlexAmp;
+  const lKneeAngle = kneeFlexBase + Math.max(0, Math.sin(phase + Math.PI - 0.4)) * kneeFlexAmp;
+
+  // 右腿关节
   const rKneeX = Math.sin(rThighAngle) * upperLeg;
   const rKneeY = hipY + Math.cos(rThighAngle) * upperLeg;
   const rFootX = rKneeX + Math.sin(rThighAngle + rKneeAngle) * lowerLeg;
   const rFootY = rKneeY + Math.cos(rThighAngle + rKneeAngle) * lowerLeg;
 
-  // 左腿关节计算
+  // 左腿关节
   const lKneeX = Math.sin(lThighAngle) * upperLeg;
   const lKneeY = hipY + Math.cos(lThighAngle) * upperLeg;
   const lFootX = lKneeX + Math.sin(lThighAngle + lKneeAngle) * lowerLeg;
   const lFootY = lKneeY + Math.cos(lThighAngle + lKneeAngle) * lowerLeg;
 
-  // ===== 手臂动画 (与对侧腿反向) =====
-  // 右臂与左腿同步（左腿前时右臂前）
-  const rArmAngle = Math.sin(phase + Math.PI) * 0.6;
-  const rElbowAngle = 1.2 + Math.sin(phase + Math.PI) * 0.3; // 肘部约90度弯曲
+  // ===== 手臂动画 (与对侧腿反向 + Follow Through) =====
+  const armSwingAmp = 0.4 + speed * 0.35;
+  const armPhaseDelay = followDelay * speed; // 手臂有轻微延迟
 
-  // 左臂与右腿同步
-  const lArmAngle = Math.sin(phase) * 0.6;
-  const lElbowAngle = 1.2 + Math.sin(phase) * 0.3;
+  const rArmAngle = Math.sin(phase + Math.PI - armPhaseDelay) * armSwingAmp;
+  const lArmAngle = Math.sin(phase - armPhaseDelay) * armSwingAmp;
 
-  // 右臂关节计算
+  // 肘部弯曲 (跑步时约90度，手臂后摆时更弯)
+  const rElbowAngle = 1.3 + Math.sin(phase + Math.PI) * 0.4 * speed;
+  const lElbowAngle = 1.3 + Math.sin(phase) * 0.4 * speed;
+
+  // 右臂关节
   const rElbowX = Math.sin(rArmAngle) * upperArm;
   const rElbowY = shoulderY + Math.cos(rArmAngle) * upperArm;
   const rHandX = rElbowX + Math.sin(rArmAngle + rElbowAngle) * lowerArm;
   const rHandY = rElbowY + Math.cos(rArmAngle + rElbowAngle) * lowerArm;
 
-  // 左臂关节计算
+  // 左臂关节
   const lElbowX = Math.sin(lArmAngle) * upperArm;
   const lElbowY = shoulderY + Math.cos(lArmAngle) * upperArm;
   const lHandX = lElbowX + Math.sin(lArmAngle + lElbowAngle) * lowerArm;
   const lHandY = lElbowY + Math.cos(lArmAngle + lElbowAngle) * lowerArm;
 
-  // ===== 绘制 (从后到前的顺序，产生深度感) =====
+  // ===== Secondary Action: 头部轻微晃动 =====
+  const headBob = Math.sin(phase * 2 - followDelay * 2) * 0.5 * scale * speed;
+  const headTilt = Math.sin(phase - followDelay) * 0.05 * speed;
+
+  // ===== Secondary Action: 躯干扭转 =====
+  const torsoTwist = Math.sin(phase) * 0.03 * speed;
+
+  // ===== 绘制 =====
   const rightLegForward = Math.sin(phase) > 0;
 
+  // 绘制函数
+  const drawLimb = (x1, y1, x2, y2, x3, y3, isBack) => {
+    ctx.strokeStyle = isBack ? '#555555' : '#333333';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
+    ctx.stroke();
+  };
+
   // 后面的腿
-  ctx.strokeStyle = '#555555'; // 稍暗表示在后面
   if (rightLegForward) {
-    ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(lKneeX, lKneeY);
-    ctx.lineTo(lFootX, lFootY);
-    ctx.stroke();
+    drawLimb(0, hipY, lKneeX, lKneeY, lFootX, lFootY, true);
   } else {
-    ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(rKneeX, rKneeY);
-    ctx.lineTo(rFootX, rFootY);
-    ctx.stroke();
+    drawLimb(0, hipY, rKneeX, rKneeY, rFootX, rFootY, true);
   }
 
   // 后面的手臂
   if (rightLegForward) {
-    ctx.beginPath();
-    ctx.moveTo(0, shoulderY);
-    ctx.lineTo(rElbowX, rElbowY);
-    ctx.lineTo(rHandX, rHandY);
-    ctx.stroke();
+    drawLimb(torsoTwist * size, shoulderY, rElbowX, rElbowY, rHandX, rHandY, true);
   } else {
-    ctx.beginPath();
-    ctx.moveTo(0, shoulderY);
-    ctx.lineTo(lElbowX, lElbowY);
-    ctx.lineTo(lHandX, lHandY);
-    ctx.stroke();
+    drawLimb(-torsoTwist * size, shoulderY, lElbowX, lElbowY, lHandX, lHandY, true);
   }
 
-  // 身体 (躯干) - 主色
+  // 身体 (带扭转)
   ctx.strokeStyle = '#333333';
   ctx.beginPath();
-  ctx.moveTo(0, shoulderY);
-  ctx.lineTo(0, hipY);
+  ctx.moveTo(torsoTwist * size * 0.5, shoulderY);
+  ctx.quadraticCurveTo(0, (shoulderY + hipY) / 2, -torsoTwist * size * 0.3, hipY);
   ctx.stroke();
 
-  // 头部
+  // 头部 (带晃动和倾斜)
+  ctx.save();
+  ctx.translate(headBob * 0.3, headY + headBob);
+  ctx.rotate(headTilt);
   ctx.beginPath();
-  ctx.arc(0, headY, headR, 0, Math.PI * 2);
+  ctx.arc(0, 0, headR, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
 
   // 前面的腿
   if (rightLegForward) {
-    ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(rKneeX, rKneeY);
-    ctx.lineTo(rFootX, rFootY);
-    ctx.stroke();
+    drawLimb(0, hipY, rKneeX, rKneeY, rFootX, rFootY, false);
   } else {
-    ctx.beginPath();
-    ctx.moveTo(0, hipY);
-    ctx.lineTo(lKneeX, lKneeY);
-    ctx.lineTo(lFootX, lFootY);
-    ctx.stroke();
+    drawLimb(0, hipY, lKneeX, lKneeY, lFootX, lFootY, false);
   }
 
   // 前面的手臂
   if (rightLegForward) {
-    ctx.beginPath();
-    ctx.moveTo(0, shoulderY);
-    ctx.lineTo(lElbowX, lElbowY);
-    ctx.lineTo(lHandX, lHandY);
-    ctx.stroke();
+    drawLimb(-torsoTwist * size, shoulderY, lElbowX, lElbowY, lHandX, lHandY, false);
   } else {
-    ctx.beginPath();
-    ctx.moveTo(0, shoulderY);
-    ctx.lineTo(rElbowX, rElbowY);
-    ctx.lineTo(rHandX, rHandY);
-    ctx.stroke();
+    drawLimb(torsoTwist * size, shoulderY, rElbowX, rElbowY, rHandX, rHandY, false);
   }
 
   ctx.restore();
@@ -1274,12 +1309,25 @@ function draw() {
 function gameLoop() {
   walkTime += 0.016; // 约60fps
 
-  // 场景平移（模拟火柴人行走）
+  // 平滑过渡速度 (Slow In/Slow Out)
+  stickManSpeed += (targetSpeed - stickManSpeed) * SPEED_LERP;
+
+  // 场景平移（速度影响移动速度）
   // sceneOffset 可以无限增长，元素坐标通过模运算循环
-  sceneOffset += 0.003;
+  sceneOffset += BASE_SCENE_SPEED * stickManSpeed;
 
   draw();
   requestAnimationFrame(gameLoop);
+}
+
+// 设置火柴人速度 (0-1)
+function setStickManSpeed(speed) {
+  targetSpeed = Math.max(0, Math.min(1, speed));
+}
+
+// 获取当前速度
+function getStickManSpeed() {
+  return stickManSpeed;
 }
 
 // =============== 触摸处理 ===============
