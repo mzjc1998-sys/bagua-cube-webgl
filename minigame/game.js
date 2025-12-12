@@ -199,6 +199,48 @@ let targetSpeed = 0.7;          // 目标速度
 const SPEED_LERP = 0.05;        // 速度插值系数（平滑过渡）
 const BASE_SCENE_SPEED = 0.004; // 基础场景移动速度
 
+// ===== 姿势过渡系统 =====
+// 存储上一帧的关节位置，用于平滑过渡
+const poseState = {
+  // 腿部IK目标
+  rFootX: 0, rFootY: 0,
+  lFootX: 0, lFootY: 0,
+  // 手臂IK目标
+  rHandX: 0, rHandY: 0,
+  lHandX: 0, lHandY: 0,
+  // IK求解结果（膝盖/肘部位置）
+  rKneeX: 0, rKneeY: 0,
+  lKneeX: 0, lKneeY: 0,
+  rElbowX: 0, rElbowY: 0,
+  lElbowX: 0, lElbowY: 0,
+  // 身体状态
+  bounce: 0,
+  lean: 0,
+  // 朝向（用于检测方向变化）
+  facing: 0,
+  // 是否已初始化
+  initialized: false
+};
+
+// 姿势插值系数（越小越平滑，但响应越慢）
+const POSE_LERP = 0.15;          // 普通过渡
+const POSE_LERP_FAST = 0.25;     // 快速过渡（如脚落地）
+const POSE_LERP_SLOW = 0.08;     // 慢速过渡（如方向改变）
+
+// 线性插值函数
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// 角度插值（处理角度环绕）
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  // 将差值归一化到 -PI 到 PI
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return a + diff * t;
+}
+
 // 地面元素（全局，保持相对位置）
 // 坐标使用无限平面坐标系，不限于[0,1]范围
 const groundElements = [
@@ -801,7 +843,18 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const speed = stickManSpeed;
 
   // 获取朝向角度
-  const facing = groundQuad ? getStickManDirection(groundQuad) : 0;
+  const targetFacing = groundQuad ? getStickManDirection(groundQuad) : 0;
+
+  // ===== 姿势过渡：平滑朝向变化 =====
+  // 检测是否发生大角度方向变化
+  const facingDiff = Math.abs(targetFacing - poseState.facing);
+  const isDirectionChange = facingDiff > 0.3 && poseState.initialized;
+
+  // 朝向使用角度插值平滑过渡
+  const facingLerp = isDirectionChange ? POSE_LERP_SLOW : POSE_LERP;
+  const facing = poseState.initialized
+    ? lerpAngle(poseState.facing, targetFacing, facingLerp)
+    : targetFacing;
 
   // 计算视角参数
   const sideView = Math.abs(Math.sin(facing));      // 1=侧面, 0=正/背面
@@ -831,10 +884,18 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
 
   // 身体起伏 - 每步两次起伏（双脚交替支撑）
   const bouncePhase = phase * 2;
-  const bounce = Math.abs(Math.sin(bouncePhase)) * (3 + speed * 4) * scale;
+  const targetBounce = Math.abs(Math.sin(bouncePhase)) * (3 + speed * 4) * scale;
 
   // 前倾角度
-  const lean = (0.08 + speed * 0.1) * facingAway * sideView;
+  const targetLean = (0.08 + speed * 0.1) * facingAway * sideView;
+
+  // ===== 姿势过渡：平滑身体起伏和前倾 =====
+  const bounce = poseState.initialized
+    ? lerp(poseState.bounce, targetBounce, POSE_LERP_FAST)
+    : targetBounce;
+  const lean = poseState.initialized
+    ? lerp(poseState.lean, targetLean, POSE_LERP)
+    : targetLean;
 
   // ===== 计算关键位置 =====
   const headY = -size * 0.92;
@@ -852,7 +913,7 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // ===== 使用 IK 计算腿部位置 =====
+  // ===== 计算IK目标位置 =====
   // 右腿相位，左腿相位差 PI
   const rFootTarget = getFootTarget(phase, strideLength, stepHeight, groundY);
   const lFootTarget = getFootTarget(phase + Math.PI, strideLength, stepHeight, groundY);
@@ -863,19 +924,14 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
 
   // 脚的目标位置（考虑视角的透视变形）
   const viewDirX = facingRight >= 0 ? 1 : -1;
-  const rFootX = rHipX + rFootTarget.x * viewDirX;
-  const rFootY = rFootTarget.y - (rFootTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
-  const lFootX = lHipX + lFootTarget.x * viewDirX;
-  const lFootY = lFootTarget.y - (lFootTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+  const targetRFootX = rHipX + rFootTarget.x * viewDirX;
+  const targetRFootY = rFootTarget.y - (rFootTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+  const targetLFootX = lHipX + lFootTarget.x * viewDirX;
+  const targetLFootY = lFootTarget.y - (lFootTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
 
-  // 使用 IK 求解膝盖位置（膝盖向前弯曲）
-  const rLegIK = solveIK(rHipX, hipY, rFootX, rFootY, upperLeg, lowerLeg, -viewDirX);
-  const lLegIK = solveIK(lHipX, hipY, lFootX, lFootY, upperLeg, lowerLeg, -viewDirX);
-
-  // ===== 使用 IK 计算手臂位置 =====
-  // 手臂与对侧腿反向摆动
-  const rArmPhase = phase + Math.PI;  // 右臂与左腿同相
-  const lArmPhase = phase;            // 左臂与右腿同相
+  // ===== 手臂IK目标 =====
+  const rArmPhase = phase + Math.PI;
+  const lArmPhase = phase;
 
   const armSwingLen = (size * 0.12 + speed * size * 0.15) * sideView;
   const armSwingHeight = size * 0.08 * speed;
@@ -883,22 +939,83 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const rHandTarget = getHandTarget(rArmPhase, armSwingLen, armSwingHeight, shoulderY);
   const lHandTarget = getHandTarget(lArmPhase, armSwingLen, armSwingHeight, shoulderY);
 
-  // 肩膀位置
   const rShoulderX = shoulderW * (facingRight >= 0 ? 1 : -1);
   const lShoulderX = -shoulderW * (facingRight >= 0 ? 1 : -1);
 
-  // 手的目标位置
-  const rHandX = rShoulderX + rHandTarget.x * viewDirX;
-  const rHandY = rHandTarget.y - (rHandTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
-  const lHandX = lShoulderX + lHandTarget.x * viewDirX;
-  const lHandY = lHandTarget.y - (lHandTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+  const targetRHandX = rShoulderX + rHandTarget.x * viewDirX;
+  const targetRHandY = rHandTarget.y - (rHandTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+  const targetLHandX = lShoulderX + lHandTarget.x * viewDirX;
+  const targetLHandY = lHandTarget.y - (lHandTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
 
-  // 使用 IK 求解肘部位置（肘部向后弯曲）
+  // ===== 姿势过渡：平滑肢体位置 =====
+  // 根据脚是否在地面决定插值速度
+  const rFootOnGround = rFootTarget.y >= groundY - 1;
+  const lFootOnGround = lFootTarget.y >= groundY - 1;
+
+  const rFootLerp = rFootOnGround ? POSE_LERP_FAST : POSE_LERP;
+  const lFootLerp = lFootOnGround ? POSE_LERP_FAST : POSE_LERP;
+
+  // 应用过渡插值
+  let rFootX, rFootY, lFootX, lFootY;
+  let rHandX, rHandY, lHandX, lHandY;
+
+  if (poseState.initialized) {
+    rFootX = lerp(poseState.rFootX, targetRFootX, rFootLerp);
+    rFootY = lerp(poseState.rFootY, targetRFootY, rFootLerp);
+    lFootX = lerp(poseState.lFootX, targetLFootX, lFootLerp);
+    lFootY = lerp(poseState.lFootY, targetLFootY, lFootLerp);
+    rHandX = lerp(poseState.rHandX, targetRHandX, POSE_LERP);
+    rHandY = lerp(poseState.rHandY, targetRHandY, POSE_LERP);
+    lHandX = lerp(poseState.lHandX, targetLHandX, POSE_LERP);
+    lHandY = lerp(poseState.lHandY, targetLHandY, POSE_LERP);
+  } else {
+    rFootX = targetRFootX; rFootY = targetRFootY;
+    lFootX = targetLFootX; lFootY = targetLFootY;
+    rHandX = targetRHandX; rHandY = targetRHandY;
+    lHandX = targetLHandX; lHandY = targetLHandY;
+  }
+
+  // ===== 使用 IK 求解关节位置 =====
+  const rLegIK = solveIK(rHipX, hipY, rFootX, rFootY, upperLeg, lowerLeg, -viewDirX);
+  const lLegIK = solveIK(lHipX, hipY, lFootX, lFootY, upperLeg, lowerLeg, -viewDirX);
   const rArmIK = solveIK(rShoulderX, shoulderY, rHandX, rHandY, upperArm, lowerArm, viewDirX);
   const lArmIK = solveIK(lShoulderX, shoulderY, lHandX, lHandY, upperArm, lowerArm, viewDirX);
 
+  // ===== 对膝盖/肘部位置也应用平滑 =====
+  let finalRKneeX, finalRKneeY, finalLKneeX, finalLKneeY;
+  let finalRElbowX, finalRElbowY, finalLElbowX, finalLElbowY;
+
+  if (poseState.initialized) {
+    finalRKneeX = lerp(poseState.rKneeX, rLegIK.midX, POSE_LERP);
+    finalRKneeY = lerp(poseState.rKneeY, rLegIK.midY, POSE_LERP);
+    finalLKneeX = lerp(poseState.lKneeX, lLegIK.midX, POSE_LERP);
+    finalLKneeY = lerp(poseState.lKneeY, lLegIK.midY, POSE_LERP);
+    finalRElbowX = lerp(poseState.rElbowX, rArmIK.midX, POSE_LERP);
+    finalRElbowY = lerp(poseState.rElbowY, rArmIK.midY, POSE_LERP);
+    finalLElbowX = lerp(poseState.lElbowX, lArmIK.midX, POSE_LERP);
+    finalLElbowY = lerp(poseState.lElbowY, lArmIK.midY, POSE_LERP);
+  } else {
+    finalRKneeX = rLegIK.midX; finalRKneeY = rLegIK.midY;
+    finalLKneeX = lLegIK.midX; finalLKneeY = lLegIK.midY;
+    finalRElbowX = rArmIK.midX; finalRElbowY = rArmIK.midY;
+    finalLElbowX = lArmIK.midX; finalLElbowY = lArmIK.midY;
+  }
+
+  // ===== 更新姿势状态 =====
+  poseState.rFootX = rFootX; poseState.rFootY = rFootY;
+  poseState.lFootX = lFootX; poseState.lFootY = lFootY;
+  poseState.rHandX = rHandX; poseState.rHandY = rHandY;
+  poseState.lHandX = lHandX; poseState.lHandY = lHandY;
+  poseState.rKneeX = finalRKneeX; poseState.rKneeY = finalRKneeY;
+  poseState.lKneeX = finalLKneeX; poseState.lKneeY = finalLKneeY;
+  poseState.rElbowX = finalRElbowX; poseState.rElbowY = finalRElbowY;
+  poseState.lElbowX = finalLElbowX; poseState.lElbowY = finalLElbowY;
+  poseState.bounce = bounce;
+  poseState.lean = lean;
+  poseState.facing = facing;
+  poseState.initialized = true;
+
   // ===== 确定绘制顺序 =====
-  // 根据脚的前后位置决定哪条腿在前面
   const rLegForward = rFootTarget.x > 0;
   const drawRightFirst = facingAway > 0 ? !rLegForward : rLegForward;
 
@@ -915,15 +1032,15 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const frontColor = '#333333';
   const backColor = '#555555';
 
-  // ===== 绘制 =====
+  // ===== 绘制（使用平滑后的关节位置）=====
 
   // 后面的腿和手臂
   if (drawRightFirst) {
-    drawLimb(rHipX, hipY, rLegIK.midX, rLegIK.midY, rLegIK.endX, rLegIK.endY, backColor);
-    drawLimb(rShoulderX, shoulderY, rArmIK.midX, rArmIK.midY, rArmIK.endX, rArmIK.endY, backColor);
+    drawLimb(rHipX, hipY, finalRKneeX, finalRKneeY, rFootX, rFootY, backColor);
+    drawLimb(rShoulderX, shoulderY, finalRElbowX, finalRElbowY, rHandX, rHandY, backColor);
   } else {
-    drawLimb(lHipX, hipY, lLegIK.midX, lLegIK.midY, lLegIK.endX, lLegIK.endY, backColor);
-    drawLimb(lShoulderX, shoulderY, lArmIK.midX, lArmIK.midY, lArmIK.endX, lArmIK.endY, backColor);
+    drawLimb(lHipX, hipY, finalLKneeX, finalLKneeY, lFootX, lFootY, backColor);
+    drawLimb(lShoulderX, shoulderY, finalLElbowX, finalLElbowY, lHandX, lHandY, backColor);
   }
 
   // 躯干
@@ -952,11 +1069,11 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
 
   // 前面的腿和手臂
   if (drawRightFirst) {
-    drawLimb(lHipX, hipY, lLegIK.midX, lLegIK.midY, lLegIK.endX, lLegIK.endY, frontColor);
-    drawLimb(lShoulderX, shoulderY, lArmIK.midX, lArmIK.midY, lArmIK.endX, lArmIK.endY, frontColor);
+    drawLimb(lHipX, hipY, finalLKneeX, finalLKneeY, lFootX, lFootY, frontColor);
+    drawLimb(lShoulderX, shoulderY, finalLElbowX, finalLElbowY, lHandX, lHandY, frontColor);
   } else {
-    drawLimb(rHipX, hipY, rLegIK.midX, rLegIK.midY, rLegIK.endX, rLegIK.endY, frontColor);
-    drawLimb(rShoulderX, shoulderY, rArmIK.midX, rArmIK.midY, rArmIK.endX, rArmIK.endY, frontColor);
+    drawLimb(rHipX, hipY, finalRKneeX, finalRKneeY, rFootX, rFootY, frontColor);
+    drawLimb(rShoulderX, shoulderY, finalRElbowX, finalRElbowY, rHandX, rHandY, frontColor);
   }
 
   ctx.restore();
