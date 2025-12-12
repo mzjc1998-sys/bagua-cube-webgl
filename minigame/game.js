@@ -466,10 +466,18 @@ function startAdventure() {
   playerHP = playerMaxHP;
   playerX = 0.5;
   playerY = 0.5;
+  playerTargetX = 0.5;
+  playerTargetY = 0.5;
+  isMoving = false;
   monsters = [];
   monsterSpawnTimer = 0;
   monsterSpawnInterval = 2.0;
   comboCount = 0;
+  // 重置拾取物
+  collectibles = [];
+  collectibleSpawnTimer = 0;
+  goldCollected = 0;
+  autoMoveTimer = 0;
   console.log('冒险开始！');
 }
 
@@ -592,6 +600,221 @@ function updateAdventure(dt) {
   if (playerHP <= 0) {
     playerHP = 0;
     endAdventure();
+  }
+
+  // 更新拾取物
+  updateCollectibles(dt);
+
+  // 自动移动AI（躲避怪物+拾取物品）
+  if (!isMoving) {
+    autoMoveAI();
+  }
+}
+
+// ==================== 拾取物系统 ====================
+let collectibles = [];
+let collectibleSpawnTimer = 0;
+const collectibleSpawnInterval = 3.0;
+let goldCollected = 0;
+
+const COLLECTIBLE_TYPES = {
+  gold: { name: '金币', color: '#FFD700', value: 10, size: 0.02 },
+  health: { name: '血瓶', color: '#FF6B6B', value: 20, size: 0.025 },
+  exp: { name: '经验球', color: '#9C27B0', value: 15, size: 0.018 }
+};
+
+function spawnCollectible() {
+  const types = Object.keys(COLLECTIBLE_TYPES);
+  const type = types[Math.floor(Math.random() * types.length)];
+  const info = COLLECTIBLE_TYPES[type];
+
+  collectibles.push({
+    type,
+    x: 0.1 + Math.random() * 0.8,
+    y: 0.1 + Math.random() * 0.8,
+    value: info.value,
+    size: info.size,
+    bobPhase: Math.random() * Math.PI * 2
+  });
+}
+
+function updateCollectibles(dt) {
+  // 生成拾取物
+  collectibleSpawnTimer += dt;
+  if (collectibleSpawnTimer >= collectibleSpawnInterval && collectibles.length < 8) {
+    collectibleSpawnTimer = 0;
+    spawnCollectible();
+  }
+
+  // 检测拾取
+  for (let i = collectibles.length - 1; i >= 0; i--) {
+    const c = collectibles[i];
+    const dx = c.x - playerX;
+    const dy = c.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 0.08) {
+      // 拾取成功
+      const info = COLLECTIBLE_TYPES[c.type];
+      if (c.type === 'gold') {
+        goldCollected += c.value;
+      } else if (c.type === 'health') {
+        playerHP = Math.min(playerHP + c.value, playerMaxHP);
+      } else if (c.type === 'exp') {
+        playerExp += c.value;
+        // 检查升级
+        while (playerExp >= expToNext) {
+          playerExp -= expToNext;
+          playerLevel++;
+          expToNext = Math.floor(expToNext * 1.5);
+          const newStats = getPlayerStats();
+          playerMaxHP = newStats.hp;
+          playerHP = Math.min(playerHP + 20, playerMaxHP);
+          saveGameData();
+        }
+      }
+      collectibles.splice(i, 1);
+    }
+  }
+}
+
+function drawCollectible(x, y, scale, collectible, time) {
+  const info = COLLECTIBLE_TYPES[collectible.type];
+  const bob = Math.sin(time * 4 + collectible.bobPhase) * 3;
+  const size = BASE_UNIT * 0.3 * scale;
+
+  ctx.save();
+  ctx.translate(x, y + bob);
+
+  if (collectible.type === 'gold') {
+    // 金币 - 圆形
+    ctx.fillStyle = info.color;
+    ctx.beginPath();
+    ctx.arc(0, -size / 2, size * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#B8860B';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#B8860B';
+    ctx.font = `bold ${size * 0.4}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('$', 0, -size / 2);
+  } else if (collectible.type === 'health') {
+    // 血瓶 - 瓶子形状
+    ctx.fillStyle = info.color;
+    ctx.fillRect(-size * 0.2, -size, size * 0.4, size * 0.8);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(-size * 0.1, -size * 0.5, size * 0.2, size * 0.1);
+    ctx.fillRect(-size * 0.05, -size * 0.6, size * 0.1, size * 0.3);
+  } else if (collectible.type === 'exp') {
+    // 经验球 - 星形
+    ctx.fillStyle = info.color;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const angle = (i * 72 - 90) * Math.PI / 180;
+      const r = size * 0.4;
+      if (i === 0) ctx.moveTo(Math.cos(angle) * r, -size / 2 + Math.sin(angle) * r);
+      else ctx.lineTo(Math.cos(angle) * r, -size / 2 + Math.sin(angle) * r);
+      const angle2 = ((i * 72 + 36) - 90) * Math.PI / 180;
+      ctx.lineTo(Math.cos(angle2) * r * 0.4, -size / 2 + Math.sin(angle2) * r * 0.4);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ==================== 自动移动AI ====================
+let autoMoveTimer = 0;
+
+function autoMoveAI() {
+  autoMoveTimer += 0.016;
+  if (autoMoveTimer < 0.5) return; // 每0.5秒决策一次
+  autoMoveTimer = 0;
+
+  // 计算最佳移动方向
+  let bestX = playerX;
+  let bestY = playerY;
+  let bestScore = -Infinity;
+
+  // 尝试多个方向
+  const directions = [
+    { dx: 0, dy: 0 },
+    { dx: 0.1, dy: 0 },
+    { dx: -0.1, dy: 0 },
+    { dx: 0, dy: 0.1 },
+    { dx: 0, dy: -0.1 },
+    { dx: 0.07, dy: 0.07 },
+    { dx: -0.07, dy: 0.07 },
+    { dx: 0.07, dy: -0.07 },
+    { dx: -0.07, dy: -0.07 }
+  ];
+
+  for (const dir of directions) {
+    const testX = Math.max(0.1, Math.min(0.9, playerX + dir.dx));
+    const testY = Math.max(0.1, Math.min(0.9, playerY + dir.dy));
+
+    let score = 0;
+
+    // 远离怪物得分（负距离权重高）
+    for (const m of monsters) {
+      const dx = testX - m.x;
+      const dy = testY - m.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 0.15) {
+        score -= (0.15 - dist) * 100; // 太近扣分很多
+      } else {
+        score += dist * 10; // 远离得分
+      }
+    }
+
+    // 靠近拾取物得分
+    for (const c of collectibles) {
+      const dx = testX - c.x;
+      const dy = testY - c.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // 只有在安全时才考虑拾取
+      let isSafe = true;
+      for (const m of monsters) {
+        const mdx = c.x - m.x;
+        const mdy = c.y - m.y;
+        if (Math.sqrt(mdx * mdx + mdy * mdy) < 0.2) {
+          isSafe = false;
+          break;
+        }
+      }
+      if (isSafe) {
+        score += (0.5 - dist) * 30; // 靠近拾取物加分
+        if (c.type === 'health' && playerHP < playerMaxHP * 0.5) {
+          score += 50; // 低血量时血瓶加分更多
+        }
+      }
+    }
+
+    // 靠近怪物攻击得分（在安全范围内）
+    for (const m of monsters) {
+      const dx = testX - m.x;
+      const dy = testY - m.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 0.1 && dist < 0.2) {
+        score += 20; // 在攻击范围内得分
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestX = testX;
+      bestY = testY;
+    }
+  }
+
+  // 设置目标位置
+  if (bestX !== playerX || bestY !== playerY) {
+    playerTargetX = bestX;
+    playerTargetY = bestY;
+    isMoving = true;
   }
 }
 
@@ -1029,6 +1252,16 @@ function drawGroundScene(groundQuad) {
     drawGroundElement(groundQuad, elem.type, elem.x, elem.y);
   }
 
+  // 冒险模式：绘制拾取物
+  if (gameState === 'adventure' || gameState === 'gameover') {
+    for (const c of collectibles) {
+      if (c.x >= 0.02 && c.x <= 0.98 && c.y >= 0.02 && c.y <= 0.98) {
+        const pt = getGroundPoint(groundQuad, c.x, c.y);
+        drawCollectible(pt.x, pt.y, pt.scale, c, walkTime);
+      }
+    }
+  }
+
   // 冒险模式：绘制怪物
   if (gameState === 'adventure' || gameState === 'gameover') {
     for (const m of monsters) {
@@ -1154,8 +1387,10 @@ function draw() {
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 25);
-  ctx.font = '11px sans-serif';
-  ctx.fillText('点击顶点切换视角', 15, 42);
+  if (gameState === 'idle') {
+    ctx.font = '11px sans-serif';
+    ctx.fillText('点击顶点切换视角', 15, 42);
+  }
 
   // 右上角 - 职阶信息面板
   const classInfo = CLASS_TYPES[currentClass];
@@ -1181,55 +1416,56 @@ function draw() {
   ctx.fillText(`HP:${stats.hp} MP:${stats.mp}`, panelX, panelY + 58);
   ctx.fillText(`攻击:${stats.atk} 防御:${stats.def}`, panelX, panelY + 71);
 
-  // 切换提示
-  ctx.fillStyle = '#AAAAAA';
-  ctx.font = '9px sans-serif';
-  ctx.fillText('点击此处切换职阶', panelX, panelY + 88);
-
-  // 底部 - 职阶图标
-  const iconSize = 35;
-  const iconY = H - iconSize - 15;
-  const iconSpacing = 45;
-  const classKeys = Object.keys(CLASS_TYPES);
-  const totalWidth = classKeys.length * iconSpacing - (iconSpacing - iconSize);
-  const startX = (W - totalWidth) / 2;
-
-  for (let i = 0; i < classKeys.length; i++) {
-    const key = classKeys[i];
-    const info = CLASS_TYPES[key];
-    const ix = startX + i * iconSpacing;
-
-    // 图标背景
-    ctx.fillStyle = key === currentClass ? info.color : 'rgba(100,100,100,0.6)';
-    ctx.fillRect(ix, iconY, iconSize, iconSize);
-
-    // 边框
-    if (key === currentClass) {
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(ix, iconY, iconSize, iconSize);
-    }
-
-    // 职阶首字
-    ctx.fillStyle = key === currentClass ? '#FFFFFF' : '#CCCCCC';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(info.name[0], ix + iconSize / 2, iconY + iconSize / 2 + 5);
+  // 切换提示（只在待机模式显示）
+  if (gameState === 'idle') {
+    ctx.fillStyle = '#AAAAAA';
+    ctx.font = '9px sans-serif';
+    ctx.fillText('点击此处切换职阶', panelX, panelY + 88);
   }
 
-  // 底部提示
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.font = '10px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('点击下方图标切换职阶', W / 2, iconY - 5);
-
-  // ==================== 冒险模式UI ====================
+  // 底部 - 职阶图标（只在待机模式显示）
   if (gameState === 'idle') {
-    // 开始冒险按钮
-    const btnW = 120;
-    const btnH = 45;
-    const btnX = (W - btnW) / 2;
-    const btnY = H / 2 + 80;
+    const iconSize = 35;
+    const iconY = H - iconSize - 15;
+    const iconSpacing = 45;
+    const classKeys = Object.keys(CLASS_TYPES);
+    const totalWidth = classKeys.length * iconSpacing - (iconSpacing - iconSize);
+    const startX = (W - totalWidth) / 2;
+
+    for (let i = 0; i < classKeys.length; i++) {
+      const key = classKeys[i];
+      const info = CLASS_TYPES[key];
+      const ix = startX + i * iconSpacing;
+
+      // 图标背景
+      ctx.fillStyle = key === currentClass ? info.color : 'rgba(100,100,100,0.6)';
+      ctx.fillRect(ix, iconY, iconSize, iconSize);
+
+      // 边框
+      if (key === currentClass) {
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ix, iconY, iconSize, iconSize);
+      }
+
+      // 职阶首字
+      ctx.fillStyle = key === currentClass ? '#FFFFFF' : '#CCCCCC';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(info.name[0], ix + iconSize / 2, iconY + iconSize / 2 + 5);
+    }
+
+    // 底部提示
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('点击下方图标切换职阶', W / 2, iconY - 5);
+
+    // 开始冒险按钮 - 左下角
+    const btnW = 90;
+    const btnH = 35;
+    const btnX = 15;
+    const btnY = H - btnH - 20;
 
     // 按钮背景
     ctx.fillStyle = 'rgba(200, 50, 50, 0.9)';
@@ -1242,13 +1478,15 @@ function draw() {
 
     // 按钮文字
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 16px sans-serif';
+    ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('开始冒险', btnX + btnW / 2, btnY + btnH / 2);
+  }
 
-  } else if (gameState === 'adventure') {
-    // 冒险模式 - 顶部HP血条
+  // 冒险模式UI
+  if (gameState === 'adventure') {
+    // 冒险模式 - 底部HP血条
     const hpBarW = W * 0.6;
     const hpBarH = 20;
     const hpBarX = (W - hpBarW) / 2;
@@ -1276,14 +1514,16 @@ function draw() {
 
     // 信息显示
     ctx.font = '11px sans-serif';
-    ctx.fillText(`击杀: ${killCount}  时间: ${Math.floor(adventureTime)}s  连击: ${comboCount}`, W / 2, hpBarY + hpBarH + 12);
+    ctx.fillText(`击杀: ${killCount}  金币: ${goldCollected}  时间: ${Math.floor(adventureTime)}s`, W / 2, hpBarY + hpBarH + 12);
 
     // 操作提示
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '10px sans-serif';
-    ctx.fillText('点击场景移动 | 靠近敌人自动攻击', W / 2, 60);
+    ctx.fillText('角色自动移动躲避怪物 | 点击可手动控制', W / 2, 60);
+  }
 
-  } else if (gameState === 'gameover') {
+  // 游戏结束UI
+  if (gameState === 'gameover') {
     // 游戏结束画面
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.fillRect(0, 0, W, H);
@@ -1296,14 +1536,17 @@ function draw() {
 
     ctx.fillStyle = '#FFFFFF';
     ctx.font = '18px sans-serif';
-    ctx.fillText(`击杀数: ${killCount}`, W / 2, H / 2 - 10);
-    ctx.fillText(`存活时间: ${Math.floor(adventureTime)}秒`, W / 2, H / 2 + 20);
+    ctx.fillText(`击杀数: ${killCount}`, W / 2, H / 2 - 20);
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText(`金币: ${goldCollected}`, W / 2, H / 2 + 10);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(`存活时间: ${Math.floor(adventureTime)}秒`, W / 2, H / 2 + 40);
 
     // 重新开始按钮
     const btnW = 120;
     const btnH = 45;
     const btnX = (W - btnW) / 2;
-    const btnY = H / 2 + 60;
+    const btnY = H / 2 + 80;
 
     ctx.fillStyle = 'rgba(50, 150, 50, 0.9)';
     ctx.fillRect(btnX, btnY, btnW, btnH);
@@ -1413,7 +1656,7 @@ wx.onTouchEnd((e) => {
     const btnW = 120;
     const btnH = 45;
     const btnX = (W - btnW) / 2;
-    const btnY = H / 2 + 60;
+    const btnY = H / 2 + 80;
     if (tx >= btnX && tx <= btnX + btnW && ty >= btnY && ty <= btnY + btnH) {
       returnToIdle();
       touchStart = null;
@@ -1437,11 +1680,11 @@ wx.onTouchEnd((e) => {
 
   // 待机模式的交互
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    // 检查是否点击了"开始冒险"按钮
-    const advBtnW = 120;
-    const advBtnH = 45;
-    const advBtnX = (W - advBtnW) / 2;
-    const advBtnY = H / 2 + 80;
+    // 检查是否点击了"开始冒险"按钮（左下角）
+    const advBtnW = 90;
+    const advBtnH = 35;
+    const advBtnX = 15;
+    const advBtnY = H - advBtnH - 20;
     if (tx >= advBtnX && tx <= advBtnX + advBtnW && ty >= advBtnY && ty <= advBtnY + advBtnH) {
       startAdventure();
       touchStart = null;
