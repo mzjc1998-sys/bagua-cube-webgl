@@ -192,21 +192,50 @@ let walkTime = 0;
 const CUBE_SIZE = 10; // 10米边长
 let sceneOffset = 0; // 场景偏移量
 
-// 在地面上计算一个点的屏幕坐标（带透视）
-// depth: 0 = 近处（底边），1 = 远处（中心点）
-// xRatio: 0 = 左边，1 = 右边
-function getGroundPoint(groundQuad, depth, xRatio) {
-  // groundQuad = { nearLeft, nearRight, farLeft, farRight }
-  // 在近边和远边之间插值
-  const nearX = groundQuad.nearLeft.x + (groundQuad.nearRight.x - groundQuad.nearLeft.x) * xRatio;
-  const nearY = groundQuad.nearLeft.y + (groundQuad.nearRight.y - groundQuad.nearLeft.y) * xRatio;
-  const farX = groundQuad.farLeft.x + (groundQuad.farRight.x - groundQuad.farLeft.x) * xRatio;
-  const farY = groundQuad.farLeft.y + (groundQuad.farRight.y - groundQuad.farLeft.y) * xRatio;
+// 在地面菱形上计算一个点的屏幕坐标（带透视）
+// groundQuad = { nearLeft(110), nearRight(011), farLeft(111/top), farRight(010/bottom) }
+// u: 0-1 从左到右
+// v: 0-1 从上到下
+function getGroundPoint(groundQuad, u, v) {
+  // 菱形的四个角: left(110), right(011), top(111), bottom(010)
+  const left = groundQuad.nearLeft;
+  const right = groundQuad.nearRight;
+  const top = groundQuad.farLeft;
+  const bottom = groundQuad.farRight;
+
+  // 计算菱形中心
+  const centerX = (left.x + right.x + top.x + bottom.x) / 4;
+  const centerY = (left.y + right.y + top.y + bottom.y) / 4;
+
+  // 双线性插值在菱形内
+  // 从中心向四个方向插值
+  const horizX = left.x + (right.x - left.x) * u;
+  const horizY = left.y + (right.y - left.y) * u;
+  const vertX = top.x + (bottom.x - top.x) * v;
+  const vertY = top.y + (bottom.y - top.y) * v;
+
+  // 混合得到最终位置
+  const x = centerX + (horizX - centerX) * (1 - Math.abs(v - 0.5) * 2) + (vertX - centerX) * (1 - Math.abs(u - 0.5) * 2);
+  const y = centerY + (horizY - centerY) * (1 - Math.abs(v - 0.5) * 2) + (vertY - centerY) * (1 - Math.abs(u - 0.5) * 2);
+
+  // 透视缩放：中心区域物体较小（远），边缘较大（近）
+  const distFromCenter = Math.sqrt(Math.pow(u - 0.5, 2) + Math.pow(v - 0.5, 2));
+  const scale = 0.5 + distFromCenter * 0.8;
+
+  return { x, y, scale };
+}
+
+// 获取菱形中心点
+function getDiamondCenter(groundQuad) {
+  const left = groundQuad.nearLeft;
+  const right = groundQuad.nearRight;
+  const top = groundQuad.farLeft;
+  const bottom = groundQuad.farRight;
 
   return {
-    x: nearX + (farX - nearX) * depth,
-    y: nearY + (farY - nearY) * depth,
-    scale: 1 - depth * 0.6 // 远处物体更小
+    x: (left.x + right.x + top.x + bottom.x) / 4,
+    y: (left.y + right.y + top.y + bottom.y) / 4,
+    scale: 0.7
   };
 }
 
@@ -345,28 +374,35 @@ function drawStickMan(x, y, scale, time) {
 
 // 绘制地面上的场景
 function drawGroundScene(groundQuad) {
-  // 场景元素：类型、深度(0-1)、横向位置(0-1)
+  // 场景元素分布在菱形区域内
+  // u: 0-1 从左到右, v: 0-1 从上到下
   const elements = [
-    { type: 'tree', depth: 0.7, xBase: 0.15 },
-    { type: 'grass', depth: 0.5, xBase: 0.25 },
-    { type: 'flower', depth: 0.6, xBase: 0.35 },
-    { type: 'tree', depth: 0.8, xBase: 0.5 },
-    { type: 'grass', depth: 0.4, xBase: 0.6 },
-    { type: 'flower', depth: 0.55, xBase: 0.7 },
-    { type: 'tree', depth: 0.75, xBase: 0.85 },
-    { type: 'grass', depth: 0.45, xBase: 0.9 },
+    { type: 'tree', u: 0.2, v: 0.3 },
+    { type: 'grass', u: 0.3, v: 0.6 },
+    { type: 'flower', u: 0.15, v: 0.5 },
+    { type: 'tree', u: 0.8, v: 0.3 },
+    { type: 'grass', u: 0.7, v: 0.6 },
+    { type: 'flower', u: 0.85, v: 0.5 },
+    { type: 'grass', u: 0.4, v: 0.2 },
+    { type: 'grass', u: 0.6, v: 0.2 },
+    { type: 'flower', u: 0.35, v: 0.75 },
+    { type: 'flower', u: 0.65, v: 0.75 },
   ];
 
-  // 按深度排序（远的先画）
-  const sortedElements = [...elements].sort((a, b) => b.depth - a.depth);
+  // 绘制移动的场景元素（围绕火柴人旋转）
+  for (const elem of elements) {
+    // 位置随时间移动（绕中心旋转）
+    const angle = sceneOffset * Math.PI * 2;
+    const offsetU = (elem.u - 0.5);
+    const offsetV = (elem.v - 0.5);
+    const rotU = 0.5 + offsetU * Math.cos(angle) - offsetV * Math.sin(angle) * 0.3;
+    const rotV = 0.5 + offsetU * Math.sin(angle) * 0.3 + offsetV * Math.cos(angle);
 
-  // 绘制移动的场景元素
-  for (const elem of sortedElements) {
-    // 横向位置循环移动
-    let xPos = (elem.xBase + sceneOffset) % 1;
-    if (xPos < 0) xPos += 1;
+    // 确保在范围内
+    const u = Math.max(0.1, Math.min(0.9, rotU));
+    const v = Math.max(0.1, Math.min(0.9, rotV));
 
-    const pt = getGroundPoint(groundQuad, elem.depth, xPos);
+    const pt = getGroundPoint(groundQuad, u, v);
 
     if (elem.type === 'tree') {
       drawTree(pt.x, pt.y, pt.scale);
@@ -377,8 +413,8 @@ function drawGroundScene(groundQuad) {
     }
   }
 
-  // 火柴人在地面正中央（像Minecraft的史蒂夫）
-  const stickPt = getGroundPoint(groundQuad, 0.5, 0.5);
+  // 火柴人在菱形正中央（两条对角线的交点）
+  const stickPt = getDiamondCenter(groundQuad);
   drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime);
 }
 
@@ -486,13 +522,11 @@ function draw() {
     ctx.fillText(v.bits, p.x, labelY);
   }
 
-  // 计算地面四边形（立方体底面的投影）
-  // 地面是从观察者位置向远处延伸的
+  // 计算地面菱形区域（下方的四边形：110-011-010-111）
+  // 找到组成地面菱形的四个顶点
   const frontBitsLocal = getFrontBits();
-  const backBitsLocal = getBackBits();
-  const backP = projCache.get(backBitsLocal);
 
-  // 找到所有可见顶点，按Y坐标排序
+  // 获取所有可见顶点，按Y坐标排序找到底部的顶点
   const visibleVerts = trigramBits
     .filter(bits => bits !== frontBitsLocal)
     .map(bits => ({ bits, p: projCache.get(bits) }))
@@ -501,30 +535,29 @@ function draw() {
   // 按Y坐标排序（从下到上）
   visibleVerts.sort((a, b) => b.p.y - a.p.y);
 
-  // 底部两个顶点作为地面的近边
-  // 中间区域作为地面的远边
   if (visibleVerts.length >= 4) {
-    // 近边：屏幕最下方的两个点（不包括最底部的back顶点）
-    const bottomVerts = visibleVerts.filter(v => v.bits !== backBitsLocal);
-    const nearLeft = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[0].p : bottomVerts[1].p;
-    const nearRight = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[1].p : bottomVerts[0].p;
+    // 底部4个顶点组成地面菱形
+    // 最下面的是010，然后是110和011（左右两侧），然后是111（上方）
+    const bottom4 = visibleVerts.slice(0, 4);
 
-    // 远边：地面延伸到中心点（back顶点）
-    // 像Minecraft区块一样，地面从近边延伸到远处的中心点
-    const centerX = backP.x;
-    const centerY = backP.y;
+    // 找到最下方的点（010）
+    const bottomPt = bottom4[0].p;
 
-    // 远边收缩到中心点附近（形成透视效果）
-    const farLeft = {
-      x: centerX - 5,  // 中心点左侧一点
-      y: centerY
+    // 找到左右两侧的点（110和011）
+    const sidePts = bottom4.slice(1, 3);
+    const leftPt = sidePts[0].p.x < sidePts[1].p.x ? sidePts[0].p : sidePts[1].p;
+    const rightPt = sidePts[0].p.x < sidePts[1].p.x ? sidePts[1].p : sidePts[0].p;
+
+    // 找到上方的点（111）
+    const topPt = bottom4[3].p;
+
+    // 地面菱形的四个角
+    const groundQuad = {
+      nearLeft: leftPt,      // 110
+      nearRight: rightPt,    // 011
+      farLeft: topPt,        // 111 (上方)
+      farRight: bottomPt     // 010 (下方)
     };
-    const farRight = {
-      x: centerX + 5,  // 中心点右侧一点
-      y: centerY
-    };
-
-    const groundQuad = { nearLeft, nearRight, farLeft, farRight };
 
     // 绘制地面上的场景
     drawGroundScene(groundQuad);
