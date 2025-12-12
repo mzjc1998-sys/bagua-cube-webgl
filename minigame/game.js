@@ -517,13 +517,31 @@ function getZeroGroundCoords(groundQuad) {
   return { x: gx, y: gy };
 }
 
+// 绘制单个地面元素
+function drawGroundElement(groundQuad, type, x, y) {
+  // 只绘制在可见范围内的元素
+  if (x < -0.1 || x > 1.1 || y < -0.1 || y > 1.1) {
+    return;
+  }
+
+  const pt = getGroundPoint(groundQuad, x, y);
+
+  if (type === 'tree') {
+    drawTree(pt.x, pt.y, pt.scale);
+  } else if (type === 'grass') {
+    drawGrass(pt.x, pt.y, pt.scale);
+  } else if (type === 'flower') {
+    drawFlower(pt.x, pt.y, pt.scale);
+  }
+}
+
 // 绘制地面上的场景
 function drawGroundScene(groundQuad) {
   // 场景移动原理：
   // 1. 火柴人永远朝向"000"方向奔跑
   // 2. 计算000在当前地面坐标系中的位置
   // 3. 场景向000的反方向移动（增量更新）
-  // 4. 切换宫视角时，方向改变但元素位置保持连续
+  // 4. 使用平铺渲染，确保地面始终有物体
 
   // 计算000在地面坐标系中的位置
   const zeroPos = getZeroGroundCoords(groundQuad);
@@ -546,29 +564,22 @@ function drawGroundScene(groundQuad) {
     elem.x += deltaOffset * normX;
     elem.y += deltaOffset * normY;
 
-    // 元素超出视野范围时，从另一侧循环进入
-    // 使用较大的范围 [-0.5, 1.5] 以避免突然跳跃
-    if (elem.x < -0.5) elem.x += 2.0;
-    if (elem.x > 1.5) elem.x -= 2.0;
-    if (elem.y < -0.5) elem.y += 2.0;
-    if (elem.y > 1.5) elem.y -= 2.0;
+    // 使用模运算保持坐标在 [0, 1) 范围内
+    // 这样元素会无缝循环
+    elem.x = ((elem.x % 1.0) + 1.0) % 1.0;
+    elem.y = ((elem.y % 1.0) + 1.0) % 1.0;
   }
 
-  // 绘制地面元素
+  // 使用平铺渲染：绘制元素及其周围的副本
+  // 这确保了边界处不会出现空白
   for (const elem of groundElements) {
-    // 只绘制在可见范围内的元素
-    if (elem.x < -0.2 || elem.x > 1.2 || elem.y < -0.2 || elem.y > 1.2) {
-      continue;
-    }
-
-    const pt = getGroundPoint(groundQuad, elem.x, elem.y);
-
-    if (elem.type === 'tree') {
-      drawTree(pt.x, pt.y, pt.scale);
-    } else if (elem.type === 'grass') {
-      drawGrass(pt.x, pt.y, pt.scale);
-    } else if (elem.type === 'flower') {
-      drawFlower(pt.x, pt.y, pt.scale);
+    // 绘制 3x3 平铺（原位置 + 8个方向的副本）
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        const x = elem.x + ox;
+        const y = elem.y + oy;
+        drawGroundElement(groundQuad, elem.type, x, y);
+      }
     }
   }
 
