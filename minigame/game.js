@@ -192,51 +192,32 @@ let walkTime = 0;
 const CUBE_SIZE = 10; // 10米边长
 let sceneOffset = 0; // 场景偏移量
 
-// 在地面菱形上计算一个点的屏幕坐标（带透视）
-// groundQuad = { nearLeft(110), nearRight(011), farLeft(111/top), farRight(010/bottom) }
-// u: 0-1 从左到右
-// v: 0-1 从上到下
-function getGroundPoint(groundQuad, u, v) {
-  // 菱形的四个角: left(110), right(011), top(111), bottom(010)
-  const left = groundQuad.nearLeft;
-  const right = groundQuad.nearRight;
-  const top = groundQuad.farLeft;
-  const bottom = groundQuad.farRight;
+// 在地面菱形上计算一个点的屏幕坐标
+// 以010为原点，010->011为X轴，010->110为Y轴
+// x: 0-1 从010到011方向
+// y: 0-1 从010到110方向
+function getGroundPoint(groundQuad, x, y) {
+  // 四个角点
+  const p00 = groundQuad.farRight;  // 010 - 原点
+  const p10 = groundQuad.nearRight; // 011 - X轴方向
+  const p01 = groundQuad.nearLeft;  // 110 - Y轴方向
+  const p11 = groundQuad.farLeft;   // 111 - 对角
 
-  // 计算菱形中心
-  const centerX = (left.x + right.x + top.x + bottom.x) / 4;
-  const centerY = (left.y + right.y + top.y + bottom.y) / 4;
+  // 双线性插值计算屏幕坐标
+  const screenX = (1-x)*(1-y)*p00.x + x*(1-y)*p10.x + (1-x)*y*p01.x + x*y*p11.x;
+  const screenY = (1-x)*(1-y)*p00.y + x*(1-y)*p10.y + (1-x)*y*p01.y + x*y*p11.y;
 
-  // 双线性插值在菱形内
-  // 从中心向四个方向插值
-  const horizX = left.x + (right.x - left.x) * u;
-  const horizY = left.y + (right.y - left.y) * u;
-  const vertX = top.x + (bottom.x - top.x) * v;
-  const vertY = top.y + (bottom.y - top.y) * v;
+  // 透视缩放：靠近010（原点）的物体大，靠近111的物体小
+  // 计算到010的距离
+  const distTo010 = Math.sqrt(x*x + y*y);
+  const scale = 1.0 - distTo010 * 0.4;
 
-  // 混合得到最终位置
-  const x = centerX + (horizX - centerX) * (1 - Math.abs(v - 0.5) * 2) + (vertX - centerX) * (1 - Math.abs(u - 0.5) * 2);
-  const y = centerY + (horizY - centerY) * (1 - Math.abs(v - 0.5) * 2) + (vertY - centerY) * (1 - Math.abs(u - 0.5) * 2);
-
-  // 透视缩放：中心区域物体较小（远），边缘较大（近）
-  const distFromCenter = Math.sqrt(Math.pow(u - 0.5, 2) + Math.pow(v - 0.5, 2));
-  const scale = 0.5 + distFromCenter * 0.8;
-
-  return { x, y, scale };
+  return { x: screenX, y: screenY, scale: Math.max(0.3, scale) };
 }
 
-// 获取菱形中心点
+// 获取菱形中心点（火柴人位置）
 function getDiamondCenter(groundQuad) {
-  const left = groundQuad.nearLeft;
-  const right = groundQuad.nearRight;
-  const top = groundQuad.farLeft;
-  const bottom = groundQuad.farRight;
-
-  return {
-    x: (left.x + right.x + top.x + bottom.x) / 4,
-    y: (left.y + right.y + top.y + bottom.y) / 4,
-    scale: 0.7
-  };
+  return getGroundPoint(groundQuad, 0.5, 0.5);
 }
 
 // 画树（线段风格，带透视）
@@ -374,32 +355,35 @@ function drawStickMan(x, y, scale, time) {
 
 // 绘制地面上的场景
 function drawGroundScene(groundQuad) {
-  // 场景元素固定在地面上，彼此相对静止
-  // 火柴人向000方向移动，所以整个地面向000的反方向（即向后）移动
-  // v=0 是前方(000方向/111顶点)，v=1 是后方(010顶点)
+  // 地面坐标系：010为原点，X轴指向011，Y轴指向110
+  // 火柴人向000方向移动（从地面向上/向观察者方向）
+  // 地面物体相对向后移动 = 从010方向向111方向移动
+  // 即 x和y 同时增加
 
-  // 地面上的固定物体（u是左右位置，v是前后位置）
+  // 地面上的固定物体（x: 0-1, y: 0-1）
+  // 物体分布在整个地面上
   const elements = [
-    { type: 'tree', u: 0.15, v: 0.2 },
-    { type: 'tree', u: 0.85, v: 0.3 },
-    { type: 'grass', u: 0.3, v: 0.15 },
-    { type: 'flower', u: 0.7, v: 0.4 },
-    { type: 'grass', u: 0.45, v: 0.6 },
-    { type: 'tree', u: 0.2, v: 0.7 },
-    { type: 'flower', u: 0.55, v: 0.25 },
-    { type: 'grass', u: 0.8, v: 0.5 },
-    { type: 'tree', u: 0.6, v: 0.8 },
-    { type: 'flower', u: 0.35, v: 0.45 },
-    { type: 'grass', u: 0.75, v: 0.65 },
+    { type: 'tree', x: 0.1, y: 0.1 },
+    { type: 'tree', x: 0.9, y: 0.2 },
+    { type: 'grass', x: 0.2, y: 0.3 },
+    { type: 'flower', x: 0.7, y: 0.15 },
+    { type: 'grass', x: 0.4, y: 0.5 },
+    { type: 'tree', x: 0.15, y: 0.7 },
+    { type: 'flower', x: 0.6, y: 0.4 },
+    { type: 'grass', x: 0.85, y: 0.6 },
+    { type: 'tree', x: 0.5, y: 0.85 },
+    { type: 'flower', x: 0.3, y: 0.65 },
+    { type: 'grass', x: 0.75, y: 0.8 },
   ];
 
   // 绘制移动的场景元素
-  // 所有物体一起向后移动（v增加），表示火柴人在向前走
+  // 所有物体沿对角线方向移动（从010向111），表示火柴人在向前走
   for (const elem of elements) {
-    // 所有物体的v坐标同时增加sceneOffset（整体平移）
-    let v = (elem.v + sceneOffset) % 1.0;
+    // x和y坐标同时增加sceneOffset（沿对角线平移）
+    let x = (elem.x + sceneOffset) % 1.0;
+    let y = (elem.y + sceneOffset) % 1.0;
 
-    const pt = getGroundPoint(groundQuad, elem.u, v);
+    const pt = getGroundPoint(groundQuad, x, y);
 
     if (elem.type === 'tree') {
       drawTree(pt.x, pt.y, pt.scale);
@@ -410,7 +394,7 @@ function drawGroundScene(groundQuad) {
     }
   }
 
-  // 火柴人在菱形正中央（两条对角线的交点）
+  // 火柴人在菱形正中央（0.5, 0.5）
   const stickPt = getDiamondCenter(groundQuad);
   drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime);
 }
