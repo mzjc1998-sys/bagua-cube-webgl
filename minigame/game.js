@@ -23,7 +23,6 @@ const COLOR_BG = '#eef2f7';
 function getNodeColor(bits) {
   let ones = 0;
   for (const c of bits) if (c === '1') ones++;
-  // 0个1 = 白(255), 3个1 = 黑(0)
   const gray = Math.round(255 * (1 - ones / 3));
   return `rgb(${gray},${gray},${gray})`;
 }
@@ -52,8 +51,6 @@ for (const bits of trigramBits) {
 }
 
 // =============== 边定义 ===============
-// 边的颜色：使用第一个顶点在变化位上的值
-// 0=阳爻(白)，1=阴爻(黑)
 const edges = [];
 for (let i = 0; i < trigramBits.length; i++) {
   for (let j = i + 1; j < trigramBits.length; j++) {
@@ -68,7 +65,6 @@ for (let i = 0; i < trigramBits.length; i++) {
       }
     }
     if (diffCount === 1) {
-      // 边的值：第一个顶点在变化位上的bit值
       const val = parseInt(a[diffBit]);
       edges.push({ a, b, diffBit, val });
     }
@@ -88,6 +84,11 @@ const palacePairs = {
 };
 
 let currentPalace = '乾';
+
+// 获取当前宫的前面顶点（中心点）
+function getFrontBits() {
+  return palacePairs[currentPalace][0];
+}
 
 // =============== 向量工具 ===============
 function vecSub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
@@ -167,7 +168,8 @@ function rotate3D(p) {
 
 function project(p) {
   const pr = rotate3D(p);
-  const scale = Math.min(W, H) * 0.35;
+  // 缩小六边形，从0.35改为0.25
+  const scale = Math.min(W, H) * 0.25;
   return {
     x: pr.x * scale + W / 2,
     y: -pr.y * scale + H / 2,
@@ -191,8 +193,12 @@ function hitTest(px, py) {
   let best = null;
   let bestD2 = Infinity;
   const hitRadius = 25;
+  const frontBits = getFrontBits();
 
   for (const bits in trigramPos) {
+    // 跳过中心点
+    if (bits === frontBits) continue;
+
     const p = projCache.get(bits);
     if (!p) continue;
     const dx = px - p.x;
@@ -216,8 +222,15 @@ function draw() {
 
   updateProjCache();
 
+  const frontBits = getFrontBits();
+
+  // 过滤掉连接到中心点的边
+  const visibleEdges = edges.filter(e => {
+    return e.a !== frontBits && e.b !== frontBits;
+  });
+
   // 按深度排序边
-  const sortedEdges = edges.map(e => {
+  const sortedEdges = visibleEdges.map(e => {
     const pa = projCache.get(e.a);
     const pb = projCache.get(e.b);
     const avgZ = (pa.z + pb.z) / 2;
@@ -230,11 +243,9 @@ function draw() {
     ctx.moveTo(e.pa.x, e.pa.y);
     ctx.lineTo(e.pb.x, e.pb.y);
 
-    // 阳爻(0)=白色，阴爻(1)=黑色
     ctx.strokeStyle = getEdgeColor(e.val);
     ctx.lineWidth = e.avgZ > 0 ? 4 : 3;
 
-    // 为白色边添加黑色描边以便在浅色背景上可见
     if (e.val === 0) {
       ctx.save();
       ctx.strokeStyle = '#888888';
@@ -247,11 +258,13 @@ function draw() {
     ctx.stroke();
   }
 
-  // 按深度排序顶点
-  const sortedVerts = trigramBits.map(bits => {
-    const p = projCache.get(bits);
-    return { bits, p, name: bitsToName[bits] };
-  }).sort((a, b) => a.p.z - b.p.z);
+  // 过滤掉中心点，按深度排序顶点
+  const sortedVerts = trigramBits
+    .filter(bits => bits !== frontBits)
+    .map(bits => {
+      const p = projCache.get(bits);
+      return { bits, p, name: bitsToName[bits] };
+    }).sort((a, b) => a.p.z - b.p.z);
 
   // 画顶点和标签
   for (const v of sortedVerts) {
@@ -259,10 +272,9 @@ function draw() {
     const isFront = p.z > 0;
     const radius = isFront ? 12 : 9;
 
-    // 顶点颜色：根据1的数量
     const nodeColor = getNodeColor(v.bits);
 
-    // 画描边（让白色顶点可见）
+    // 画描边
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius + 2, 0, Math.PI * 2);
     ctx.fillStyle = '#666666';
@@ -274,19 +286,14 @@ function draw() {
     ctx.fillStyle = nodeColor;
     ctx.fill();
 
-    // 标签颜色：与顶点相反以便可读
-    let ones = 0;
-    for (const c of v.bits) if (c === '1') ones++;
-    const labelColor = ones >= 2 ? '#FFFFFF' : '#000000';
-
-    ctx.fillStyle = labelColor;
+    // 只显示二进制编码，隐藏卦名
+    ctx.fillStyle = '#333333';
     ctx.font = isFront ? 'bold 13px sans-serif' : '11px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // 标签位置
-    const labelY = p.y - radius - 14;
-    ctx.fillText(`${v.name} ${v.bits}`, p.x, labelY);
+    const labelY = p.y - radius - 12;
+    ctx.fillText(v.bits, p.x, labelY);
   }
 
   // 显示当前宫
