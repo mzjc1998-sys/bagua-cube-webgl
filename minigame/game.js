@@ -467,19 +467,56 @@ function drawStickManPhysics(x, y, scale, time) {
   ctx.restore();
 }
 
+// 计算000在地面坐标系中的位置
+// 使用逆双线性插值（近似）
+function getZeroGroundCoords(groundQuad) {
+  const zero = projCache.get('000');
+  if (!zero) return { x: 0.5, y: 0.5 };
+
+  const p00 = groundQuad.farRight;  // 原点 (0,0)
+  const p10 = groundQuad.nearRight; // X轴方向 (1,0)
+  const p01 = groundQuad.nearLeft;  // Y轴方向 (0,1)
+
+  // 计算 X 轴和 Y 轴向量
+  const xAxis = { x: p10.x - p00.x, y: p10.y - p00.y };
+  const yAxis = { x: p01.x - p00.x, y: p01.y - p00.y };
+
+  // 000 相对于原点的向量
+  const v = { x: zero.x - p00.x, y: zero.y - p00.y };
+
+  // 解线性方程组: v = x * xAxis + y * yAxis
+  // 使用 Cramer's rule
+  const det = xAxis.x * yAxis.y - xAxis.y * yAxis.x;
+  if (Math.abs(det) < 0.001) {
+    return { x: 0.5, y: 0.5 }; // 退化情况
+  }
+
+  const gx = (v.x * yAxis.y - v.y * yAxis.x) / det;
+  const gy = (xAxis.x * v.y - xAxis.y * v.x) / det;
+
+  return { x: gx, y: gy };
+}
+
 // 绘制地面上的场景
 function drawGroundScene(groundQuad) {
   // 场景移动原理：
-  // 1. 火柴人永远朝向当前宫的"000"方向奔跑
-  // 2. 在投影中，000位于六边形中心（地面菱形的"上方"）
-  // 3. 地面菱形：111靠近000（中心），010远离000（外边）
-  // 4. 火柴人向000跑 = 场景向000的反方向移动 = 从111向010移动
-  // 5. 切换宫视角时，地面菱形重新计算，移动方向自动跟随
-  //
-  // 地面坐标系：
-  // - (0,0) = 010（下方，远离000）
-  // - (1,1) = 111（上方，靠近000）
-  // - 场景从(1,1)向(0,0)移动 = x和y同时减少
+  // 1. 火柴人永远朝向"000"方向奔跑
+  // 2. 计算000在当前地面坐标系中的位置
+  // 3. 场景向000的反方向移动
+  // 4. 切换宫视角时，000位置改变，移动方向随之改变
+
+  // 计算000在地面坐标系中的位置
+  const zeroPos = getZeroGroundCoords(groundQuad);
+
+  // 计算移动方向（从地面中心指向000的反方向）
+  // 地面中心是 (0.5, 0.5)
+  const dirX = 0.5 - zeroPos.x; // 反方向
+  const dirY = 0.5 - zeroPos.y;
+
+  // 归一化方向向量
+  const len = Math.sqrt(dirX * dirX + dirY * dirY);
+  const normX = len > 0.01 ? dirX / len : 0;
+  const normY = len > 0.01 ? dirY / len : 0;
 
   // 地面上的固定物体
   const elements = [
@@ -496,11 +533,11 @@ function drawGroundScene(groundQuad) {
     { type: 'grass', x: 0.72, y: 0.82 },
   ];
 
-  // 场景从000方向（111）向000反方向（010）移动
-  // x和y同时减少
+  // 场景向000的反方向移动
   for (const elem of elements) {
-    let x = (elem.x - sceneOffset + 1.0) % 1.0;
-    let y = (elem.y - sceneOffset + 1.0) % 1.0;
+    // 沿着归一化的反方向移动
+    let x = (elem.x + sceneOffset * normX + 2.0) % 1.0;
+    let y = (elem.y + sceneOffset * normY + 2.0) % 1.0;
 
     const pt = getGroundPoint(groundQuad, x, y);
 
