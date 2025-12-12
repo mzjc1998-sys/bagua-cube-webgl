@@ -374,29 +374,30 @@ function drawStickMan(x, y, scale, time) {
 
 // 绘制地面上的场景
 function drawGroundScene(groundQuad) {
-  // 场景元素分布在菱形区域内
-  // 火柴人向000方向移动，所以地面物体从前方(000方向)向后方(111方向)移动
-  // 在菱形坐标中：v=0 是上方(111)，v=1 是下方(010)
-  // 火柴人向前走 = 物体从 v小 向 v大 移动
+  // 场景元素固定在地面上，彼此相对静止
+  // 火柴人向000方向移动，所以整个地面向000的反方向（即向后）移动
+  // v=0 是前方(000方向/111顶点)，v=1 是后方(010顶点)
 
+  // 地面上的固定物体（u是左右位置，v是前后位置）
   const elements = [
-    { type: 'tree', u: 0.15, vBase: 0.0 },
-    { type: 'tree', u: 0.85, vBase: 0.1 },
-    { type: 'grass', u: 0.3, vBase: 0.2 },
-    { type: 'flower', u: 0.7, vBase: 0.25 },
-    { type: 'grass', u: 0.5, vBase: 0.35 },
-    { type: 'tree', u: 0.2, vBase: 0.45 },
-    { type: 'flower', u: 0.4, vBase: 0.55 },
-    { type: 'grass', u: 0.8, vBase: 0.6 },
-    { type: 'tree', u: 0.6, vBase: 0.7 },
-    { type: 'flower', u: 0.25, vBase: 0.8 },
-    { type: 'grass', u: 0.75, vBase: 0.9 },
+    { type: 'tree', u: 0.15, v: 0.2 },
+    { type: 'tree', u: 0.85, v: 0.3 },
+    { type: 'grass', u: 0.3, v: 0.15 },
+    { type: 'flower', u: 0.7, v: 0.4 },
+    { type: 'grass', u: 0.45, v: 0.6 },
+    { type: 'tree', u: 0.2, v: 0.7 },
+    { type: 'flower', u: 0.55, v: 0.25 },
+    { type: 'grass', u: 0.8, v: 0.5 },
+    { type: 'tree', u: 0.6, v: 0.8 },
+    { type: 'flower', u: 0.35, v: 0.45 },
+    { type: 'grass', u: 0.75, v: 0.65 },
   ];
 
-  // 绘制移动的场景元素（从前向后移动）
+  // 绘制移动的场景元素
+  // 所有物体一起向后移动（v增加），表示火柴人在向前走
   for (const elem of elements) {
-    // v坐标随时间增加（物体从前方移向后方，表示火柴人在前进）
-    let v = (elem.vBase + sceneOffset) % 1.0;
+    // 所有物体的v坐标同时增加sceneOffset（整体平移）
+    let v = (elem.v + sceneOffset) % 1.0;
 
     const pt = getGroundPoint(groundQuad, elem.u, v);
 
