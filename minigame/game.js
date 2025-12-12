@@ -1,6 +1,7 @@
 /**
  * 八卦立方体 - 微信小游戏
- * Canvas 2D 版本 - 可直接运行
+ * 四维超立方体的三维投影 - 时空切片
+ * 边长10m的正方体内部视角
  */
 
 const canvas = wx.createCanvas();
@@ -14,9 +15,19 @@ const DPR = sysInfo.pixelRatio;
 canvas.width = W * DPR;
 canvas.height = H * DPR;
 
-// ==================== 配置 ====================
+// ==================== 颜色配置 ====================
 const COLOR_BG = '#eef2f7';
-const CUBE_SIZE = 10;
+
+function getNodeColor(bits) {
+  let ones = 0;
+  for (const c of bits) if (c === '1') ones++;
+  const gray = Math.round(255 * (1 - ones / 3));
+  return `rgb(${gray},${gray},${gray})`;
+}
+
+function getEdgeColor(val) {
+  return val === 0 ? '#FFFFFF' : '#000000';
+}
 
 // ==================== 八卦数据 ====================
 const bitsToName = {
@@ -24,28 +35,34 @@ const bitsToName = {
   '100': '巽', '101': '坎', '110': '艮', '111': '坤'
 };
 
-const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
 const trigramPos = {};
+const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
 
 for (const bits of trigramBits) {
-  trigramPos[bits] = {
-    x: (bits[2] === '1') ? 1 : -1,
-    y: (bits[0] === '1') ? 1 : -1,
-    z: (bits[1] === '1') ? 1 : -1
-  };
+  const b0 = bits[0], b1 = bits[1], b2 = bits[2];
+  const x = (b2 === '1') ? 1 : -1;
+  const y = (b0 === '1') ? 1 : -1;
+  const z = (b1 === '1') ? 1 : -1;
+  trigramPos[bits] = { x, y, z, bits, name: bitsToName[bits] };
 }
 
 // 边
 const edges = [];
-for (let i = 0; i < 8; i++) {
-  for (let j = i + 1; j < 8; j++) {
-    const a = trigramBits[i], b = trigramBits[j];
-    let diffBit = -1, diffCount = 0;
+for (let i = 0; i < trigramBits.length; i++) {
+  for (let j = i + 1; j < trigramBits.length; j++) {
+    const a = trigramBits[i];
+    const b = trigramBits[j];
+    let diffBit = -1;
+    let diffCount = 0;
     for (let k = 0; k < 3; k++) {
-      if (a[k] !== b[k]) { diffBit = k; diffCount++; }
+      if (a[k] !== b[k]) {
+        diffBit = k;
+        diffCount++;
+      }
     }
     if (diffCount === 1) {
-      edges.push({ a, b, val: parseInt(a[diffBit]) });
+      const val = parseInt(a[diffBit]);
+      edges.push({ a, b, diffBit, val });
     }
   }
 }
@@ -59,53 +76,82 @@ const palacePairs = {
 };
 
 let currentPalace = '艮';
-const getFrontBits = () => palacePairs[currentPalace][0];
 
-// ==================== 3D 变换 ====================
+function getFrontBits() { return palacePairs[currentPalace][0]; }
+function getBackBits() { return palacePairs[currentPalace][1]; }
+
+// ==================== 向量运算 ====================
+function vecSub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
+function vecLength(v) { return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+function vecNorm(v) { const L = vecLength(v) || 1; return { x: v.x / L, y: v.y / L, z: v.z / L }; }
+
+function neighborBitsForUp(bits) {
+  const b0 = bits[0], b1 = bits[1], b2 = bits[2];
+  const flipped = b1 === '0' ? '1' : '0';
+  return '' + b0 + flipped + b2;
+}
+
+function basisForPalace(frontBits, backBits) {
+  const pA = trigramPos[frontBits];
+  const pB = trigramPos[backBits];
+  const forward = vecNorm(vecSub(pB, pA));
+
+  const qBits = neighborBitsForUp(frontBits);
+  const q = trigramPos[qBits];
+  let upCand = vecSub(q, pA);
+  const projLen = upCand.x * forward.x + upCand.y * forward.y + upCand.z * forward.z;
+  upCand = { x: upCand.x - forward.x * projLen, y: upCand.y - forward.y * projLen, z: upCand.z - forward.z * projLen };
+  const up = vecNorm(upCand);
+
+  let right = {
+    x: up.y * forward.z - up.z * forward.y,
+    y: up.z * forward.x - up.x * forward.z,
+    z: up.x * forward.y - up.y * forward.x
+  };
+  right = vecNorm(right);
+
+  return [right.x, right.y, right.z, up.x, up.y, up.z, forward.x, forward.y, forward.z];
+}
+
 const palaceBases = {};
 for (const name in palacePairs) {
   const [f, b] = palacePairs[name];
-  const pA = trigramPos[f], pB = trigramPos[b];
-
-  // forward
-  let fw = { x: pB.x - pA.x, y: pB.y - pA.y, z: pB.z - pA.z };
-  const fwLen = Math.sqrt(fw.x*fw.x + fw.y*fw.y + fw.z*fw.z);
-  fw = { x: fw.x/fwLen, y: fw.y/fwLen, z: fw.z/fwLen };
-
-  // up (flip middle bit for up neighbor)
-  const upBits = f[0] + (f[1]==='0'?'1':'0') + f[2];
-  const q = trigramPos[upBits];
-  let up = { x: q.x - pA.x, y: q.y - pA.y, z: q.z - pA.z };
-  const dot = up.x*fw.x + up.y*fw.y + up.z*fw.z;
-  up = { x: up.x - fw.x*dot, y: up.y - fw.y*dot, z: up.z - fw.z*dot };
-  const upLen = Math.sqrt(up.x*up.x + up.y*up.y + up.z*up.z);
-  up = { x: up.x/upLen, y: up.y/upLen, z: up.z/upLen };
-
-  // right = up × forward
-  const rt = {
-    x: up.y*fw.z - up.z*fw.y,
-    y: up.z*fw.x - up.x*fw.z,
-    z: up.x*fw.y - up.y*fw.x
-  };
-
-  palaceBases[name] = [rt.x, rt.y, rt.z, up.x, up.y, up.z, fw.x, fw.y, fw.z];
+  palaceBases[name] = basisForPalace(f, b);
 }
 
-let rotZ = Math.PI;
-let projCache = new Map();
+// ==================== 3D 变换 ====================
+let rotX = 0, rotY = 0, rotZ = Math.PI;
+const zoom = 1.0;
+
+function applyPalaceMat(p) {
+  const m = palaceBases[currentPalace];
+  if (!m) return p;
+  return {
+    x: m[0] * p.x + m[1] * p.y + m[2] * p.z,
+    y: m[3] * p.x + m[4] * p.y + m[5] * p.z,
+    z: m[6] * p.x + m[7] * p.y + m[8] * p.z
+  };
+}
+
+function rotate3D(p) {
+  let v = applyPalaceMat(p);
+  let x = v.x * zoom, y = v.y * zoom, z = v.z * zoom;
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  const cx = Math.cos(rotX), sx = Math.sin(rotX);
+  let y2 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+  const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
+  let x3 = x1 * cz - y2 * sz, y3 = x1 * sz + y2 * cz;
+  return { x: x3, y: y3, z: z2 };
+}
 
 function project(p) {
-  const m = palaceBases[currentPalace];
-  const v = {
-    x: m[0]*p.x + m[1]*p.y + m[2]*p.z,
-    y: m[3]*p.x + m[4]*p.y + m[5]*p.z,
-    z: m[6]*p.x + m[7]*p.y + m[8]*p.z
-  };
-  const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
-  const x = v.x*cz - v.y*sz, y = v.x*sz + v.y*cz;
+  const pr = rotate3D(p);
   const scale = Math.min(W, H) * 0.25;
-  return { x: x*scale + W/2, y: -y*scale + H/2, z: v.z };
+  return { x: pr.x * scale + W / 2, y: -pr.y * scale + H / 2, z: pr.z };
 }
+
+let projCache = new Map();
 
 function updateProjCache() {
   projCache.clear();
@@ -114,357 +160,376 @@ function updateProjCache() {
   }
 }
 
-// ==================== 动画 ====================
+// ==================== 动画状态 ====================
 let walkTime = 0;
+const CUBE_SIZE = 10;
 let sceneOffset = 0;
-const poseState = { facing: 0, init: false };
+let stickManSpeed = 0.7;
+let targetSpeed = 0.7;
+const SPEED_LERP = 0.05;
+const BASE_SCENE_SPEED = 0.004;
 
-// 简单的伪随机函数（基于种子）
-function seededRandom(seed) {
-  const x = Math.sin(seed * 9999) * 10000;
-  return x - Math.floor(x);
+const poseState = { facing: 0, initialized: false };
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function lerpAngle(a, b, t) {
+  let diff = b - a;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return a + diff * t;
 }
 
-// 场景元素 - 带随机大小
+// ==================== 场景元素 ====================
 const groundElements = [
-  { type: 'tree', x: 0.15, y: 0.20, size: 0.7 + seededRandom(1) * 0.6 },
-  { type: 'tree', x: 0.85, y: 0.25, size: 0.8 + seededRandom(2) * 0.5 },
-  { type: 'grass', x: 0.30, y: 0.40, size: 0.6 + seededRandom(3) * 0.8 },
-  { type: 'flower', x: 0.70, y: 0.15, size: 0.7 + seededRandom(4) * 0.6 },
-  { type: 'grass', x: 0.45, y: 0.60, size: 0.5 + seededRandom(5) * 0.7 },
-  { type: 'tree', x: 0.20, y: 0.75, size: 0.9 + seededRandom(6) * 0.4 },
-  { type: 'flower', x: 0.60, y: 0.45, size: 0.6 + seededRandom(7) * 0.5 },
-  { type: 'grass', x: 0.75, y: 0.65, size: 0.7 + seededRandom(8) * 0.6 },
-  { type: 'tree', x: 0.50, y: 0.85, size: 0.6 + seededRandom(9) * 0.7 },
-  { type: 'flower', x: 0.35, y: 0.55, size: 0.8 + seededRandom(10) * 0.4 },
-  { type: 'grass', x: 0.12, y: 0.50, size: 0.5 + seededRandom(11) * 0.6 },
-  { type: 'flower', x: 0.88, y: 0.70, size: 0.6 + seededRandom(12) * 0.5 },
+  { type: 'tree', x: 0.12, y: 0.18 },
+  { type: 'tree', x: 0.82, y: 0.28 },
+  { type: 'grass', x: 0.28, y: 0.38 },
+  { type: 'flower', x: 0.68, y: 0.12 },
+  { type: 'grass', x: 0.42, y: 0.58 },
+  { type: 'tree', x: 0.22, y: 0.72 },
+  { type: 'flower', x: 0.58, y: 0.42 },
+  { type: 'grass', x: 0.78, y: 0.62 },
+  { type: 'tree', x: 0.48, y: 0.88 },
+  { type: 'flower', x: 0.32, y: 0.52 },
+  { type: 'grass', x: 0.72, y: 0.82 },
 ];
 
-// ==================== 绘制 ====================
-function getNodeColor(bits) {
-  let ones = 0;
-  for (const c of bits) if (c === '1') ones++;
-  const g = Math.round(255 * (1 - ones/3));
-  return `rgb(${g},${g},${g})`;
+let lastSceneOffset = 0;
+
+function getGroundPoint(groundQuad, x, y) {
+  const p00 = groundQuad.farRight;
+  const p10 = groundQuad.nearRight;
+  const p01 = groundQuad.nearLeft;
+  const p11 = groundQuad.farLeft;
+  const screenX = (1-x)*(1-y)*p00.x + x*(1-y)*p10.x + (1-x)*y*p01.x + x*y*p11.x;
+  const screenY = (1-x)*(1-y)*p00.y + x*(1-y)*p10.y + (1-x)*y*p01.y + x*y*p11.y;
+  const distTo010 = Math.sqrt(x*x + y*y);
+  const scale = 1.0 - distTo010 * 0.4;
+  return { x: screenX, y: screenY, scale: Math.max(0.3, scale) };
 }
 
-function getGroundPoint(quad, x, y) {
-  const sx = (1-x)*(1-y)*quad[3].x + x*(1-y)*quad[2].x + (1-x)*y*quad[0].x + x*y*quad[1].x;
-  const sy = (1-x)*(1-y)*quad[3].y + x*(1-y)*quad[2].y + (1-x)*y*quad[0].y + x*y*quad[1].y;
-  const sc = Math.max(0.3, 1 - Math.sqrt(x*x + y*y) * 0.4);
-  return { x: sx, y: sy, scale: sc };
-}
+function getDiamondCenter(groundQuad) { return getGroundPoint(groundQuad, 0.5, 0.5); }
 
-// 线条风格绘制 - 树（和火柴人统一风格）
-function drawTree(x, y, s, sizeVar) {
-  const size = sizeVar || 1;
-  const h = 28 * s * size;
+// ==================== 绘制场景元素 ====================
+function drawTree(x, y, scale) {
+  const h = 30 * scale;
+  const trunkH = h * 0.4;
+  const crownH = h * 0.6;
   ctx.strokeStyle = '#5D4037';
-  ctx.lineWidth = Math.max(2, 2.5 * s);
-  ctx.lineCap = 'round';
-
-  // 树干
+  ctx.lineWidth = Math.max(1, 2 * scale);
   ctx.beginPath();
   ctx.moveTo(x, y);
-  ctx.lineTo(x, y - h * 0.45);
+  ctx.lineTo(x, y - trunkH);
   ctx.stroke();
-
-  // 树冠 - 三角形线条
   ctx.strokeStyle = '#2E7D32';
-  ctx.lineWidth = Math.max(2, 2 * s);
-  const crownH = h * 0.65;
-  const crownW = h * 0.35;
-  const crownY = y - h * 0.4;
-
   ctx.beginPath();
-  ctx.moveTo(x, crownY - crownH);
-  ctx.lineTo(x - crownW, crownY);
-  ctx.lineTo(x + crownW, crownY);
-  ctx.closePath();
-  ctx.stroke();
-
-  // 第二层树冠（稍大）
-  ctx.beginPath();
-  ctx.moveTo(x, crownY - crownH * 0.6);
-  ctx.lineTo(x - crownW * 1.2, crownY + crownH * 0.2);
-  ctx.lineTo(x + crownW * 1.2, crownY + crownH * 0.2);
+  ctx.moveTo(x, y - trunkH - crownH);
+  ctx.lineTo(x - crownH * 0.5, y - trunkH);
+  ctx.lineTo(x + crownH * 0.5, y - trunkH);
   ctx.closePath();
   ctx.stroke();
 }
 
-// 线条风格绘制 - 草
-function drawGrass(x, y, s, sizeVar) {
-  const size = sizeVar || 1;
+function drawGrass(x, y, scale) {
+  const h = 10 * scale;
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = Math.max(1, 1.5 * s);
-  ctx.lineCap = 'round';
-
-  const h = 12 * s * size;
-
-  // 左草叶
-  ctx.beginPath();
-  ctx.moveTo(x - 3 * s, y);
-  ctx.lineTo(x - 6 * s * size, y - h * 0.8);
-  ctx.stroke();
-
-  // 中草叶
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x, y - h);
-  ctx.stroke();
-
-  // 右草叶
-  ctx.beginPath();
-  ctx.moveTo(x + 3 * s, y);
-  ctx.lineTo(x + 6 * s * size, y - h * 0.8);
-  ctx.stroke();
+  ctx.lineWidth = Math.max(1, 1 * scale);
+  ctx.beginPath(); ctx.moveTo(x - 3 * scale, y); ctx.lineTo(x - 5 * scale, y - h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h * 1.2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 3 * scale, y); ctx.lineTo(x + 5 * scale, y - h); ctx.stroke();
 }
 
-// 线条风格绘制 - 花
-function drawFlower(x, y, s, sizeVar) {
-  const size = sizeVar || 1;
-  const h = 18 * s * size;
-
-  // 茎
+function drawFlower(x, y, scale) {
+  const h = 15 * scale;
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = Math.max(1, 1.5 * s);
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x, y - h);
-  ctx.stroke();
-
-  // 花朵 - 简单的十字/星形
-  const flowerY = y - h;
-  const petalL = 5 * s * size;
-
+  ctx.lineWidth = Math.max(1, 1 * scale);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
   ctx.strokeStyle = '#FF6B6B';
-  ctx.lineWidth = Math.max(2, 2 * s);
-
-  // 花瓣线条
-  ctx.beginPath();
-  ctx.moveTo(x - petalL, flowerY);
-  ctx.lineTo(x + petalL, flowerY);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(x, flowerY - petalL);
-  ctx.lineTo(x, flowerY + petalL);
-  ctx.stroke();
-
-  // 斜向花瓣
-  const d = petalL * 0.7;
-  ctx.beginPath();
-  ctx.moveTo(x - d, flowerY - d);
-  ctx.lineTo(x + d, flowerY + d);
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(x + d, flowerY - d);
-  ctx.lineTo(x - d, flowerY + d);
-  ctx.stroke();
-
-  // 花心
-  ctx.fillStyle = '#FFC107';
-  ctx.beginPath();
-  ctx.arc(x, flowerY, 2 * s * size, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.lineWidth = Math.max(1, 2 * scale);
+  const flowerSize = 5 * scale;
+  const cx = x, cy = y - h;
+  ctx.beginPath(); ctx.moveTo(cx, cy - flowerSize); ctx.lineTo(cx, cy + flowerSize); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - flowerSize, cy); ctx.lineTo(cx + flowerSize, cy); ctx.stroke();
 }
 
-function drawStickMan(x, y, scale, time, quad) {
-  const t = time * 7;
-  const sw = 0.65;
+// ==================== 火柴人 ====================
+function getStickManDirection(groundQuad) {
+  const zeroPos = getZeroGroundCoords(groundQuad);
+  const dx = zeroPos.x - 0.5;
+  const dy = zeroPos.y - 0.5;
+  return Math.atan2(dx, -dy);
+}
 
-  // 朝向计算
-  const zero = projCache.get('000');
-  if (zero && quad) {
-    const dx = (zero.x - (quad[0].x + quad[3].x)/2) / W;
-    const dy = (zero.y - (quad[0].y + quad[3].y)/2) / H;
-    const target = Math.atan2(dx, -dy);
-    poseState.facing = poseState.init ? poseState.facing + (target - poseState.facing) * 0.1 : target;
-    poseState.init = true;
-  }
+function drawStickMan(x, y, scale, time, groundQuad) {
+  const speed = stickManSpeed;
+  const t = time * (4 + speed * 6);
+  const targetFacing = groundQuad ? getStickManDirection(groundQuad) : 0;
+  const facing = poseState.initialized ? lerpAngle(poseState.facing, targetFacing, 0.1) : targetFacing;
+  poseState.facing = facing;
+  poseState.initialized = true;
 
-  const facing = poseState.facing;
-  const side = Math.abs(Math.sin(facing));
-  const fRight = Math.sin(facing) >= 0 ? 1 : -1;
-  const fAway = Math.cos(facing);
+  const sideView = Math.abs(Math.sin(facing));
+  const facingRight = Math.sin(facing) >= 0 ? 1 : -1;
+  const facingAway = Math.cos(facing);
 
   const len = 12 * scale;
   const headR = len * 0.5;
-  const bodyL = len * 1.8;
-  const legL = len, armL = len * 0.8;
-  const bodyW = len * 0.5 * (0.3 + Math.abs(fAway) * 0.7);
+  const bodyLen = len * 1.8;
+  const legLen = len * 1.0;
+  const armLen = len * 0.8;
+  const bodyW = len * 0.5 * (0.3 + Math.abs(facingAway) * 0.7);
 
-  const rT = Math.sin(t) * sw, rS = Math.sin(t - 0.5) * sw * 0.8 - 0.3;
-  const lT = Math.sin(t + Math.PI) * sw, lS = Math.sin(t + Math.PI - 0.5) * sw * 0.8 - 0.3;
-  const rA = Math.sin(t + Math.PI) * sw * 0.6, rF = Math.sin(t + Math.PI - 0.3) * sw * 0.4 + 0.5;
-  const lA = Math.sin(t) * sw * 0.6, lF = Math.sin(t - 0.3) * sw * 0.4 + 0.5;
-  const bounce = Math.abs(Math.sin(t * 2)) * 2 * scale * 0.7;
+  const swingAmp = 0.5 + speed * 0.3;
+  const rThigh = Math.sin(t) * swingAmp;
+  const rShin = Math.sin(t - 0.5) * swingAmp * 0.8 - 0.3;
+  const lThigh = Math.sin(t + Math.PI) * swingAmp;
+  const lShin = Math.sin(t + Math.PI - 0.5) * swingAmp * 0.8 - 0.3;
+  const rArm = Math.sin(t + Math.PI) * swingAmp * 0.6;
+  const rForearm = Math.sin(t + Math.PI - 0.3) * swingAmp * 0.4 + 0.5;
+  const lArm = Math.sin(t) * swingAmp * 0.6;
+  const lForearm = Math.sin(t - 0.3) * swingAmp * 0.4 + 0.5;
+  const bounce = Math.abs(Math.sin(t * 2)) * 2 * scale * speed;
 
   ctx.save();
   ctx.translate(x, y - bounce);
 
-  const hipY = 0, shY = -bodyL, headY = shY - len*0.3 - headR;
-  const rHX = bodyW * fRight, lHX = -bodyW * fRight;
-  const rSX = bodyW * 1.2 * fRight, lSX = -bodyW * 1.2 * fRight;
-  const swX = side * fRight;
+  const hipY = 0;
+  const shoulderY = hipY - bodyLen;
+  const headY = shoulderY - len * 0.3 - headR;
+  const rHipX = bodyW * facingRight;
+  const lHipX = -bodyW * facingRight;
+  const rShoulderX = bodyW * 1.2 * facingRight;
+  const lShoulderX = -bodyW * 1.2 * facingRight;
+  const legSwingX = sideView * facingRight;
 
-  const rKX = rHX + Math.sin(rT)*legL*swX, rKY = Math.cos(rT)*legL;
-  const rFX = rKX + Math.sin(rT+rS)*legL*swX, rFY = rKY + Math.cos(rT+rS)*legL;
-  const lKX = lHX + Math.sin(lT)*legL*swX, lKY = Math.cos(lT)*legL;
-  const lFX = lKX + Math.sin(lT+lS)*legL*swX, lFY = lKY + Math.cos(lT+lS)*legL;
-  const rEX = rSX + Math.sin(rA)*armL*swX, rEY = shY + Math.cos(rA)*armL;
-  const rHaX = rEX + Math.sin(rA+rF)*armL*swX, rHaY = rEY + Math.cos(rA+rF)*armL;
-  const lEX = lSX + Math.sin(lA)*armL*swX, lEY = shY + Math.cos(lA)*armL;
-  const lHaX = lEX + Math.sin(lA+lF)*armL*swX, lHaY = lEY + Math.cos(lA+lF)*armL;
+  const rKneeX = rHipX + Math.sin(rThigh) * legLen * legSwingX;
+  const rKneeY = hipY + Math.cos(rThigh) * legLen;
+  const rFootX = rKneeX + Math.sin(rThigh + rShin) * legLen * legSwingX;
+  const rFootY = rKneeY + Math.cos(rThigh + rShin) * legLen;
+  const lKneeX = lHipX + Math.sin(lThigh) * legLen * legSwingX;
+  const lKneeY = hipY + Math.cos(lThigh) * legLen;
+  const lFootX = lKneeX + Math.sin(lThigh + lShin) * legLen * legSwingX;
+  const lFootY = lKneeY + Math.cos(lThigh + lShin) * legLen;
+  const rElbowX = rShoulderX + Math.sin(rArm) * armLen * legSwingX;
+  const rElbowY = shoulderY + Math.cos(rArm) * armLen;
+  const rHandX = rElbowX + Math.sin(rArm + rForearm) * armLen * legSwingX;
+  const rHandY = rElbowY + Math.cos(rArm + rForearm) * armLen;
+  const lElbowX = lShoulderX + Math.sin(lArm) * armLen * legSwingX;
+  const lElbowY = shoulderY + Math.cos(lArm) * armLen;
+  const lHandX = lElbowX + Math.sin(lArm + lForearm) * armLen * legSwingX;
+  const lHandY = lElbowY + Math.cos(lArm + lForearm) * armLen;
 
-  ctx.lineWidth = Math.max(2, 3*scale);
+  ctx.strokeStyle = '#333333';
+  ctx.fillStyle = '#333333';
+  ctx.lineWidth = Math.max(2, 3 * scale);
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
-  const back = '#666', front = '#333';
-  const drawR = fAway > 0 ? rT <= 0 : rT > 0;
+  const rLegForward = rThigh > 0;
+  const drawRightFirst = facingAway > 0 ? !rLegForward : rLegForward;
+  const frontColor = '#333333';
+  const backColor = '#666666';
 
-  ctx.strokeStyle = back;
-  if (drawR) {
-    ctx.beginPath(); ctx.moveTo(rHX, hipY); ctx.lineTo(rKX, rKY); ctx.lineTo(rFX, rFY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(rSX, shY); ctx.lineTo(rEX, rEY); ctx.lineTo(rHaX, rHaY); ctx.stroke();
+  ctx.strokeStyle = backColor;
+  if (drawRightFirst) {
+    ctx.beginPath(); ctx.moveTo(rHipX, hipY); ctx.lineTo(rKneeX, rKneeY); ctx.lineTo(rFootX, rFootY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rShoulderX, shoulderY); ctx.lineTo(rElbowX, rElbowY); ctx.lineTo(rHandX, rHandY); ctx.stroke();
   } else {
-    ctx.beginPath(); ctx.moveTo(lHX, hipY); ctx.lineTo(lKX, lKY); ctx.lineTo(lFX, lFY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(lSX, shY); ctx.lineTo(lEX, lEY); ctx.lineTo(lHaX, lHaY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lHipX, hipY); ctx.lineTo(lKneeX, lKneeY); ctx.lineTo(lFootX, lFootY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lShoulderX, shoulderY); ctx.lineTo(lElbowX, lElbowY); ctx.lineTo(lHandX, lHandY); ctx.stroke();
   }
 
-  ctx.strokeStyle = front; ctx.fillStyle = front;
-  ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(0, shY); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(lHX, hipY); ctx.lineTo(rHX, hipY); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(lSX, shY); ctx.lineTo(rSX, shY); ctx.stroke();
-  ctx.beginPath(); ctx.arc(0, headY, headR, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = frontColor;
+  ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(0, shoulderY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(lHipX, hipY); ctx.lineTo(rHipX, hipY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(lShoulderX, shoulderY); ctx.lineTo(rShoulderX, shoulderY); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, headY, headR, 0, Math.PI * 2); ctx.fill();
 
-  if (drawR) {
-    ctx.beginPath(); ctx.moveTo(lHX, hipY); ctx.lineTo(lKX, lKY); ctx.lineTo(lFX, lFY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(lSX, shY); ctx.lineTo(lEX, lEY); ctx.lineTo(lHaX, lHaY); ctx.stroke();
+  ctx.strokeStyle = frontColor;
+  if (drawRightFirst) {
+    ctx.beginPath(); ctx.moveTo(lHipX, hipY); ctx.lineTo(lKneeX, lKneeY); ctx.lineTo(lFootX, lFootY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lShoulderX, shoulderY); ctx.lineTo(lElbowX, lElbowY); ctx.lineTo(lHandX, lHandY); ctx.stroke();
   } else {
-    ctx.beginPath(); ctx.moveTo(rHX, hipY); ctx.lineTo(rKX, rKY); ctx.lineTo(rFX, rFY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(rSX, shY); ctx.lineTo(rEX, rEY); ctx.lineTo(rHaX, rHaY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rHipX, hipY); ctx.lineTo(rKneeX, rKneeY); ctx.lineTo(rFootX, rFootY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rShoulderX, shoulderY); ctx.lineTo(rElbowX, rElbowY); ctx.lineTo(rHandX, rHandY); ctx.stroke();
   }
   ctx.restore();
 }
 
+function getZeroGroundCoords(groundQuad) {
+  const zero = projCache.get('000');
+  if (!zero) return { x: 0.5, y: 0.5 };
+  const p00 = groundQuad.farRight;
+  const p10 = groundQuad.nearRight;
+  const p01 = groundQuad.nearLeft;
+  const xAxis = { x: p10.x - p00.x, y: p10.y - p00.y };
+  const yAxis = { x: p01.x - p00.x, y: p01.y - p00.y };
+  const v = { x: zero.x - p00.x, y: zero.y - p00.y };
+  const det = xAxis.x * yAxis.y - xAxis.y * yAxis.x;
+  if (Math.abs(det) < 0.001) return { x: 0.5, y: 0.5 };
+  const gx = (v.x * yAxis.y - v.y * yAxis.x) / det;
+  const gy = (xAxis.x * v.y - xAxis.y * v.x) / det;
+  return { x: gx, y: gy };
+}
+
+function drawGroundElement(groundQuad, type, x, y) {
+  if (x < -0.1 || x > 1.1 || y < -0.1 || y > 1.1) return;
+  const pt = getGroundPoint(groundQuad, x, y);
+  if (type === 'tree') drawTree(pt.x, pt.y, pt.scale);
+  else if (type === 'grass') drawGrass(pt.x, pt.y, pt.scale);
+  else if (type === 'flower') drawFlower(pt.x, pt.y, pt.scale);
+}
+
+function drawGroundScene(groundQuad) {
+  const zeroPos = getZeroGroundCoords(groundQuad);
+  const dirX = 0.5 - zeroPos.x;
+  const dirY = 0.5 - zeroPos.y;
+  const len = Math.sqrt(dirX * dirX + dirY * dirY);
+  const normX = len > 0.01 ? dirX / len : 0;
+  const normY = len > 0.01 ? dirY / len : 0;
+  const deltaOffset = sceneOffset - lastSceneOffset;
+  lastSceneOffset = sceneOffset;
+
+  for (const elem of groundElements) {
+    elem.x += deltaOffset * normX;
+    elem.y += deltaOffset * normY;
+    elem.x = ((elem.x % 1.0) + 1.0) % 1.0;
+    elem.y = ((elem.y % 1.0) + 1.0) % 1.0;
+  }
+
+  for (const elem of groundElements) {
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        drawGroundElement(groundQuad, elem.type, elem.x + ox, elem.y + oy);
+      }
+    }
+  }
+  const stickPt = getDiamondCenter(groundQuad);
+  drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime, groundQuad);
+}
+
+// ==================== 点击检测 ====================
+function hitTest(px, py) {
+  let best = null;
+  let bestD2 = Infinity;
+  const hitRadius = 25;
+  const frontBits = getFrontBits();
+  for (const bits in trigramPos) {
+    if (bits === frontBits) continue;
+    const p = projCache.get(bits);
+    if (!p) continue;
+    const dx = px - p.x;
+    const dy = py - p.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < hitRadius * hitRadius && d2 < bestD2) {
+      bestD2 = d2;
+      best = bits;
+    }
+  }
+  return best;
+}
+
+// ==================== 主绘制函数 ====================
 function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = COLOR_BG;
   ctx.fillRect(0, 0, W, H);
 
   updateProjCache();
-  const front = getFrontBits();
+  const frontBits = getFrontBits();
 
-  // 边 - 按深度排序后绘制
-  const visEdges = edges.filter(e => e.a !== front && e.b !== front).map(e => {
-    const pa = projCache.get(e.a), pb = projCache.get(e.b);
-    return { ...e, pa, pb, z: (pa.z + pb.z) / 2 };
-  }).sort((a, b) => a.z - b.z);
+  // 绘制边
+  const visibleEdges = edges.filter(e => e.a !== frontBits && e.b !== frontBits);
+  const sortedEdges = visibleEdges.map(e => {
+    const pa = projCache.get(e.a);
+    const pb = projCache.get(e.b);
+    return { ...e, pa, pb, avgZ: (pa.z + pb.z) / 2 };
+  }).sort((a, b) => a.avgZ - b.avgZ);
 
-  for (const e of visEdges) {
+  for (const e of sortedEdges) {
     ctx.beginPath();
     ctx.moveTo(e.pa.x, e.pa.y);
     ctx.lineTo(e.pb.x, e.pb.y);
-    const isFront = e.z > 0;
+    ctx.strokeStyle = getEdgeColor(e.val);
+    ctx.lineWidth = e.avgZ > 0 ? 4 : 3;
     if (e.val === 0) {
-      // 阴爻 - 空心
-      ctx.strokeStyle = '#888';
-      ctx.lineWidth = isFront ? 6 : 4;
+      ctx.save();
+      ctx.strokeStyle = '#888888';
+      ctx.lineWidth = e.avgZ > 0 ? 6 : 5;
       ctx.stroke();
-      ctx.strokeStyle = '#FFF';
-      ctx.lineWidth = isFront ? 3 : 2;
-    } else {
-      // 阳爻 - 实心
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = isFront ? 4 : 3;
+      ctx.restore();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = e.avgZ > 0 ? 3 : 2;
     }
     ctx.stroke();
   }
 
-  // 顶点 - 按深度排序后绘制
-  const verts = trigramBits.filter(b => b !== front).map(b => ({ b, p: projCache.get(b) })).sort((a, b) => a.p.z - b.p.z);
+  // 绘制顶点
+  const sortedVerts = trigramBits
+    .filter(bits => bits !== frontBits)
+    .map(bits => ({ bits, p: projCache.get(bits), name: bitsToName[bits] }))
+    .sort((a, b) => a.p.z - b.p.z);
 
-  for (const v of verts) {
+  for (const v of sortedVerts) {
     const p = v.p;
     const isFront = p.z > 0;
-    const r = isFront ? 10 : 7;
-
-    // 节点圆圈（线条风格）
+    const radius = isFront ? 12 : 9;
+    const nodeColor = getNodeColor(v.bits);
     ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = getNodeColor(v.b);
+    ctx.arc(p.x, p.y, radius + 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#666666';
     ctx.fill();
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = isFront ? 2 : 1.5;
-    ctx.stroke();
-
-    // 标签
-    ctx.fillStyle = '#333';
-    ctx.font = isFront ? 'bold 12px sans-serif' : '10px sans-serif';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = nodeColor;
+    ctx.fill();
+    ctx.fillStyle = '#333333';
+    ctx.font = isFront ? 'bold 13px sans-serif' : '11px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(v.b, p.x, p.y - r - 8);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(v.bits, p.x, p.y - radius - 12);
   }
 
   // 地面场景
-  const sortedVerts = [...verts].sort((a, b) => b.p.y - a.p.y);
-  if (sortedVerts.length >= 4) {
-    const b4 = sortedVerts.slice(0, 4);
-    const quad = [b4[1].p.x < b4[2].p.x ? b4[1].p : b4[2].p, b4[1].p.x < b4[2].p.x ? b4[2].p : b4[1].p, b4[0].p, b4[3].p];
+  const visibleVerts = trigramBits
+    .filter(bits => bits !== getFrontBits())
+    .map(bits => ({ bits, p: projCache.get(bits) }))
+    .filter(v => v.p);
+  visibleVerts.sort((a, b) => b.p.y - a.p.y);
 
-    // 计算 000 点相对于地面中心的方向（屏幕坐标）
-    const zero = projCache.get('000');
-    const groundCenterX = (quad[0].x + quad[1].x + quad[2].x + quad[3].x) / 4;
-    const groundCenterY = (quad[0].y + quad[1].y + quad[2].y + quad[3].y) / 4;
-
-    // 000 点方向（火柴人朝向）
-    const dirToZeroX = zero.x - groundCenterX;
-    const dirToZeroY = zero.y - groundCenterY;
-    const dirLen = Math.sqrt(dirToZeroX * dirToZeroX + dirToZeroY * dirToZeroY) || 1;
-
-    // 场景元素朝 000 的反方向移动（归一化后的方向）
-    const moveSpeed = 0.003;
-    const moveDirX = -dirToZeroX / dirLen * moveSpeed;
-    const moveDirY = -dirToZeroY / dirLen * moveSpeed;
-
-    // 计算地面四边形的宽高用于归一化
-    const quadW = Math.abs(quad[1].x - quad[0].x) || 1;
-    const quadH = Math.abs(quad[3].y - quad[0].y) || 1;
-
-    for (const e of groundElements) {
-      // 将移动量转换为地面坐标系的比例
-      e.x = ((e.x + moveDirX / quadW) % 1 + 1) % 1;
-      e.y = ((e.y + moveDirY / quadH) % 1 + 1) % 1;
-    }
-
-    // 绘制场景元素（带随机大小）
-    for (const e of groundElements) {
-      const pt = getGroundPoint(quad, e.x, e.y);
-      if (e.type === 'tree') drawTree(pt.x, pt.y, pt.scale, e.size);
-      else if (e.type === 'grass') drawGrass(pt.x, pt.y, pt.scale, e.size);
-      else drawFlower(pt.x, pt.y, pt.scale, e.size);
-    }
-
-    // 火柴人
-    const center = getGroundPoint(quad, 0.5, 0.5);
-    drawStickMan(center.x, center.y, center.scale, walkTime, quad);
+  if (visibleVerts.length >= 4) {
+    const bottom4 = visibleVerts.slice(0, 4);
+    const bottomPt = bottom4[0].p;
+    const sidePts = bottom4.slice(1, 3);
+    const leftPt = sidePts[0].p.x < sidePts[1].p.x ? sidePts[0].p : sidePts[1].p;
+    const rightPt = sidePts[0].p.x < sidePts[1].p.x ? sidePts[1].p : sidePts[0].p;
+    const topPt = bottom4[3].p;
+    const groundQuad = { nearLeft: leftPt, nearRight: rightPt, farLeft: topPt, farRight: bottomPt };
+    drawGroundScene(groundQuad);
   }
 
   // UI
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 25);
   ctx.font = '11px sans-serif';
   ctx.fillText('点击顶点切换视角', 15, 42);
+  ctx.fillText(`超立方体时空切片 · ${CUBE_SIZE}m × ${CUBE_SIZE}m × ${CUBE_SIZE}m`, 15, 58);
+
+  // 底部模式指示
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Canvas 2D 模式', W / 2, H - 20);
 }
 
 // ==================== 游戏循环 ====================
 function gameLoop() {
   walkTime += 0.016;
+  stickManSpeed += (targetSpeed - stickManSpeed) * SPEED_LERP;
+  sceneOffset += BASE_SCENE_SPEED * stickManSpeed;
   draw();
   requestAnimationFrame(gameLoop);
 }
@@ -472,29 +537,25 @@ function gameLoop() {
 // ==================== 触摸事件 ====================
 let touchStart = null;
 
-wx.onTouchStart(e => {
-  if (e.touches.length) touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+wx.onTouchStart((e) => {
+  if (e.touches.length > 0) {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+  }
 });
 
-wx.onTouchEnd(e => {
+wx.onTouchEnd((e) => {
   if (!touchStart || !e.changedTouches.length) return;
-  const t = e.changedTouches[0];
-  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
-  if (Date.now() - touchStart.t < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    // 点击检测
-    const front = getFrontBits();
-    for (const bits in trigramPos) {
-      if (bits === front) continue;
-      const p = projCache.get(bits);
-      if (!p) continue;
-      const d2 = (t.clientX - p.x)**2 + (t.clientY - p.y)**2;
-      if (d2 < 625) { // 25*25
-        const name = bitsToName[bits];
-        if (palacePairs[name]) {
-          currentPalace = name;
-          rotZ = Math.PI;
-        }
-        break;
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+  const dt = Date.now() - touchStart.t;
+  if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+    const hit = hitTest(touch.clientX, touch.clientY);
+    if (hit) {
+      const name = bitsToName[hit];
+      if (palacePairs[name]) {
+        currentPalace = name;
+        rotX = 0; rotY = 0; rotZ = Math.PI;
       }
     }
   }
@@ -503,7 +564,7 @@ wx.onTouchEnd(e => {
 
 // ==================== 启动 ====================
 console.log('========================================');
-console.log('八卦立方体 - Canvas 2D');
+console.log('八卦立方体 - Canvas 2D 模式');
 console.log('版本: 1.0.0');
 console.log('========================================');
 
