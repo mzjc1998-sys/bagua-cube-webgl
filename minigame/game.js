@@ -1,27 +1,11 @@
 /**
  * 八卦立方体 - 微信小游戏
- * Unity WebGL 模式
- *
- * 使用微信官方 Unity WebGL 适配方案
- * https://github.com/nichunen/minigame-unity-webgl-transform
+ * Canvas 2D 版本 - 可直接运行
  */
 
-// ==================== 配置 ====================
-const CONFIG = {
-  // Unity 构建文件路径
-  UNITY_DIR: 'Build',
-  DATA_FILE: 'webgl.data.unityweb.bin.br',
-  FRAMEWORK_FILE: 'webgl.framework.js.unityweb.bin.br',
-  CODE_FILE: 'webgl.wasm.unityweb.bin.br',
-
-  // 游戏配置
-  GAME_NAME: '八卦立方体',
-  VERSION: '1.0.0',
-  CUBE_SIZE: 10,
-};
-
-// ==================== 初始化 ====================
 const canvas = wx.createCanvas();
+const ctx = canvas.getContext('2d');
+
 const sysInfo = wx.getSystemInfoSync();
 const W = sysInfo.windowWidth;
 const H = sysInfo.windowHeight;
@@ -30,211 +14,358 @@ const DPR = sysInfo.pixelRatio;
 canvas.width = W * DPR;
 canvas.height = H * DPR;
 
-// ==================== Unity WebGL 加载器 ====================
-let unityInstance = null;
-let loadingProgress = 0;
+// ==================== 配置 ====================
+const COLOR_BG = '#eef2f7';
+const CUBE_SIZE = 10;
 
-function checkUnityBuildExists() {
-  try {
-    const fs = wx.getFileSystemManager();
-    // 检查 framework 文件是否存在
-    fs.accessSync(`${CONFIG.UNITY_DIR}/${CONFIG.FRAMEWORK_FILE}`);
-    return true;
-  } catch (e) {
-    // 尝试检查不带压缩后缀的文件
-    try {
-      const fs = wx.getFileSystemManager();
-      fs.accessSync(`${CONFIG.UNITY_DIR}/webgl.framework.js`);
-      CONFIG.DATA_FILE = 'webgl.data';
-      CONFIG.FRAMEWORK_FILE = 'webgl.framework.js';
-      CONFIG.CODE_FILE = 'webgl.wasm';
-      return true;
-    } catch (e2) {
-      return false;
+// ==================== 八卦数据 ====================
+const bitsToName = {
+  '000': '乾', '001': '兑', '010': '离', '011': '震',
+  '100': '巽', '101': '坎', '110': '艮', '111': '坤'
+};
+
+const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
+const trigramPos = {};
+
+for (const bits of trigramBits) {
+  trigramPos[bits] = {
+    x: (bits[2] === '1') ? 1 : -1,
+    y: (bits[0] === '1') ? 1 : -1,
+    z: (bits[1] === '1') ? 1 : -1
+  };
+}
+
+// 边
+const edges = [];
+for (let i = 0; i < 8; i++) {
+  for (let j = i + 1; j < 8; j++) {
+    const a = trigramBits[i], b = trigramBits[j];
+    let diffBit = -1, diffCount = 0;
+    for (let k = 0; k < 3; k++) {
+      if (a[k] !== b[k]) { diffBit = k; diffCount++; }
+    }
+    if (diffCount === 1) {
+      edges.push({ a, b, val: parseInt(a[diffBit]) });
     }
   }
 }
 
-function showLoadingScreen(ctx) {
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, W, H);
+// 宫位对
+const palacePairs = {
+  '乾': ['000', '111'], '坤': ['111', '000'],
+  '兑': ['001', '110'], '艮': ['110', '001'],
+  '离': ['010', '101'], '坎': ['101', '010'],
+  '震': ['011', '100'], '巽': ['100', '011']
+};
 
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 28px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(CONFIG.GAME_NAME, W / 2, H / 2 - 60);
+let currentPalace = '艮';
+const getFrontBits = () => palacePairs[currentPalace][0];
 
-  ctx.font = '16px sans-serif';
-  ctx.fillStyle = '#888888';
-  ctx.fillText('Unity WebGL 模式', W / 2, H / 2 - 30);
+// ==================== 3D 变换 ====================
+const palaceBases = {};
+for (const name in palacePairs) {
+  const [f, b] = palacePairs[name];
+  const pA = trigramPos[f], pB = trigramPos[b];
 
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '14px sans-serif';
-  ctx.fillText(`加载中... ${Math.round(loadingProgress * 100)}%`, W / 2, H / 2 + 10);
+  // forward
+  let fw = { x: pB.x - pA.x, y: pB.y - pA.y, z: pB.z - pA.z };
+  const fwLen = Math.sqrt(fw.x*fw.x + fw.y*fw.y + fw.z*fw.z);
+  fw = { x: fw.x/fwLen, y: fw.y/fwLen, z: fw.z/fwLen };
 
-  // 进度条
-  const barWidth = 200;
-  const barHeight = 10;
-  const barX = (W - barWidth) / 2;
-  const barY = H / 2 + 40;
+  // up (flip middle bit for up neighbor)
+  const upBits = f[0] + (f[1]==='0'?'1':'0') + f[2];
+  const q = trigramPos[upBits];
+  let up = { x: q.x - pA.x, y: q.y - pA.y, z: q.z - pA.z };
+  const dot = up.x*fw.x + up.y*fw.y + up.z*fw.z;
+  up = { x: up.x - fw.x*dot, y: up.y - fw.y*dot, z: up.z - fw.z*dot };
+  const upLen = Math.sqrt(up.x*up.x + up.y*up.y + up.z*up.z);
+  up = { x: up.x/upLen, y: up.y/upLen, z: up.z/upLen };
 
-  ctx.fillStyle = '#333355';
-  ctx.fillRect(barX, barY, barWidth, barHeight);
+  // right = up × forward
+  const rt = {
+    x: up.y*fw.z - up.z*fw.y,
+    y: up.z*fw.x - up.x*fw.z,
+    z: up.x*fw.y - up.y*fw.x
+  };
 
-  ctx.fillStyle = '#6366f1';
-  ctx.fillRect(barX, barY, barWidth * loadingProgress, barHeight);
+  palaceBases[name] = [rt.x, rt.y, rt.z, up.x, up.y, up.z, fw.x, fw.y, fw.z];
 }
 
-function showError(ctx, title, message) {
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, W, H);
+let rotZ = Math.PI;
+let projCache = new Map();
 
-  ctx.fillStyle = '#ff6b6b';
-  ctx.font = 'bold 20px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(title, W / 2, H / 2 - 30);
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '14px sans-serif';
-
-  // 多行文本
-  const lines = message.split('\n');
-  lines.forEach((line, i) => {
-    ctx.fillText(line, W / 2, H / 2 + 10 + i * 20);
-  });
+function project(p) {
+  const m = palaceBases[currentPalace];
+  const v = {
+    x: m[0]*p.x + m[1]*p.y + m[2]*p.z,
+    y: m[3]*p.x + m[4]*p.y + m[5]*p.z,
+    z: m[6]*p.x + m[7]*p.y + m[8]*p.z
+  };
+  const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
+  const x = v.x*cz - v.y*sz, y = v.x*sz + v.y*cz;
+  const scale = Math.min(W, H) * 0.25;
+  return { x: x*scale + W/2, y: -y*scale + H/2, z: v.z };
 }
 
-function loadUnityGame() {
-  const ctx = canvas.getContext('2d');
+function updateProjCache() {
+  projCache.clear();
+  for (const bits in trigramPos) {
+    projCache.set(bits, project(trigramPos[bits]));
+  }
+}
 
-  // 显示加载界面
-  showLoadingScreen(ctx);
+// ==================== 动画 ====================
+let walkTime = 0, sceneOffset = 0, lastSceneOffset = 0;
+let stickManSpeed = 0.7;
+const poseState = { facing: 0, init: false };
 
-  // 检查 Unity 构建文件
-  if (!checkUnityBuildExists()) {
-    console.log('Unity 构建文件不存在，请先导出 Unity WebGL');
-    showError(ctx, 'Unity 构建文件不存在',
-      '请按以下步骤操作:\n' +
-      '1. 在 Unity 中打开 BaguaCubeUnity 项目\n' +
-      '2. 安装微信小游戏 Unity 插件\n' +
-      '3. 导出到 minigame 目录'
-    );
+const groundElements = [
+  { type: 'tree', x: 0.12, y: 0.18 }, { type: 'tree', x: 0.82, y: 0.28 },
+  { type: 'grass', x: 0.28, y: 0.38 }, { type: 'flower', x: 0.68, y: 0.12 },
+  { type: 'grass', x: 0.42, y: 0.58 }, { type: 'tree', x: 0.22, y: 0.72 },
+  { type: 'flower', x: 0.58, y: 0.42 }, { type: 'grass', x: 0.78, y: 0.62 },
+  { type: 'tree', x: 0.48, y: 0.88 }, { type: 'flower', x: 0.32, y: 0.52 },
+];
 
-    wx.showModal({
-      title: '提示',
-      content: 'Unity WebGL 构建文件不存在。请在 Unity 中使用微信小游戏插件导出。\n\n参考: https://github.com/nichunen/minigame-unity-webgl-transform',
-      showCancel: false,
-    });
-    return;
+// ==================== 绘制 ====================
+function getNodeColor(bits) {
+  let ones = 0;
+  for (const c of bits) if (c === '1') ones++;
+  const g = Math.round(255 * (1 - ones/3));
+  return `rgb(${g},${g},${g})`;
+}
+
+function getGroundPoint(quad, x, y) {
+  const sx = (1-x)*(1-y)*quad[3].x + x*(1-y)*quad[2].x + (1-x)*y*quad[0].x + x*y*quad[1].x;
+  const sy = (1-x)*(1-y)*quad[3].y + x*(1-y)*quad[2].y + (1-x)*y*quad[0].y + x*y*quad[1].y;
+  const sc = Math.max(0.3, 1 - Math.sqrt(x*x + y*y) * 0.4);
+  return { x: sx, y: sy, scale: sc };
+}
+
+function drawTree(x, y, s) {
+  const h = 30*s;
+  ctx.strokeStyle = '#5D4037'; ctx.lineWidth = Math.max(1, 2*s);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h*0.4); ctx.stroke();
+  ctx.strokeStyle = '#2E7D32';
+  ctx.beginPath(); ctx.moveTo(x, y - h); ctx.lineTo(x - h*0.3, y - h*0.4); ctx.lineTo(x + h*0.3, y - h*0.4); ctx.closePath(); ctx.stroke();
+}
+
+function drawGrass(x, y, s) {
+  ctx.strokeStyle = '#4CAF50'; ctx.lineWidth = Math.max(1, s);
+  ctx.beginPath(); ctx.moveTo(x-3*s, y); ctx.lineTo(x-5*s, y-10*s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y-12*s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+3*s, y); ctx.lineTo(x+5*s, y-10*s); ctx.stroke();
+}
+
+function drawFlower(x, y, s) {
+  ctx.strokeStyle = '#4CAF50'; ctx.lineWidth = Math.max(1, s);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y-15*s); ctx.stroke();
+  ctx.strokeStyle = '#FF6B6B'; ctx.lineWidth = Math.max(1, 2*s);
+  ctx.beginPath(); ctx.moveTo(x, y-15*s-5*s); ctx.lineTo(x, y-15*s+5*s); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x-5*s, y-15*s); ctx.lineTo(x+5*s, y-15*s); ctx.stroke();
+}
+
+function drawStickMan(x, y, scale, time, quad) {
+  const t = time * 7;
+  const sw = 0.65;
+
+  // 朝向计算
+  const zero = projCache.get('000');
+  if (zero && quad) {
+    const dx = (zero.x - (quad[0].x + quad[3].x)/2) / W;
+    const dy = (zero.y - (quad[0].y + quad[3].y)/2) / H;
+    const target = Math.atan2(dx, -dy);
+    poseState.facing = poseState.init ? poseState.facing + (target - poseState.facing) * 0.1 : target;
+    poseState.init = true;
   }
 
-  console.log('开始加载 Unity WebGL...');
+  const facing = poseState.facing;
+  const side = Math.abs(Math.sin(facing));
+  const fRight = Math.sin(facing) >= 0 ? 1 : -1;
+  const fAway = Math.cos(facing);
 
-  // 加载 Unity (需要微信小游戏 Unity 适配库)
-  try {
-    // 这里使用微信官方的 Unity WebGL 适配方案
-    // 实际使用时需要引入 unity-namespace.js 等适配文件
+  const len = 12 * scale;
+  const headR = len * 0.5;
+  const bodyL = len * 1.8;
+  const legL = len, armL = len * 0.8;
+  const bodyW = len * 0.5 * (0.3 + Math.abs(fAway) * 0.7);
 
-    require(`${CONFIG.UNITY_DIR}/${CONFIG.FRAMEWORK_FILE}`);
+  const rT = Math.sin(t) * sw, rS = Math.sin(t - 0.5) * sw * 0.8 - 0.3;
+  const lT = Math.sin(t + Math.PI) * sw, lS = Math.sin(t + Math.PI - 0.5) * sw * 0.8 - 0.3;
+  const rA = Math.sin(t + Math.PI) * sw * 0.6, rF = Math.sin(t + Math.PI - 0.3) * sw * 0.4 + 0.5;
+  const lA = Math.sin(t) * sw * 0.6, lF = Math.sin(t - 0.3) * sw * 0.4 + 0.5;
+  const bounce = Math.abs(Math.sin(t * 2)) * 2 * scale * 0.7;
 
-    const unityConfig = {
-      dataUrl: `${CONFIG.UNITY_DIR}/${CONFIG.DATA_FILE}`,
-      frameworkUrl: `${CONFIG.UNITY_DIR}/${CONFIG.FRAMEWORK_FILE}`,
-      codeUrl: `${CONFIG.UNITY_DIR}/${CONFIG.CODE_FILE}`,
+  ctx.save();
+  ctx.translate(x, y - bounce);
 
-      onProgress: (progress) => {
-        loadingProgress = progress;
-        showLoadingScreen(ctx);
-        console.log(`Unity 加载进度: ${Math.round(progress * 100)}%`);
-      },
+  const hipY = 0, shY = -bodyL, headY = shY - len*0.3 - headR;
+  const rHX = bodyW * fRight, lHX = -bodyW * fRight;
+  const rSX = bodyW * 1.2 * fRight, lSX = -bodyW * 1.2 * fRight;
+  const swX = side * fRight;
 
-      onReady: (instance) => {
-        console.log('Unity WebGL 加载完成');
-        unityInstance = instance;
+  const rKX = rHX + Math.sin(rT)*legL*swX, rKY = Math.cos(rT)*legL;
+  const rFX = rKX + Math.sin(rT+rS)*legL*swX, rFY = rKY + Math.cos(rT+rS)*legL;
+  const lKX = lHX + Math.sin(lT)*legL*swX, lKY = Math.cos(lT)*legL;
+  const lFX = lKX + Math.sin(lT+lS)*legL*swX, lFY = lKY + Math.cos(lT+lS)*legL;
+  const rEX = rSX + Math.sin(rA)*armL*swX, rEY = shY + Math.cos(rA)*armL;
+  const rHaX = rEX + Math.sin(rA+rF)*armL*swX, rHaY = rEY + Math.cos(rA+rF)*armL;
+  const lEX = lSX + Math.sin(lA)*armL*swX, lEY = shY + Math.cos(lA)*armL;
+  const lHaX = lEX + Math.sin(lA+lF)*armL*swX, lHaY = lEY + Math.cos(lA+lF)*armL;
 
-        // 发送初始化数据到 Unity
-        sendToUnity('GameManager', 'InitFromWeChat', JSON.stringify({
-          systemInfo: sysInfo,
-          config: CONFIG,
-        }));
-      },
+  ctx.lineWidth = Math.max(2, 3*scale);
+  ctx.lineCap = 'round';
 
-      onError: (error) => {
-        console.error('Unity 加载失败:', error);
-        showError(ctx, '加载失败', error.message || '未知错误');
+  const back = '#666', front = '#333';
+  const drawR = fAway > 0 ? rT <= 0 : rT > 0;
+
+  ctx.strokeStyle = back;
+  if (drawR) {
+    ctx.beginPath(); ctx.moveTo(rHX, hipY); ctx.lineTo(rKX, rKY); ctx.lineTo(rFX, rFY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rSX, shY); ctx.lineTo(rEX, rEY); ctx.lineTo(rHaX, rHaY); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.moveTo(lHX, hipY); ctx.lineTo(lKX, lKY); ctx.lineTo(lFX, lFY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lSX, shY); ctx.lineTo(lEX, lEY); ctx.lineTo(lHaX, lHaY); ctx.stroke();
+  }
+
+  ctx.strokeStyle = front; ctx.fillStyle = front;
+  ctx.beginPath(); ctx.moveTo(0, hipY); ctx.lineTo(0, shY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(lHX, hipY); ctx.lineTo(rHX, hipY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(lSX, shY); ctx.lineTo(rSX, shY); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, headY, headR, 0, Math.PI*2); ctx.fill();
+
+  if (drawR) {
+    ctx.beginPath(); ctx.moveTo(lHX, hipY); ctx.lineTo(lKX, lKY); ctx.lineTo(lFX, lFY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lSX, shY); ctx.lineTo(lEX, lEY); ctx.lineTo(lHaX, lHaY); ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.moveTo(rHX, hipY); ctx.lineTo(rKX, rKY); ctx.lineTo(rFX, rFY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rSX, shY); ctx.lineTo(rEX, rEY); ctx.lineTo(rHaX, rHaY); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = COLOR_BG;
+  ctx.fillRect(0, 0, W, H);
+
+  updateProjCache();
+  const front = getFrontBits();
+
+  // 边
+  const visEdges = edges.filter(e => e.a !== front && e.b !== front).map(e => {
+    const pa = projCache.get(e.a), pb = projCache.get(e.b);
+    return { ...e, pa, pb, z: (pa.z + pb.z) / 2 };
+  }).sort((a, b) => a.z - b.z);
+
+  for (const e of visEdges) {
+    ctx.beginPath();
+    ctx.moveTo(e.pa.x, e.pa.y);
+    ctx.lineTo(e.pb.x, e.pb.y);
+    if (e.val === 0) {
+      ctx.strokeStyle = '#888'; ctx.lineWidth = e.z > 0 ? 6 : 5; ctx.stroke();
+      ctx.strokeStyle = '#FFF'; ctx.lineWidth = e.z > 0 ? 3 : 2;
+    } else {
+      ctx.strokeStyle = '#000'; ctx.lineWidth = e.z > 0 ? 4 : 3;
+    }
+    ctx.stroke();
+  }
+
+  // 顶点
+  const verts = trigramBits.filter(b => b !== front).map(b => ({ b, p: projCache.get(b) })).sort((a, b) => a.p.z - b.p.z);
+  for (const v of verts) {
+    const p = v.p, isFront = p.z > 0, r = isFront ? 12 : 9;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r + 2, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fillStyle = getNodeColor(v.b); ctx.fill();
+    ctx.fillStyle = '#333'; ctx.font = isFront ? 'bold 13px sans-serif' : '11px sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText(v.b, p.x, p.y - r - 12);
+  }
+
+  // 地面场景
+  const sortedVerts = verts.sort((a, b) => b.p.y - a.p.y);
+  if (sortedVerts.length >= 4) {
+    const b4 = sortedVerts.slice(0, 4);
+    const quad = [b4[1].p.x < b4[2].p.x ? b4[1].p : b4[2].p, b4[1].p.x < b4[2].p.x ? b4[2].p : b4[1].p, b4[0].p, b4[3].p];
+
+    // 移动场景元素
+    const delta = sceneOffset - lastSceneOffset;
+    lastSceneOffset = sceneOffset;
+    for (const e of groundElements) {
+      e.x = ((e.x + delta * 0.5) % 1 + 1) % 1;
+      e.y = ((e.y + delta * 0.3) % 1 + 1) % 1;
+    }
+
+    // 绘制场景元素
+    for (const e of groundElements) {
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oy = -1; oy <= 1; oy++) {
+          const ex = e.x + ox, ey = e.y + oy;
+          if (ex < -0.1 || ex > 1.1 || ey < -0.1 || ey > 1.1) continue;
+          const pt = getGroundPoint(quad, ex, ey);
+          if (e.type === 'tree') drawTree(pt.x, pt.y, pt.scale);
+          else if (e.type === 'grass') drawGrass(pt.x, pt.y, pt.scale);
+          else drawFlower(pt.x, pt.y, pt.scale);
+        }
       }
-    };
+    }
 
-    // 创建 Unity 实例
-    createUnityInstance(canvas, unityConfig);
-
-  } catch (e) {
-    console.error('Unity 加载异常:', e);
-    showError(ctx, '加载异常', e.message);
+    // 火柴人
+    const center = getGroundPoint(quad, 0.5, 0.5);
+    drawStickMan(center.x, center.y, center.scale, walkTime, quad);
   }
+
+  // UI
+  ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 25);
+  ctx.font = '11px sans-serif';
+  ctx.fillText('点击顶点切换视角', 15, 42);
+  ctx.fillText(`超立方体时空切片 · ${CUBE_SIZE}m × ${CUBE_SIZE}m × ${CUBE_SIZE}m`, 15, 58);
 }
 
-function sendToUnity(gameObject, method, data) {
-  if (unityInstance) {
-    unityInstance.SendMessage(gameObject, method, data);
-  }
+// ==================== 游戏循环 ====================
+function gameLoop() {
+  walkTime += 0.016;
+  sceneOffset += 0.003 * stickManSpeed;
+  draw();
+  requestAnimationFrame(gameLoop);
 }
 
 // ==================== 触摸事件 ====================
-wx.onTouchStart((e) => {
-  if (!unityInstance || !e.touches.length) return;
-  const touch = e.touches[0];
-  sendToUnity('WeChatInput', 'OnTouchStart', `${touch.clientX},${touch.clientY}`);
+let touchStart = null;
+
+wx.onTouchStart(e => {
+  if (e.touches.length) touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
 });
 
-wx.onTouchMove((e) => {
-  if (!unityInstance || !e.touches.length) return;
-  const touch = e.touches[0];
-  sendToUnity('WeChatInput', 'OnTouchMove', `${touch.clientX},${touch.clientY}`);
-});
-
-wx.onTouchEnd((e) => {
-  if (!unityInstance || !e.changedTouches.length) return;
-  const touch = e.changedTouches[0];
-  sendToUnity('WeChatInput', 'OnTouchEnd', `${touch.clientX},${touch.clientY}`);
-});
-
-// ==================== 全局 API ====================
-// 供 Unity 调用的微信 API
-GameGlobal.WeChatAPI = {
-  showToast: (title, icon, duration) => {
-    wx.showToast({ title, icon: icon || 'none', duration: duration || 1500 });
-  },
-
-  showModal: (title, content, callback) => {
-    wx.showModal({
-      title,
-      content,
-      success: (res) => {
-        if (callback) callback(res.confirm ? 1 : 0);
+wx.onTouchEnd(e => {
+  if (!touchStart || !e.changedTouches.length) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+  if (Date.now() - touchStart.t < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+    // 点击检测
+    const front = getFrontBits();
+    for (const bits in trigramPos) {
+      if (bits === front) continue;
+      const p = projCache.get(bits);
+      if (!p) continue;
+      const d2 = (t.clientX - p.x)**2 + (t.clientY - p.y)**2;
+      if (d2 < 625) { // 25*25
+        const name = bitsToName[bits];
+        if (palacePairs[name]) {
+          currentPalace = name;
+          rotZ = Math.PI;
+        }
+        break;
       }
-    });
-  },
-
-  vibrateShort: () => wx.vibrateShort({ type: 'medium' }),
-  vibrateLong: () => wx.vibrateLong(),
-
-  setStorage: (key, value) => wx.setStorageSync(key, value),
-  getStorage: (key) => wx.getStorageSync(key) || '',
-
-  getSystemInfo: () => JSON.stringify(sysInfo),
-
-  share: (title, imageUrl) => {
-    wx.shareAppMessage({ title, imageUrl });
+    }
   }
-};
+  touchStart = null;
+});
 
 // ==================== 启动 ====================
 console.log('========================================');
-console.log(`${CONFIG.GAME_NAME} - Unity WebGL 模式`);
-console.log(`版本: ${CONFIG.VERSION}`);
+console.log('八卦立方体 - Canvas 2D');
+console.log('版本: 1.0.0');
 console.log('========================================');
 
-loadUnityGame();
+requestAnimationFrame(gameLoop);
