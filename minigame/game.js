@@ -377,8 +377,8 @@ function drawGroundScene(groundQuad) {
     }
   }
 
-  // 火柴人在地面中间偏近处
-  const stickPt = getGroundPoint(groundQuad, 0.35, 0.5);
+  // 火柴人在地面正中央（像Minecraft的史蒂夫）
+  const stickPt = getGroundPoint(groundQuad, 0.5, 0.5);
   drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime);
 }
 
@@ -509,19 +509,19 @@ function draw() {
     const nearLeft = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[0].p : bottomVerts[1].p;
     const nearRight = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[1].p : bottomVerts[0].p;
 
-    // 远边：向中心点（back顶点）收缩
-    // 地面远边是near边向中心收缩后的位置
-    const shrink = 0.6; // 远边相对于近边的收缩比例
+    // 远边：地面延伸到中心点（back顶点）
+    // 像Minecraft区块一样，地面从近边延伸到远处的中心点
     const centerX = backP.x;
     const centerY = backP.y;
 
+    // 远边收缩到中心点附近（形成透视效果）
     const farLeft = {
-      x: nearLeft.x + (centerX - nearLeft.x) * shrink,
-      y: nearLeft.y + (centerY - nearLeft.y) * shrink
+      x: centerX - 5,  // 中心点左侧一点
+      y: centerY
     };
     const farRight = {
-      x: nearRight.x + (centerX - nearRight.x) * shrink,
-      y: nearRight.y + (centerY - nearRight.y) * shrink
+      x: centerX + 5,  // 中心点右侧一点
+      y: centerY
     };
 
     const groundQuad = { nearLeft, nearRight, farLeft, farRight };
