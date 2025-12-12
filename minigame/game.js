@@ -192,71 +192,88 @@ let walkTime = 0;
 const CUBE_SIZE = 10; // 10米边长
 let sceneOffset = 0; // 场景偏移量
 
-// 画树（线段风格）
-function drawTree(x, groundY, scale) {
-  const h = 25 * scale;
+// 在地面上计算一个点的屏幕坐标（带透视）
+// depth: 0 = 近处（底边），1 = 远处（中心点）
+// xRatio: 0 = 左边，1 = 右边
+function getGroundPoint(groundQuad, depth, xRatio) {
+  // groundQuad = { nearLeft, nearRight, farLeft, farRight }
+  // 在近边和远边之间插值
+  const nearX = groundQuad.nearLeft.x + (groundQuad.nearRight.x - groundQuad.nearLeft.x) * xRatio;
+  const nearY = groundQuad.nearLeft.y + (groundQuad.nearRight.y - groundQuad.nearLeft.y) * xRatio;
+  const farX = groundQuad.farLeft.x + (groundQuad.farRight.x - groundQuad.farLeft.x) * xRatio;
+  const farY = groundQuad.farLeft.y + (groundQuad.farRight.y - groundQuad.farLeft.y) * xRatio;
+
+  return {
+    x: nearX + (farX - nearX) * depth,
+    y: nearY + (farY - nearY) * depth,
+    scale: 1 - depth * 0.6 // 远处物体更小
+  };
+}
+
+// 画树（线段风格，带透视）
+function drawTree(x, y, scale) {
+  const h = 30 * scale;
   const trunkH = h * 0.4;
   const crownH = h * 0.6;
 
   ctx.strokeStyle = '#5D4037';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = Math.max(1, 2 * scale);
 
   // 树干
   ctx.beginPath();
-  ctx.moveTo(x, groundY);
-  ctx.lineTo(x, groundY - trunkH);
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - trunkH);
   ctx.stroke();
 
   // 树冠（三角形线条）
   ctx.strokeStyle = '#2E7D32';
-  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(x, groundY - trunkH - crownH);
-  ctx.lineTo(x - crownH * 0.5, groundY - trunkH);
-  ctx.lineTo(x + crownH * 0.5, groundY - trunkH);
+  ctx.moveTo(x, y - trunkH - crownH);
+  ctx.lineTo(x - crownH * 0.5, y - trunkH);
+  ctx.lineTo(x + crownH * 0.5, y - trunkH);
   ctx.closePath();
   ctx.stroke();
 }
 
-// 画草（线段风格）
-function drawGrass(x, groundY, scale) {
-  const h = 8 * scale;
+// 画草（线段风格，带透视）
+function drawGrass(x, y, scale) {
+  const h = 10 * scale;
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = Math.max(1, 1 * scale);
 
   ctx.beginPath();
-  ctx.moveTo(x - 3, groundY);
-  ctx.lineTo(x - 5, groundY - h);
+  ctx.moveTo(x - 3 * scale, y);
+  ctx.lineTo(x - 5 * scale, y - h);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(x, groundY);
-  ctx.lineTo(x, groundY - h * 1.2);
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - h * 1.2);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(x + 3, groundY);
-  ctx.lineTo(x + 5, groundY - h);
+  ctx.moveTo(x + 3 * scale, y);
+  ctx.lineTo(x + 5 * scale, y - h);
   ctx.stroke();
 }
 
-// 画花（线段风格）
-function drawFlower(x, groundY, scale) {
-  const h = 12 * scale;
+// 画花（线段风格，带透视）
+function drawFlower(x, y, scale) {
+  const h = 15 * scale;
 
   // 茎
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = Math.max(1, 1 * scale);
   ctx.beginPath();
-  ctx.moveTo(x, groundY);
-  ctx.lineTo(x, groundY - h);
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - h);
   ctx.stroke();
 
-  // 花朵（五角星形）
+  // 花朵
   ctx.strokeStyle = '#FF6B6B';
-  ctx.lineWidth = 2;
-  const flowerSize = 4;
-  const cx = x, cy = groundY - h;
+  ctx.lineWidth = Math.max(1, 2 * scale);
+  const flowerSize = 5 * scale;
+  const cx = x, cy = y - h;
 
   ctx.beginPath();
   ctx.moveTo(cx, cy - flowerSize);
@@ -266,38 +283,34 @@ function drawFlower(x, groundY, scale) {
   ctx.moveTo(cx - flowerSize, cy);
   ctx.lineTo(cx + flowerSize, cy);
   ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cx - flowerSize * 0.7, cy - flowerSize * 0.7);
-  ctx.lineTo(cx + flowerSize * 0.7, cy + flowerSize * 0.7);
-  ctx.stroke();
 }
 
-// 画火柴人
-function drawStickMan(centerX, groundY, scale, time) {
-  const size = 40 * scale;
+// 画火柴人（带透视）
+function drawStickMan(x, y, scale, time) {
+  const size = 50 * scale;
 
   // 走路动画参数
   const legSwing = Math.sin(time * 8) * 0.3;
   const armSwing = Math.sin(time * 8 + Math.PI) * 0.25;
-  const bodyBob = Math.abs(Math.sin(time * 8)) * 2;
+  const bodyBob = Math.abs(Math.sin(time * 8)) * 2 * scale;
 
   ctx.save();
-  ctx.translate(centerX, groundY - bodyBob);
+  ctx.translate(x, y - bodyBob);
   ctx.strokeStyle = '#333333';
   ctx.fillStyle = '#333333';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = Math.max(1, 2 * scale);
   ctx.lineCap = 'round';
 
   // 头
-  const headRadius = size * 0.12;
-  const headY = -size * 0.85;
+  const headRadius = size * 0.1;
+  const headY = -size * 0.9;
   ctx.beginPath();
   ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
   ctx.fill();
 
   // 身体
-  const shoulderY = headY + headRadius + 2;
-  const hipY = shoulderY + size * 0.35;
+  const shoulderY = headY + headRadius + 2 * scale;
+  const hipY = shoulderY + size * 0.4;
   ctx.beginPath();
   ctx.moveTo(0, shoulderY);
   ctx.lineTo(0, hipY);
@@ -305,70 +318,68 @@ function drawStickMan(centerX, groundY, scale, time) {
 
   // 左臂
   ctx.beginPath();
-  ctx.moveTo(0, shoulderY + 3);
+  ctx.moveTo(0, shoulderY + 3 * scale);
   ctx.lineTo(-size * 0.2 + armSwing * size * 0.15, shoulderY + size * 0.25);
   ctx.stroke();
 
   // 右臂
   ctx.beginPath();
-  ctx.moveTo(0, shoulderY + 3);
+  ctx.moveTo(0, shoulderY + 3 * scale);
   ctx.lineTo(size * 0.2 - armSwing * size * 0.15, shoulderY + size * 0.25);
   ctx.stroke();
 
   // 左腿
   ctx.beginPath();
   ctx.moveTo(0, hipY);
-  ctx.lineTo(-size * 0.12 + legSwing * size * 0.2, hipY + size * 0.35);
+  ctx.lineTo(-size * 0.1 + legSwing * size * 0.2, hipY + size * 0.4);
   ctx.stroke();
 
   // 右腿
   ctx.beginPath();
   ctx.moveTo(0, hipY);
-  ctx.lineTo(size * 0.12 - legSwing * size * 0.2, hipY + size * 0.35);
+  ctx.lineTo(size * 0.1 - legSwing * size * 0.2, hipY + size * 0.4);
   ctx.stroke();
 
   ctx.restore();
 }
 
-// 绘制场景（花草树木 + 火柴人）
-function drawScene(leftX, rightX, groundY) {
-  const sceneWidth = rightX - leftX;
-  const scale = sceneWidth / 150; // 基于场景宽度缩放
-
-  // 场景元素的相对位置（0-1）
+// 绘制地面上的场景
+function drawGroundScene(groundQuad) {
+  // 场景元素：类型、深度(0-1)、横向位置(0-1)
   const elements = [
-    { type: 'tree', pos: 0.1 },
-    { type: 'grass', pos: 0.2 },
-    { type: 'flower', pos: 0.25 },
-    { type: 'grass', pos: 0.35 },
-    { type: 'tree', pos: 0.45 },
-    { type: 'flower', pos: 0.55 },
-    { type: 'grass', pos: 0.6 },
-    { type: 'grass', pos: 0.7 },
-    { type: 'tree', pos: 0.8 },
-    { type: 'flower', pos: 0.85 },
-    { type: 'grass', pos: 0.95 },
+    { type: 'tree', depth: 0.7, xBase: 0.15 },
+    { type: 'grass', depth: 0.5, xBase: 0.25 },
+    { type: 'flower', depth: 0.6, xBase: 0.35 },
+    { type: 'tree', depth: 0.8, xBase: 0.5 },
+    { type: 'grass', depth: 0.4, xBase: 0.6 },
+    { type: 'flower', depth: 0.55, xBase: 0.7 },
+    { type: 'tree', depth: 0.75, xBase: 0.85 },
+    { type: 'grass', depth: 0.45, xBase: 0.9 },
   ];
 
+  // 按深度排序（远的先画）
+  const sortedElements = [...elements].sort((a, b) => b.depth - a.depth);
+
   // 绘制移动的场景元素
-  for (const elem of elements) {
-    // 计算循环位置
-    let pos = (elem.pos - sceneOffset) % 1;
-    if (pos < 0) pos += 1;
-    const x = leftX + pos * sceneWidth;
+  for (const elem of sortedElements) {
+    // 横向位置循环移动
+    let xPos = (elem.xBase + sceneOffset) % 1;
+    if (xPos < 0) xPos += 1;
+
+    const pt = getGroundPoint(groundQuad, elem.depth, xPos);
 
     if (elem.type === 'tree') {
-      drawTree(x, groundY, scale);
+      drawTree(pt.x, pt.y, pt.scale);
     } else if (elem.type === 'grass') {
-      drawGrass(x, groundY, scale);
+      drawGrass(pt.x, pt.y, pt.scale);
     } else if (elem.type === 'flower') {
-      drawFlower(x, groundY, scale);
+      drawFlower(pt.x, pt.y, pt.scale);
     }
   }
 
-  // 火柴人在中间
-  const stickX = (leftX + rightX) / 2;
-  drawStickMan(stickX, groundY, scale, walkTime);
+  // 火柴人在地面中间偏近处
+  const stickPt = getGroundPoint(groundQuad, 0.35, 0.5);
+  drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime);
 }
 
 // =============== 碰撞检测 ===============
@@ -475,28 +486,48 @@ function draw() {
     ctx.fillText(v.bits, p.x, labelY);
   }
 
-  // 找到底部两个顶点（011 和 110 对于乾宫）
-  // 按 Y 坐标排序，找最大的两个（不包括后方顶点111）
+  // 计算地面四边形（立方体底面的投影）
+  // 地面是从观察者位置向远处延伸的
   const frontBitsLocal = getFrontBits();
   const backBitsLocal = getBackBits();
+  const backP = projCache.get(backBitsLocal);
 
-  const sortedByY = trigramBits
-    .filter(bits => bits !== frontBitsLocal && bits !== backBitsLocal)
+  // 找到所有可见顶点，按Y坐标排序
+  const visibleVerts = trigramBits
+    .filter(bits => bits !== frontBitsLocal)
     .map(bits => ({ bits, p: projCache.get(bits) }))
-    .filter(v => v.p)
-    .sort((a, b) => b.p.y - a.p.y);
+    .filter(v => v.p);
 
-  // 取Y最大的两个作为底部顶点
-  if (sortedByY.length >= 2) {
-    const bottom1 = sortedByY[0];
-    const bottom2 = sortedByY[1];
+  // 按Y坐标排序（从下到上）
+  visibleVerts.sort((a, b) => b.p.y - a.p.y);
 
-    const leftX = Math.min(bottom1.p.x, bottom2.p.x);
-    const rightX = Math.max(bottom1.p.x, bottom2.p.x);
-    const groundY = (bottom1.p.y + bottom2.p.y) / 2;
+  // 底部两个顶点作为地面的近边
+  // 中间区域作为地面的远边
+  if (visibleVerts.length >= 4) {
+    // 近边：屏幕最下方的两个点（不包括最底部的back顶点）
+    const bottomVerts = visibleVerts.filter(v => v.bits !== backBitsLocal);
+    const nearLeft = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[0].p : bottomVerts[1].p;
+    const nearRight = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[1].p : bottomVerts[0].p;
 
-    // 绘制场景（火柴人和移动的花草树木）
-    drawScene(leftX, rightX, groundY);
+    // 远边：向中心点（back顶点）收缩
+    // 地面远边是near边向中心收缩后的位置
+    const shrink = 0.6; // 远边相对于近边的收缩比例
+    const centerX = backP.x;
+    const centerY = backP.y;
+
+    const farLeft = {
+      x: nearLeft.x + (centerX - nearLeft.x) * shrink,
+      y: nearLeft.y + (centerY - nearLeft.y) * shrink
+    };
+    const farRight = {
+      x: nearRight.x + (centerX - nearRight.x) * shrink,
+      y: nearRight.y + (centerY - nearRight.y) * shrink
+    };
+
+    const groundQuad = { nearLeft, nearRight, farLeft, farRight };
+
+    // 绘制地面上的场景
+    drawGroundScene(groundQuad);
   }
 
   // 显示信息
