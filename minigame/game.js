@@ -1,8 +1,7 @@
 /**
  * 八卦立方体 - 微信小游戏
- * 宫视角模式：点击顶点切换视角
- * 顶点颜色：0白1黑（根据0/1数量决定灰度）
- * 边颜色：阳爻白，阴爻黑
+ * 四维超立方体的三维投影 - 时空切片
+ * 边长10m的正方体内部视角
  */
 
 const canvas = wx.createCanvas();
@@ -19,7 +18,6 @@ canvas.height = H * DPR;
 // =============== 颜色定义 ===============
 const COLOR_BG = '#eef2f7';
 
-// 根据1的数量计算灰度（0个1=白，3个1=黑）
 function getNodeColor(bits) {
   let ones = 0;
   for (const c of bits) if (c === '1') ones++;
@@ -27,7 +25,6 @@ function getNodeColor(bits) {
   return `rgb(${gray},${gray},${gray})`;
 }
 
-// 边的颜色：阳爻(0)=白，阴爻(1)=黑
 function getEdgeColor(val) {
   return val === 0 ? '#FFFFFF' : '#000000';
 }
@@ -85,9 +82,12 @@ const palacePairs = {
 
 let currentPalace = '乾';
 
-// 获取当前宫的前面顶点（中心点）
 function getFrontBits() {
   return palacePairs[currentPalace][0];
+}
+
+function getBackBits() {
+  return palacePairs[currentPalace][1];
 }
 
 // =============== 向量工具 ===============
@@ -168,7 +168,6 @@ function rotate3D(p) {
 
 function project(p) {
   const pr = rotate3D(p);
-  // 缩小六边形，从0.35改为0.25
   const scale = Math.min(W, H) * 0.25;
   return {
     x: pr.x * scale + W / 2,
@@ -188,6 +187,73 @@ function updateProjCache() {
   }
 }
 
+// =============== 火柴人 ===============
+let walkTime = 0;
+let walkDirection = 1; // 1 = 向前走
+const CUBE_SIZE = 10; // 10米边长
+
+// 火柴人在立方体内的位置（相对于中心，范围 -0.5 到 0.5）
+let stickManPos = { x: 0, y: 0, z: 0 };
+const walkSpeed = 0.001; // 每帧移动量
+
+function drawStickMan(centerX, centerY, scale, time) {
+  const size = scale * 0.15; // 火柴人大小
+
+  // 走路动画参数
+  const legSwing = Math.sin(time * 8) * 0.4;
+  const armSwing = Math.sin(time * 8 + Math.PI) * 0.3;
+  const bodyBob = Math.abs(Math.sin(time * 8)) * 2;
+
+  ctx.save();
+  ctx.translate(centerX, centerY - bodyBob);
+  ctx.strokeStyle = '#333333';
+  ctx.fillStyle = '#333333';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+
+  // 头
+  const headRadius = size * 0.15;
+  const headY = -size * 0.7;
+  ctx.beginPath();
+  ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 身体
+  const shoulderY = headY + headRadius + size * 0.05;
+  const hipY = shoulderY + size * 0.35;
+  ctx.beginPath();
+  ctx.moveTo(0, shoulderY);
+  ctx.lineTo(0, hipY);
+  ctx.stroke();
+
+  // 左臂
+  ctx.beginPath();
+  ctx.moveTo(0, shoulderY + size * 0.05);
+  ctx.lineTo(-size * 0.15 + armSwing * size * 0.1, shoulderY + size * 0.2);
+  ctx.stroke();
+
+  // 右臂
+  ctx.beginPath();
+  ctx.moveTo(0, shoulderY + size * 0.05);
+  ctx.lineTo(size * 0.15 - armSwing * size * 0.1, shoulderY + size * 0.2);
+  ctx.stroke();
+
+  // 左腿
+  const footY = hipY + size * 0.3;
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(-size * 0.1 + legSwing * size * 0.15, footY);
+  ctx.stroke();
+
+  // 右腿
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(size * 0.1 - legSwing * size * 0.15, footY);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // =============== 碰撞检测 ===============
 function hitTest(px, py) {
   let best = null;
@@ -196,9 +262,7 @@ function hitTest(px, py) {
   const frontBits = getFrontBits();
 
   for (const bits in trigramPos) {
-    // 跳过中心点
     if (bits === frontBits) continue;
-
     const p = projCache.get(bits);
     if (!p) continue;
     const dx = px - p.x;
@@ -223,6 +287,7 @@ function draw() {
   updateProjCache();
 
   const frontBits = getFrontBits();
+  const backBits = getBackBits();
 
   // 过滤掉连接到中心点的边
   const visibleEdges = edges.filter(e => {
@@ -274,19 +339,16 @@ function draw() {
 
     const nodeColor = getNodeColor(v.bits);
 
-    // 画描边
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius + 2, 0, Math.PI * 2);
     ctx.fillStyle = '#666666';
     ctx.fill();
 
-    // 画顶点
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = nodeColor;
     ctx.fill();
 
-    // 只显示二进制编码，隐藏卦名
     ctx.fillStyle = '#333333';
     ctx.font = isFront ? 'bold 13px sans-serif' : '11px sans-serif';
     ctx.textAlign = 'center';
@@ -296,13 +358,45 @@ function draw() {
     ctx.fillText(v.bits, p.x, labelY);
   }
 
-  // 显示当前宫
+  // 计算下方菱形中心（找到下面3个顶点的中心）
+  // 下方的3个顶点是与前面顶点相邻但不包含后面顶点的
+  const frontP = projCache.get(frontBits);
+  const backP = projCache.get(backBits);
+
+  // 下方菱形的中心 = 后方顶点的投影位置
+  const diamondCenterX = backP.x;
+  const diamondCenterY = backP.y;
+
+  // 计算火柴人的缩放（基于画面大小）
+  const stickScale = Math.min(W, H) * 0.5;
+
+  // 画火柴人
+  drawStickMan(diamondCenterX, diamondCenterY, stickScale, walkTime);
+
+  // 显示信息
   ctx.fillStyle = 'rgba(0,0,0,0.8)';
-  ctx.font = 'bold 16px sans-serif';
+  ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 30);
-  ctx.font = '12px sans-serif';
-  ctx.fillText('点击顶点切换视角', 15, 50);
+  ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 25);
+  ctx.font = '11px sans-serif';
+  ctx.fillText('点击顶点切换视角', 15, 42);
+  ctx.fillText(`超立方体时空切片 · ${CUBE_SIZE}m × ${CUBE_SIZE}m × ${CUBE_SIZE}m`, 15, 58);
+}
+
+// =============== 游戏循环 ===============
+function gameLoop() {
+  walkTime += 0.016; // 约60fps
+
+  // 火柴人移动
+  stickManPos.z += walkSpeed * walkDirection;
+
+  // 边界检测（在立方体内来回走）
+  if (stickManPos.z > 0.3 || stickManPos.z < -0.3) {
+    walkDirection *= -1;
+  }
+
+  draw();
+  requestAnimationFrame(gameLoop);
 }
 
 // =============== 触摸处理 ===============
@@ -335,7 +429,6 @@ wx.onTouchEnd((e) => {
         rotX = 0;
         rotY = 0;
         rotZ = Math.PI;
-        draw();
       }
     }
   }
@@ -345,5 +438,6 @@ wx.onTouchEnd((e) => {
 
 // =============== 启动 ===============
 console.log('八卦立方体初始化...');
-draw();
-console.log('绘制完成');
+console.log('四维超立方体时空切片');
+requestAnimationFrame(gameLoop);
+console.log('游戏循环启动');
