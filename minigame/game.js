@@ -1,24 +1,22 @@
 /**
  * 八卦立方体 - 微信小游戏
- * 第一步：创建八卦立方体俯视图（正六边形投影，乾在中心）
+ * 正六边形投影，乾在中心
  */
 
 // 获取 Canvas
 const canvas = wx.createCanvas();
 const ctx = canvas.getContext('2d');
 
-// 获取系统信息
+// 系统信息
 const sysInfo = wx.getSystemInfoSync();
 const W = sysInfo.windowWidth;
 const H = sysInfo.windowHeight;
 const DPR = sysInfo.pixelRatio;
 
-// 设置 Canvas 尺寸
 canvas.width = W * DPR;
 canvas.height = H * DPR;
 
 // =============== 八卦定义 ===============
-// 二进制编码：0=阳爻，1=阴爻，爻序从下到上
 const TRIGRAMS = {
   '000': { name: '乾' },
   '001': { name: '兑' },
@@ -30,25 +28,35 @@ const TRIGRAMS = {
   '111': { name: '坤' }
 };
 
-// =============== 立方体顶点 ===============
-// 二进制编码映射到3D坐标
-// 乾(000)在原点，坤(111)在对角
-const vertices = {};
-for (const bits in TRIGRAMS) {
-  // 0 -> 0, 1 -> 1
-  const x = parseInt(bits[2]);  // bit0 (最右)
-  const y = parseInt(bits[1]);  // bit1 (中间)
-  const z = parseInt(bits[0]);  // bit2 (最左)
-  vertices[bits] = {
-    x: x - 0.5,  // 中心化到 -0.5 ~ 0.5
-    y: y - 0.5,
-    z: z - 0.5,
-    ...TRIGRAMS[bits],
-    bits
-  };
-}
+// =============== 六边形布局 ===============
+// 按照截图精确布局：
+// 上排（从左到右）：100(巽) 101(坎) 001(兑)
+// 中心：000(乾)
+// 下排（从左到右）：110(艮) 010(离) 011(震)
+// 后面：111(坤) - 被乾遮挡
+
+const R = Math.min(W, H) * 0.35;  // 六边形半径
+const centerX = W / 2;
+const centerY = H / 2;
+
+// sin(60°) 和 cos(60°)
+const sin60 = Math.sqrt(3) / 2;
+const cos60 = 0.5;
+
+// 精确的2D位置
+const positions = {
+  '000': { x: 0, y: 0, z: 1 },                    // 乾 - 中心（最前）
+  '101': { x: 0, y: -R, z: 0 },                   // 坎 - 顶部
+  '100': { x: -R * sin60, y: -R * cos60, z: 0 }, // 巽 - 左上
+  '001': { x: R * sin60, y: -R * cos60, z: 0 },  // 兑 - 右上
+  '110': { x: -R * sin60, y: R * cos60, z: 0 },  // 艮 - 左下
+  '010': { x: 0, y: R, z: 0 },                    // 离 - 底部
+  '011': { x: R * sin60, y: R * cos60, z: 0 },   // 震 - 右下
+  '111': { x: 0, y: 0, z: -1 }                    // 坤 - 中心（最后，被遮挡）
+};
 
 // =============== 立方体边 ===============
+// 汉明距离为1的顶点相连
 const edges = [];
 const bitsList = Object.keys(TRIGRAMS);
 for (let i = 0; i < bitsList.length; i++) {
@@ -65,111 +73,103 @@ for (let i = 0; i < bitsList.length; i++) {
   }
 }
 
-// =============== 等角投影（正六边形视图） ===============
-const cubeSize = Math.min(W, H) * 0.35;
-const centerX = W / 2;
-const centerY = H / 2;
-
-// 从体对角线方向看：从坤(1,1,1)看向乾(0,0,0)
-// 标准等角投影角度
-const angleY = Math.PI / 4;  // 45度
-const angleX = Math.atan(1 / Math.sqrt(2));  // ≈35.26度
-
-function project(v) {
-  let { x, y, z } = v;
-
-  // 绕Y轴旋转45度
-  const cosY = Math.cos(angleY);
-  const sinY = Math.sin(angleY);
-  const x1 = x * cosY - z * sinY;
-  const z1 = x * sinY + z * cosY;
-
-  // 绕X轴旋转（俯视角度）
-  const cosX = Math.cos(angleX);
-  const sinX = Math.sin(angleX);
-  const y2 = y * cosX - z1 * sinX;
-  const z2 = y * sinX + z1 * cosX;
-
-  return {
-    x: centerX + x1 * cubeSize * 1.5,
-    y: centerY - y2 * cubeSize * 1.5,
-    z: z2,
-    bits: v.bits,
-    name: v.name
-  };
-}
-
 // =============== 绘制函数 ===============
 function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-  // 背景（浅灰色，匹配截图）
+  // 背景
   ctx.fillStyle = '#ECEEF1';
   ctx.fillRect(0, 0, W, H);
 
-  // 投影所有顶点并按Z排序
-  const projected = [];
-  for (const bits in vertices) {
-    projected.push(project(vertices[bits]));
-  }
-  projected.sort((a, b) => a.z - b.z);
+  // 先画后面的边（浅色）
+  ctx.strokeStyle = '#BBBBBB';
+  ctx.lineWidth = 1.5;
 
-  // 画边
+  // 与坤(111)相连的边（后面的边）
   for (const [a, b] of edges) {
-    const p1 = project(vertices[a]);
-    const p2 = project(vertices[b]);
-
-    // 根据深度决定颜色深浅
-    const avgZ = (p1.z + p2.z) / 2;
-    const normalizedZ = (avgZ + 1) / 2;  // 0~1
-
-    if (normalizedZ > 0.5) {
-      // 前面的边：深色粗线
-      ctx.strokeStyle = '#333333';
-      ctx.lineWidth = 2;
-    } else {
-      // 后面的边：浅色细线
-      ctx.strokeStyle = '#AAAAAA';
-      ctx.lineWidth = 1;
+    if (a === '111' || b === '111') {
+      const p1 = positions[a];
+      const p2 = positions[b];
+      ctx.beginPath();
+      ctx.moveTo(centerX + p1.x, centerY + p1.y);
+      ctx.lineTo(centerX + p2.x, centerY + p2.y);
+      ctx.stroke();
     }
+  }
 
+  // 外圈的边（六边形边 + 部分内部边）
+  for (const [a, b] of edges) {
+    if (a === '111' || b === '111') continue;  // 跳过与坤相连的
+    if (a === '000' || b === '000') continue;  // 跳过与乾相连的，后面画
+
+    const p1 = positions[a];
+    const p2 = positions[b];
+    ctx.strokeStyle = '#888888';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
+    ctx.moveTo(centerX + p1.x, centerY + p1.y);
+    ctx.lineTo(centerX + p2.x, centerY + p2.y);
     ctx.stroke();
   }
 
-  // 画顶点和标签
-  for (const p of projected) {
-    const normalizedZ = (p.z + 1) / 2;
+  // 与乾(000)相连的边（前面的边，深色粗线）
+  ctx.strokeStyle = '#333333';
+  ctx.lineWidth = 2.5;
+  for (const [a, b] of edges) {
+    if (a === '000' || b === '000') {
+      const p1 = positions[a];
+      const p2 = positions[b];
+      ctx.beginPath();
+      ctx.moveTo(centerX + p1.x, centerY + p1.y);
+      ctx.lineTo(centerX + p2.x, centerY + p2.y);
+      ctx.stroke();
+    }
+  }
+
+  // 画顶点（按z排序，后面的先画）
+  const sortedBits = Object.keys(positions).sort((a, b) => positions[a].z - positions[b].z);
+
+  for (const bits of sortedBits) {
+    const pos = positions[bits];
+    const name = TRIGRAMS[bits].name;
+
+    // 坤在后面，画小一点或跳过
+    if (bits === '111') continue;
+
+    const px = centerX + pos.x;
+    const py = centerY + pos.y;
 
     // 顶点圆点
-    const radius = normalizedZ > 0.5 ? 10 : 7;
+    const radius = bits === '000' ? 12 : 10;
     ctx.fillStyle = '#222222';
     ctx.beginPath();
-    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.arc(px, py, radius, 0, Math.PI * 2);
     ctx.fill();
 
     // 标签
     ctx.fillStyle = '#333333';
-    ctx.font = '16px sans-serif';
+    ctx.font = '15px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // 标签位置：根据位置调整偏移
-    let labelX = p.x;
-    let labelY = p.y - radius - 15;
+    // 标签位置
+    let labelX = px;
+    let labelY = py - radius - 12;
 
-    // 乾在中心，特殊处理
-    if (p.bits === '000') {
-      labelY = p.y + radius + 18;
+    // 乾在中心，标签放下面
+    if (bits === '000') {
+      labelY = py + radius + 15;
+    }
+    // 下排的标签也放下面
+    if (bits === '110' || bits === '010' || bits === '011') {
+      labelY = py + radius + 15;
     }
 
-    ctx.fillText(`${p.name} ${p.bits}`, labelX, labelY);
+    ctx.fillText(`${name} ${bits}`, labelX, labelY);
   }
 }
 
-// =============== 触摸交互（预留） ===============
+// =============== 触摸交互 ===============
 wx.onTouchStart((e) => {
   console.log('Touch:', e.touches[0].clientX, e.touches[0].clientY);
 });
