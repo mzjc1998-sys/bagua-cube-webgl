@@ -192,6 +192,26 @@ let walkTime = 0;
 const CUBE_SIZE = 10; // 10米边长
 let sceneOffset = 0; // 场景偏移量
 
+// 地面元素（全局，保持相对位置）
+// 坐标使用无限平面坐标系，不限于[0,1]范围
+const groundElements = [
+  { type: 'tree', x: 0.12, y: 0.18 },
+  { type: 'tree', x: 0.82, y: 0.28 },
+  { type: 'grass', x: 0.28, y: 0.38 },
+  { type: 'flower', x: 0.68, y: 0.12 },
+  { type: 'grass', x: 0.42, y: 0.58 },
+  { type: 'tree', x: 0.22, y: 0.72 },
+  { type: 'flower', x: 0.58, y: 0.42 },
+  { type: 'grass', x: 0.78, y: 0.62 },
+  { type: 'tree', x: 0.48, y: 0.88 },
+  { type: 'flower', x: 0.32, y: 0.52 },
+  { type: 'grass', x: 0.72, y: 0.82 },
+];
+
+// 上一帧的移动方向和偏移量（用于计算增量）
+let lastSceneOffset = 0;
+let lastMoveDir = { x: 0, y: 0 };
+
 // 在地面菱形上计算一个点的屏幕坐标
 // 以010为原点，010->011为X轴，010->110为Y轴
 // x: 0-1 从010到011方向
@@ -502,15 +522,14 @@ function drawGroundScene(groundQuad) {
   // 场景移动原理：
   // 1. 火柴人永远朝向"000"方向奔跑
   // 2. 计算000在当前地面坐标系中的位置
-  // 3. 场景向000的反方向移动
-  // 4. 切换宫视角时，000位置改变，移动方向随之改变
+  // 3. 场景向000的反方向移动（增量更新）
+  // 4. 切换宫视角时，方向改变但元素位置保持连续
 
   // 计算000在地面坐标系中的位置
   const zeroPos = getZeroGroundCoords(groundQuad);
 
   // 计算移动方向（从地面中心指向000的反方向）
-  // 地面中心是 (0.5, 0.5)
-  const dirX = 0.5 - zeroPos.x; // 反方向
+  const dirX = 0.5 - zeroPos.x;
   const dirY = 0.5 - zeroPos.y;
 
   // 归一化方向向量
@@ -518,28 +537,31 @@ function drawGroundScene(groundQuad) {
   const normX = len > 0.01 ? dirX / len : 0;
   const normY = len > 0.01 ? dirY / len : 0;
 
-  // 地面上的固定物体
-  const elements = [
-    { type: 'tree', x: 0.12, y: 0.18 },
-    { type: 'tree', x: 0.82, y: 0.28 },
-    { type: 'grass', x: 0.28, y: 0.38 },
-    { type: 'flower', x: 0.68, y: 0.12 },
-    { type: 'grass', x: 0.42, y: 0.58 },
-    { type: 'tree', x: 0.22, y: 0.72 },
-    { type: 'flower', x: 0.58, y: 0.42 },
-    { type: 'grass', x: 0.78, y: 0.62 },
-    { type: 'tree', x: 0.48, y: 0.88 },
-    { type: 'flower', x: 0.32, y: 0.52 },
-    { type: 'grass', x: 0.72, y: 0.82 },
-  ];
+  // 计算本帧的移动增量
+  const deltaOffset = sceneOffset - lastSceneOffset;
+  lastSceneOffset = sceneOffset;
 
-  // 场景向000的反方向移动
-  for (const elem of elements) {
-    // 沿着归一化的反方向移动
-    let x = (elem.x + sceneOffset * normX + 2.0) % 1.0;
-    let y = (elem.y + sceneOffset * normY + 2.0) % 1.0;
+  // 更新所有地面元素的位置（增量移动）
+  for (const elem of groundElements) {
+    elem.x += deltaOffset * normX;
+    elem.y += deltaOffset * normY;
 
-    const pt = getGroundPoint(groundQuad, x, y);
+    // 元素超出视野范围时，从另一侧循环进入
+    // 使用较大的范围 [-0.5, 1.5] 以避免突然跳跃
+    if (elem.x < -0.5) elem.x += 2.0;
+    if (elem.x > 1.5) elem.x -= 2.0;
+    if (elem.y < -0.5) elem.y += 2.0;
+    if (elem.y > 1.5) elem.y -= 2.0;
+  }
+
+  // 绘制地面元素
+  for (const elem of groundElements) {
+    // 只绘制在可见范围内的元素
+    if (elem.x < -0.2 || elem.x > 1.2 || elem.y < -0.2 || elem.y > 1.2) {
+      continue;
+    }
+
+    const pt = getGroundPoint(groundQuad, elem.x, elem.y);
 
     if (elem.type === 'tree') {
       drawTree(pt.x, pt.y, pt.scale);
