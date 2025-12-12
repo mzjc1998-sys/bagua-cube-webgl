@@ -415,15 +415,12 @@ function draw() {
     const b4 = sortedVerts.slice(0, 4);
     const quad = [b4[1].p.x < b4[2].p.x ? b4[1].p : b4[2].p, b4[1].p.x < b4[2].p.x ? b4[2].p : b4[1].p, b4[0].p, b4[3].p];
 
-    // 场景元素随火柴人前进方向反向移动
-    const moveSpeed = 0.003;
-    const facingDir = poseState.facing;
-    const moveDx = -Math.sin(facingDir) * moveSpeed;
-    const moveDy = Math.cos(facingDir) * moveSpeed;
-
+    // 场景元素向后移动（火柴人朝前走，场景向后退）
+    // 在地面坐标系中，y=0 是远端，y=1 是近端（火柴人脚下后方）
+    // 火柴人朝远端走，所以场景元素 y 应该增加（从远端移向近端再循环）
+    const moveSpeed = 0.002;
     for (const e of groundElements) {
-      e.x = ((e.x + moveDx) % 1 + 1) % 1;
-      e.y = ((e.y + moveDy) % 1 + 1) % 1;
+      e.y = ((e.y + moveSpeed) % 1 + 1) % 1;
     }
 
     // 绘制场景元素（带随机大小）
