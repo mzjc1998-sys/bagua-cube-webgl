@@ -190,145 +190,113 @@ function updateProjCache() {
 // =============== 火柴人与场景 ===============
 let walkTime = 0;
 const CUBE_SIZE = 10; // 10米边长
-const sceneOffset = { x: 0 }; // 场景偏移量（用于平移效果）
-const sceneSpeed = 0.8; // 场景移动速度
-
-// 场景元素（树、草、花）
-const sceneElements = [];
-const SCENE_WIDTH = 400; // 场景总宽度
-
-function initSceneElements() {
-  sceneElements.length = 0;
-  // 生成树木
-  for (let i = 0; i < 6; i++) {
-    sceneElements.push({
-      type: 'tree',
-      x: i * 70 + Math.random() * 30,
-      depth: 0.3 + Math.random() * 0.4, // 深度影响透视
-      height: 20 + Math.random() * 15
-    });
-  }
-  // 生成草
-  for (let i = 0; i < 15; i++) {
-    sceneElements.push({
-      type: 'grass',
-      x: i * 28 + Math.random() * 20,
-      depth: 0.5 + Math.random() * 0.3,
-      height: 5 + Math.random() * 8
-    });
-  }
-  // 生成花
-  for (let i = 0; i < 10; i++) {
-    sceneElements.push({
-      type: 'flower',
-      x: i * 42 + Math.random() * 25,
-      depth: 0.4 + Math.random() * 0.4,
-      height: 8 + Math.random() * 6
-    });
-  }
-}
-initSceneElements();
+let sceneOffset = 0; // 场景偏移量
 
 // 画树（线段风格）
-function drawTree(x, y, height, perspectiveScale) {
-  const h = height * perspectiveScale;
+function drawTree(x, groundY, scale) {
+  const h = 25 * scale;
   const trunkH = h * 0.4;
   const crownH = h * 0.6;
 
   ctx.strokeStyle = '#5D4037';
-  ctx.lineWidth = Math.max(1, 2 * perspectiveScale);
+  ctx.lineWidth = 2;
 
   // 树干
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x, y - trunkH);
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, groundY - trunkH);
   ctx.stroke();
 
   // 树冠（三角形线条）
   ctx.strokeStyle = '#2E7D32';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(x, y - trunkH - crownH);
-  ctx.lineTo(x - crownH * 0.4, y - trunkH);
-  ctx.lineTo(x + crownH * 0.4, y - trunkH);
+  ctx.moveTo(x, groundY - trunkH - crownH);
+  ctx.lineTo(x - crownH * 0.5, groundY - trunkH);
+  ctx.lineTo(x + crownH * 0.5, groundY - trunkH);
   ctx.closePath();
   ctx.stroke();
 }
 
 // 画草（线段风格）
-function drawGrass(x, y, height, perspectiveScale) {
-  const h = height * perspectiveScale;
+function drawGrass(x, groundY, scale) {
+  const h = 8 * scale;
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = Math.max(1, 1.5 * perspectiveScale);
+  ctx.lineWidth = 1;
 
-  // 三根草叶
   ctx.beginPath();
-  ctx.moveTo(x - 2 * perspectiveScale, y);
-  ctx.lineTo(x - 4 * perspectiveScale, y - h);
+  ctx.moveTo(x - 3, groundY);
+  ctx.lineTo(x - 5, groundY - h);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x, y - h * 1.2);
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, groundY - h * 1.2);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(x + 2 * perspectiveScale, y);
-  ctx.lineTo(x + 4 * perspectiveScale, y - h);
+  ctx.moveTo(x + 3, groundY);
+  ctx.lineTo(x + 5, groundY - h);
   ctx.stroke();
 }
 
 // 画花（线段风格）
-function drawFlower(x, y, height, perspectiveScale) {
-  const h = height * perspectiveScale;
+function drawFlower(x, groundY, scale) {
+  const h = 12 * scale;
 
   // 茎
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = Math.max(1, 1 * perspectiveScale);
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x, y - h);
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, groundY - h);
   ctx.stroke();
 
-  // 花朵（简单的米字形）
-  const flowerSize = 3 * perspectiveScale;
-  ctx.strokeStyle = '#E91E63';
-  ctx.lineWidth = Math.max(1, 1.5 * perspectiveScale);
-  const cx = x, cy = y - h;
+  // 花朵（五角星形）
+  ctx.strokeStyle = '#FF6B6B';
+  ctx.lineWidth = 2;
+  const flowerSize = 4;
+  const cx = x, cy = groundY - h;
 
-  for (let i = 0; i < 4; i++) {
-    const angle = (i / 4) * Math.PI;
-    ctx.beginPath();
-    ctx.moveTo(cx - Math.cos(angle) * flowerSize, cy - Math.sin(angle) * flowerSize);
-    ctx.lineTo(cx + Math.cos(angle) * flowerSize, cy + Math.sin(angle) * flowerSize);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - flowerSize);
+  ctx.lineTo(cx, cy + flowerSize);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - flowerSize, cy);
+  ctx.lineTo(cx + flowerSize, cy);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - flowerSize * 0.7, cy - flowerSize * 0.7);
+  ctx.lineTo(cx + flowerSize * 0.7, cy + flowerSize * 0.7);
+  ctx.stroke();
 }
 
-// 画火柴人（带透视）
-function drawStickMan(centerX, centerY, scale, time, perspectiveScale) {
-  const size = scale * 0.12 * perspectiveScale;
+// 画火柴人
+function drawStickMan(centerX, groundY, scale, time) {
+  const size = 40 * scale;
 
   // 走路动画参数
-  const legSwing = Math.sin(time * 8) * 0.4;
-  const armSwing = Math.sin(time * 8 + Math.PI) * 0.3;
-  const bodyBob = Math.abs(Math.sin(time * 8)) * 2 * perspectiveScale;
+  const legSwing = Math.sin(time * 8) * 0.3;
+  const armSwing = Math.sin(time * 8 + Math.PI) * 0.25;
+  const bodyBob = Math.abs(Math.sin(time * 8)) * 2;
 
   ctx.save();
-  ctx.translate(centerX, centerY - bodyBob);
+  ctx.translate(centerX, groundY - bodyBob);
   ctx.strokeStyle = '#333333';
   ctx.fillStyle = '#333333';
-  ctx.lineWidth = Math.max(1, 2 * perspectiveScale);
+  ctx.lineWidth = 2;
   ctx.lineCap = 'round';
 
   // 头
-  const headRadius = size * 0.15;
-  const headY = -size * 0.7;
+  const headRadius = size * 0.12;
+  const headY = -size * 0.85;
   ctx.beginPath();
   ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
   ctx.fill();
 
   // 身体
-  const shoulderY = headY + headRadius + size * 0.05;
+  const shoulderY = headY + headRadius + 2;
   const hipY = shoulderY + size * 0.35;
   ctx.beginPath();
   ctx.moveTo(0, shoulderY);
@@ -337,54 +305,70 @@ function drawStickMan(centerX, centerY, scale, time, perspectiveScale) {
 
   // 左臂
   ctx.beginPath();
-  ctx.moveTo(0, shoulderY + size * 0.05);
-  ctx.lineTo(-size * 0.15 + armSwing * size * 0.1, shoulderY + size * 0.2);
+  ctx.moveTo(0, shoulderY + 3);
+  ctx.lineTo(-size * 0.2 + armSwing * size * 0.15, shoulderY + size * 0.25);
   ctx.stroke();
 
   // 右臂
   ctx.beginPath();
-  ctx.moveTo(0, shoulderY + size * 0.05);
-  ctx.lineTo(size * 0.15 - armSwing * size * 0.1, shoulderY + size * 0.2);
+  ctx.moveTo(0, shoulderY + 3);
+  ctx.lineTo(size * 0.2 - armSwing * size * 0.15, shoulderY + size * 0.25);
   ctx.stroke();
 
   // 左腿
-  const footY = hipY + size * 0.3;
   ctx.beginPath();
   ctx.moveTo(0, hipY);
-  ctx.lineTo(-size * 0.1 + legSwing * size * 0.15, footY);
+  ctx.lineTo(-size * 0.12 + legSwing * size * 0.2, hipY + size * 0.35);
   ctx.stroke();
 
   // 右腿
   ctx.beginPath();
   ctx.moveTo(0, hipY);
-  ctx.lineTo(size * 0.1 - legSwing * size * 0.15, footY);
+  ctx.lineTo(size * 0.12 - legSwing * size * 0.2, hipY + size * 0.35);
   ctx.stroke();
 
   ctx.restore();
 }
 
-// 获取底部两个顶点
-function getBottomTwoVertices() {
-  const frontBits = getFrontBits();
-  let bottomTwo = [];
-  let maxY = -Infinity;
+// 绘制场景（花草树木 + 火柴人）
+function drawScene(leftX, rightX, groundY) {
+  const sceneWidth = rightX - leftX;
+  const scale = sceneWidth / 150; // 基于场景宽度缩放
 
-  for (const bits of trigramBits) {
-    if (bits === frontBits) continue;
-    const p = projCache.get(bits);
-    if (p && p.y > maxY - 20) {
-      if (p.y > maxY + 10) {
-        bottomTwo = [{ bits, p }];
-        maxY = p.y;
-      } else {
-        bottomTwo.push({ bits, p });
-      }
+  // 场景元素的相对位置（0-1）
+  const elements = [
+    { type: 'tree', pos: 0.1 },
+    { type: 'grass', pos: 0.2 },
+    { type: 'flower', pos: 0.25 },
+    { type: 'grass', pos: 0.35 },
+    { type: 'tree', pos: 0.45 },
+    { type: 'flower', pos: 0.55 },
+    { type: 'grass', pos: 0.6 },
+    { type: 'grass', pos: 0.7 },
+    { type: 'tree', pos: 0.8 },
+    { type: 'flower', pos: 0.85 },
+    { type: 'grass', pos: 0.95 },
+  ];
+
+  // 绘制移动的场景元素
+  for (const elem of elements) {
+    // 计算循环位置
+    let pos = (elem.pos - sceneOffset) % 1;
+    if (pos < 0) pos += 1;
+    const x = leftX + pos * sceneWidth;
+
+    if (elem.type === 'tree') {
+      drawTree(x, groundY, scale);
+    } else if (elem.type === 'grass') {
+      drawGrass(x, groundY, scale);
+    } else if (elem.type === 'flower') {
+      drawFlower(x, groundY, scale);
     }
   }
 
-  // 排序找最底部的两个
-  bottomTwo.sort((a, b) => b.p.y - a.p.y);
-  return bottomTwo.slice(0, 2);
+  // 火柴人在中间
+  const stickX = (leftX + rightX) / 2;
+  drawStickMan(stickX, groundY, scale, walkTime);
 }
 
 // =============== 碰撞检测 ===============
@@ -491,51 +475,28 @@ function draw() {
     ctx.fillText(v.bits, p.x, labelY);
   }
 
-  // 获取底部两个顶点来定位火柴人
-  const bottomVerts = getBottomTwoVertices();
-  if (bottomVerts.length >= 2) {
-    const leftV = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[0] : bottomVerts[1];
-    const rightV = bottomVerts[0].p.x < bottomVerts[1].p.x ? bottomVerts[1] : bottomVerts[0];
+  // 找到底部两个顶点（011 和 110 对于乾宫）
+  // 按 Y 坐标排序，找最大的两个（不包括后方顶点111）
+  const frontBitsLocal = getFrontBits();
+  const backBitsLocal = getBackBits();
 
-    // 火柴人位置：在底部两个顶点之间的中心，Y与它们对齐
-    const stickX = (leftV.p.x + rightV.p.x) / 2;
-    const stickY = (leftV.p.y + rightV.p.y) / 2;
+  const sortedByY = trigramBits
+    .filter(bits => bits !== frontBitsLocal && bits !== backBitsLocal)
+    .map(bits => ({ bits, p: projCache.get(bits) }))
+    .filter(v => v.p)
+    .sort((a, b) => b.p.y - a.p.y);
 
-    // 计算场景区域的边界
-    const sceneLeft = leftV.p.x;
-    const sceneRight = rightV.p.x;
-    const sceneWidth = sceneRight - sceneLeft;
+  // 取Y最大的两个作为底部顶点
+  if (sortedByY.length >= 2) {
+    const bottom1 = sortedByY[0];
+    const bottom2 = sortedByY[1];
 
-    // 透视比例（基于深度，底部更近所以更大）
-    const perspectiveScale = 0.8;
+    const leftX = Math.min(bottom1.p.x, bottom2.p.x);
+    const rightX = Math.max(bottom1.p.x, bottom2.p.x);
+    const groundY = (bottom1.p.y + bottom2.p.y) / 2;
 
-    // 计算火柴人的缩放（基于画面大小）
-    const stickScale = Math.min(W, H) * 0.5;
-
-    // 画场景元素（按深度排序，远的先画）
-    const sortedElements = [...sceneElements].sort((a, b) => a.depth - b.depth);
-
-    for (const elem of sortedElements) {
-      // 计算元素位置（循环滚动）
-      let elemX = ((elem.x - sceneOffset.x) % SCENE_WIDTH + SCENE_WIDTH) % SCENE_WIDTH;
-      // 映射到场景区域
-      const mappedX = sceneLeft + (elemX / SCENE_WIDTH) * sceneWidth;
-      const elemPerspective = 0.5 + (1 - elem.depth) * 0.5;
-
-      // 只绘制在场景范围内的元素
-      if (mappedX >= sceneLeft - 20 && mappedX <= sceneRight + 20) {
-        if (elem.type === 'tree') {
-          drawTree(mappedX, stickY, elem.height, elemPerspective);
-        } else if (elem.type === 'grass') {
-          drawGrass(mappedX, stickY, elem.height, elemPerspective);
-        } else if (elem.type === 'flower') {
-          drawFlower(mappedX, stickY, elem.height, elemPerspective);
-        }
-      }
-    }
-
-    // 画火柴人（在场景中间，透视稍大）
-    drawStickMan(stickX, stickY, stickScale, walkTime, perspectiveScale);
+    // 绘制场景（火柴人和移动的花草树木）
+    drawScene(leftX, rightX, groundY);
   }
 
   // 显示信息
@@ -553,11 +514,11 @@ function gameLoop() {
   walkTime += 0.016; // 约60fps
 
   // 场景平移（模拟火柴人行走）
-  sceneOffset.x += sceneSpeed;
+  sceneOffset += 0.003;
 
   // 循环场景
-  if (sceneOffset.x > SCENE_WIDTH) {
-    sceneOffset.x = 0;
+  if (sceneOffset > 1) {
+    sceneOffset = 0;
   }
 
   draw();
