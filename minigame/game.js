@@ -974,287 +974,188 @@ function getStickManDirection(groundQuad) {
 }
 
 function drawStickManPhysics(x, y, scale, time, groundQuad) {
-  // 使用人体比例计算骨骼尺寸
-  const headUnit = 6 * scale;  // 头部高度作为基本单位
-  const HP = HUMAN_PROPORTIONS;
-  const JL = JOINT_LIMITS;
+  // ===== 简化的火柴人走路动画 =====
+  // 基于 Processing 论坛的成熟方案：用 sin() 直接驱动关节角度
+  // 参考: https://forum.processing.org/two/discussion/24143/
 
   const speed = stickManSpeed;
+  const t = time * (4 + speed * 6);  // 动画速度
 
-  // 获取朝向角度
+  // 获取朝向
   const targetFacing = groundQuad ? getStickManDirection(groundQuad) : 0;
-
-  // ===== 姿势过渡：平滑朝向变化 =====
-  const facingDiff = Math.abs(targetFacing - poseState.facing);
-  const isDirectionChange = facingDiff > 0.3 && poseState.initialized;
-  const facingLerp = isDirectionChange ? POSE_LERP_SLOW : POSE_LERP;
   const facing = poseState.initialized
-    ? lerpAngle(poseState.facing, targetFacing, facingLerp)
+    ? lerpAngle(poseState.facing, targetFacing, 0.1)
     : targetFacing;
-
-  // 计算视角参数
-  const sideView = Math.abs(Math.sin(facing));
-  const facingRight = Math.sin(facing);
-  const facingAway = Math.cos(facing);
-  const bodyWidthScale = 0.3 + Math.abs(facingAway) * 0.7;
-
-  // ===== 基于人体比例的骨骼尺寸 =====
-  const headR = headUnit * HP.headHeight * 0.5;
-  const neckLen = headUnit * HP.neckLength;
-  const shoulderW = headUnit * HP.shoulderWidth * 0.5 * bodyWidthScale;
-  const torsoLen = headUnit * HP.torsoLength;
-  const hipW = headUnit * HP.hipWidth * 0.5 * bodyWidthScale;
-  const upperArm = headUnit * HP.upperArmLength;
-  const forearm = headUnit * HP.forearmLength;
-  const upperLeg = headUnit * HP.thighLength;
-  const lowerLeg = headUnit * HP.shinLength;
-  const footLen = headUnit * HP.footLength * 0.3;  // 脚在侧面显示时的长度
-
-  // 脊椎每段长度
-  const spineSegLen = torsoLen / HP.spineSegments;
-
-  // ===== 走路周期参数 =====
-  const walkSpeed = 3 + speed * 5;
-  const phase = time * walkSpeed;
-
-  // 步幅和抬脚高度（基于人体比例）
-  const totalHeight = headUnit * 7.5;
-  const strideLength = (totalHeight * 0.15 + speed * totalHeight * 0.1) * sideView;
-  const stepHeight = totalHeight * 0.05 + speed * totalHeight * 0.08;
-
-  // 身体起伏
-  const bouncePhase = phase * 2;
-  const targetBounce = Math.abs(Math.sin(bouncePhase)) * (2 + speed * 3) * scale;
-
-  // 躯干扭转（跑步时肩髋反向转动）
-  const targetTorsoTwist = Math.sin(phase) * (0.05 + speed * 0.1) * sideView;
-
-  // 脊椎弯曲（前倾 + 侧向摆动）
-  const spineLean = (0.03 + speed * 0.05) * facingAway;
-  const spineSway = Math.sin(phase) * 0.02 * sideView;
-
-  // ===== 姿势过渡 =====
-  const bounce = poseState.initialized
-    ? lerp(poseState.bounce, targetBounce, POSE_LERP_FAST)
-    : targetBounce;
-  const torsoTwist = poseState.initialized
-    ? lerp(poseState.torsoTwist, targetTorsoTwist, POSE_LERP)
-    : targetTorsoTwist;
-
-  // ===== 计算骨骼关键位置 =====
-  // 从脚到头构建骨骼
-  const groundLevel = totalHeight * 0.48;  // 地面在角色中心下方
-  const hipY = groundLevel - upperLeg - lowerLeg;
-  const shoulderY = hipY - torsoLen;
-  const neckY = shoulderY - neckLen * 0.5;
-  const headY = neckY - headR;
-
-  ctx.save();
-  ctx.translate(x, y - bounce);
-
-  ctx.strokeStyle = '#333333';
-  ctx.fillStyle = '#333333';
-  ctx.lineWidth = Math.max(2, 2.5 * scale);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  // ===== 计算脊椎位置（分段弯曲）=====
-  const spinePoints = [];
-  let spineX = 0;
-  let spineY = hipY;
-  let spineAngle = -Math.PI / 2;  // 向上
-  spinePoints.push({ x: spineX, y: spineY });
-
-  for (let i = 0; i < HP.spineSegments; i++) {
-    // 每段脊椎的弯曲角度
-    const segmentLean = spineLean / HP.spineSegments;
-    const segmentSway = spineSway / HP.spineSegments;
-    const twist = (i < 2) ? -torsoTwist * 0.3 : torsoTwist * 0.3;  // 下部反向
-
-    spineAngle += segmentLean + segmentSway + twist;
-    spineAngle = clampAngle(spineAngle, -Math.PI/2 - JL.spine.flexion * HP.spineSegments,
-                                        -Math.PI/2 + JL.spine.extension * HP.spineSegments);
-
-    spineX += Math.cos(spineAngle) * spineSegLen;
-    spineY += Math.sin(spineAngle) * spineSegLen;
-    spinePoints.push({ x: spineX, y: spineY });
-  }
-
-  // 肩膀位置（在脊椎顶端）
-  const shoulderCenter = spinePoints[spinePoints.length - 1];
-
-  // ===== 腿部IK目标 =====
-  const rFootTarget = getFootTarget(phase, strideLength, stepHeight, groundLevel);
-  const lFootTarget = getFootTarget(phase + Math.PI, strideLength, stepHeight, groundLevel);
-
-  const viewDirX = facingRight >= 0 ? 1 : -1;
-  const rHipX = hipW * viewDirX;
-  const lHipX = -hipW * viewDirX;
-
-  // 脚的目标位置
-  let targetRFootX = rHipX + rFootTarget.x * viewDirX;
-  let targetRFootY = rFootTarget.y - rFootTarget.x * 0.2 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1);
-  let targetLFootX = lHipX + lFootTarget.x * viewDirX;
-  let targetLFootY = lFootTarget.y - lFootTarget.x * 0.2 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1);
-
-  // ===== 手臂IK目标 =====
-  const rArmPhase = phase + Math.PI;
-  const lArmPhase = phase;
-
-  const armSwingLen = (totalHeight * 0.06 + speed * totalHeight * 0.08) * sideView;
-  const armSwingHeight = totalHeight * 0.03 * speed;
-
-  const rHandTarget = getHandTarget(rArmPhase, armSwingLen, armSwingHeight, shoulderCenter.y);
-  const lHandTarget = getHandTarget(lArmPhase, armSwingLen, armSwingHeight, shoulderCenter.y);
-
-  const rShoulderX = shoulderCenter.x + shoulderW * viewDirX;
-  const lShoulderX = shoulderCenter.x - shoulderW * viewDirX;
-
-  let targetRHandX = rShoulderX + rHandTarget.x * viewDirX;
-  let targetRHandY = rHandTarget.y - rHandTarget.x * 0.2 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1);
-  let targetLHandX = lShoulderX + lHandTarget.x * viewDirX;
-  let targetLHandY = lHandTarget.y - lHandTarget.x * 0.2 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1);
-
-  // ===== 姿势过渡插值 =====
-  const rFootOnGround = rFootTarget.y >= groundLevel - 1;
-  const lFootOnGround = lFootTarget.y >= groundLevel - 1;
-  const rFootLerp = rFootOnGround ? POSE_LERP_FAST : POSE_LERP;
-  const lFootLerp = lFootOnGround ? POSE_LERP_FAST : POSE_LERP;
-
-  let rFootX, rFootY, lFootX, lFootY, rHandX, rHandY, lHandX, lHandY;
-
-  if (poseState.initialized) {
-    rFootX = lerp(poseState.rFootX, targetRFootX, rFootLerp);
-    rFootY = lerp(poseState.rFootY, targetRFootY, rFootLerp);
-    lFootX = lerp(poseState.lFootX, targetLFootX, lFootLerp);
-    lFootY = lerp(poseState.lFootY, targetLFootY, lFootLerp);
-    rHandX = lerp(poseState.rHandX, targetRHandX, POSE_LERP);
-    rHandY = lerp(poseState.rHandY, targetRHandY, POSE_LERP);
-    lHandX = lerp(poseState.lHandX, targetLHandX, POSE_LERP);
-    lHandY = lerp(poseState.lHandY, targetLHandY, POSE_LERP);
-  } else {
-    rFootX = targetRFootX; rFootY = targetRFootY;
-    lFootX = targetLFootX; lFootY = targetLFootY;
-    rHandX = targetRHandX; rHandY = targetRHandY;
-    lHandX = targetLHandX; lHandY = targetLHandY;
-  }
-
-  // ===== 使用带约束的IK求解关节 =====
-  // 腿部：膝盖只能向前弯曲 (0 ~ 140°)
-  const rLegIK = solveIKConstrained(rHipX, hipY, rFootX, rFootY, upperLeg, lowerLeg,
-                                    -viewDirX, JL.knee.minAngle, JL.knee.maxAngle);
-  const lLegIK = solveIKConstrained(lHipX, hipY, lFootX, lFootY, upperLeg, lowerLeg,
-                                    -viewDirX, JL.knee.minAngle, JL.knee.maxAngle);
-
-  // 手臂：肘部只能向后弯曲 (0 ~ 150°)
-  const rArmIK = solveIKConstrained(rShoulderX, shoulderCenter.y, rHandX, rHandY, upperArm, forearm,
-                                    viewDirX, JL.elbow.minAngle, JL.elbow.maxAngle);
-  const lArmIK = solveIKConstrained(lShoulderX, shoulderCenter.y, lHandX, lHandY, upperArm, forearm,
-                                    viewDirX, JL.elbow.minAngle, JL.elbow.maxAngle);
-
-  // ===== 平滑关节位置 =====
-  let finalRKneeX, finalRKneeY, finalLKneeX, finalLKneeY;
-  let finalRElbowX, finalRElbowY, finalLElbowX, finalLElbowY;
-
-  if (poseState.initialized) {
-    finalRKneeX = lerp(poseState.rKneeX, rLegIK.midX, POSE_LERP);
-    finalRKneeY = lerp(poseState.rKneeY, rLegIK.midY, POSE_LERP);
-    finalLKneeX = lerp(poseState.lKneeX, lLegIK.midX, POSE_LERP);
-    finalLKneeY = lerp(poseState.lKneeY, lLegIK.midY, POSE_LERP);
-    finalRElbowX = lerp(poseState.rElbowX, rArmIK.midX, POSE_LERP);
-    finalRElbowY = lerp(poseState.rElbowY, rArmIK.midY, POSE_LERP);
-    finalLElbowX = lerp(poseState.lElbowX, lArmIK.midX, POSE_LERP);
-    finalLElbowY = lerp(poseState.lElbowY, lArmIK.midY, POSE_LERP);
-  } else {
-    finalRKneeX = rLegIK.midX; finalRKneeY = rLegIK.midY;
-    finalLKneeX = lLegIK.midX; finalLKneeY = lLegIK.midY;
-    finalRElbowX = rArmIK.midX; finalRElbowY = rArmIK.midY;
-    finalLElbowX = lArmIK.midX; finalLElbowY = lArmIK.midY;
-  }
-
-  // ===== 更新姿势状态 =====
-  poseState.rFootX = rFootX; poseState.rFootY = rFootY;
-  poseState.lFootX = lFootX; poseState.lFootY = lFootY;
-  poseState.rHandX = rHandX; poseState.rHandY = rHandY;
-  poseState.lHandX = lHandX; poseState.lHandY = lHandY;
-  poseState.rKneeX = finalRKneeX; poseState.rKneeY = finalRKneeY;
-  poseState.lKneeX = finalLKneeX; poseState.lKneeY = finalLKneeY;
-  poseState.rElbowX = finalRElbowX; poseState.rElbowY = finalRElbowY;
-  poseState.lElbowX = finalLElbowX; poseState.lElbowY = finalLElbowY;
-  poseState.bounce = bounce;
-  poseState.torsoTwist = torsoTwist;
   poseState.facing = facing;
   poseState.initialized = true;
 
-  // ===== 确定绘制顺序 =====
-  const rLegForward = rFootTarget.x > 0;
+  // 视角
+  const sideView = Math.abs(Math.sin(facing));
+  const facingRight = Math.sin(facing) >= 0 ? 1 : -1;
+  const facingAway = Math.cos(facing);
+
+  // ===== 骨骼尺寸 =====
+  const len = 12 * scale;  // 基本骨骼长度
+  const headR = len * 0.5;
+  const bodyLen = len * 1.8;
+  const legLen = len * 1.0;   // 大腿/小腿长度
+  const armLen = len * 0.8;   // 上臂/前臂长度
+
+  // 身体宽度（正面宽，侧面窄）
+  const bodyW = len * 0.5 * (0.3 + Math.abs(facingAway) * 0.7);
+
+  // ===== 关节角度（使用 sin 函数）=====
+  // 腿部：大腿角度，小腿有延迟
+  const swingAmp = 0.5 + speed * 0.3;  // 摆动幅度
+
+  // 右腿
+  const rThigh = Math.sin(t) * swingAmp;                    // 大腿角度
+  const rShin = Math.sin(t - 0.5) * swingAmp * 0.8 - 0.3;  // 小腿角度（有延迟，向后弯）
+
+  // 左腿（相位差 PI）
+  const lThigh = Math.sin(t + Math.PI) * swingAmp;
+  const lShin = Math.sin(t + Math.PI - 0.5) * swingAmp * 0.8 - 0.3;
+
+  // 手臂（与对侧腿反向）
+  const rArm = Math.sin(t + Math.PI) * swingAmp * 0.6;
+  const rForearm = Math.sin(t + Math.PI - 0.3) * swingAmp * 0.4 + 0.5;
+  const lArm = Math.sin(t) * swingAmp * 0.6;
+  const lForearm = Math.sin(t - 0.3) * swingAmp * 0.4 + 0.5;
+
+  // 身体上下起伏
+  const bounce = Math.abs(Math.sin(t * 2)) * 2 * scale * speed;
+
+  // ===== 计算关节位置 =====
+  ctx.save();
+  ctx.translate(x, y - bounce);
+
+  // 关键位置
+  const hipY = 0;
+  const shoulderY = hipY - bodyLen;
+  const headY = shoulderY - len * 0.3 - headR;
+
+  // 髋部和肩膀X位置
+  const rHipX = bodyW * facingRight;
+  const lHipX = -bodyW * facingRight;
+  const rShoulderX = bodyW * 1.2 * facingRight;
+  const lShoulderX = -bodyW * 1.2 * facingRight;
+
+  // 计算腿部关节（侧面视角时前后摆动，正面时左右分开）
+  const legSwingX = sideView * facingRight;
+  const legSwingY = Math.abs(facingAway) * 0.3;
+
+  // 右腿
+  const rKneeX = rHipX + Math.sin(rThigh) * legLen * legSwingX;
+  const rKneeY = hipY + Math.cos(rThigh) * legLen;
+  const rFootX = rKneeX + Math.sin(rThigh + rShin) * legLen * legSwingX;
+  const rFootY = rKneeY + Math.cos(rThigh + rShin) * legLen;
+
+  // 左腿
+  const lKneeX = lHipX + Math.sin(lThigh) * legLen * legSwingX;
+  const lKneeY = hipY + Math.cos(lThigh) * legLen;
+  const lFootX = lKneeX + Math.sin(lThigh + lShin) * legLen * legSwingX;
+  const lFootY = lKneeY + Math.cos(lThigh + lShin) * legLen;
+
+  // 右臂
+  const rElbowX = rShoulderX + Math.sin(rArm) * armLen * legSwingX;
+  const rElbowY = shoulderY + Math.cos(rArm) * armLen;
+  const rHandX = rElbowX + Math.sin(rArm + rForearm) * armLen * legSwingX;
+  const rHandY = rElbowY + Math.cos(rArm + rForearm) * armLen;
+
+  // 左臂
+  const lElbowX = lShoulderX + Math.sin(lArm) * armLen * legSwingX;
+  const lElbowY = shoulderY + Math.cos(lArm) * armLen;
+  const lHandX = lElbowX + Math.sin(lArm + lForearm) * armLen * legSwingX;
+  const lHandY = lElbowY + Math.cos(lArm + lForearm) * armLen;
+
+  // ===== 绘制 =====
+  ctx.strokeStyle = '#333333';
+  ctx.fillStyle = '#333333';
+  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 确定前后顺序
+  const rLegForward = rThigh > 0;
   const drawRightFirst = facingAway > 0 ? !rLegForward : rLegForward;
 
-  // 绘制函数
-  const drawBone = (x1, y1, x2, y2, color) => {
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  };
-
-  const drawLimb = (startX, startY, midX, midY, endX, endY, color) => {
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(midX, midY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-  };
-
   const frontColor = '#333333';
-  const backColor = '#555555';
-  const boneColor = '#444444';
-
-  // ===== 绘制骨骼 =====
+  const backColor = '#666666';
 
   // 后面的腿和手臂
+  ctx.strokeStyle = backColor;
   if (drawRightFirst) {
-    drawLimb(rHipX, hipY, finalRKneeX, finalRKneeY, rFootX, rFootY, backColor);
-    drawLimb(rShoulderX, shoulderCenter.y, finalRElbowX, finalRElbowY, rHandX, rHandY, backColor);
+    ctx.beginPath();
+    ctx.moveTo(rHipX, hipY);
+    ctx.lineTo(rKneeX, rKneeY);
+    ctx.lineTo(rFootX, rFootY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(rShoulderX, shoulderY);
+    ctx.lineTo(rElbowX, rElbowY);
+    ctx.lineTo(rHandX, rHandY);
+    ctx.stroke();
   } else {
-    drawLimb(lHipX, hipY, finalLKneeX, finalLKneeY, lFootX, lFootY, backColor);
-    drawLimb(lShoulderX, shoulderCenter.y, finalLElbowX, finalLElbowY, lHandX, lHandY, backColor);
+    ctx.beginPath();
+    ctx.moveTo(lHipX, hipY);
+    ctx.lineTo(lKneeX, lKneeY);
+    ctx.lineTo(lFootX, lFootY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lShoulderX, shoulderY);
+    ctx.lineTo(lElbowX, lElbowY);
+    ctx.lineTo(lHandX, lHandY);
+    ctx.stroke();
   }
 
-  // 脊椎（分段绘制，显示弯曲）
-  ctx.strokeStyle = boneColor;
+  // 身体
+  ctx.strokeStyle = frontColor;
   ctx.beginPath();
-  ctx.moveTo(spinePoints[0].x, spinePoints[0].y);
-  for (let i = 1; i < spinePoints.length; i++) {
-    ctx.lineTo(spinePoints[i].x, spinePoints[i].y);
-  }
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(0, shoulderY);
   ctx.stroke();
 
   // 髋部
-  drawBone(-hipW, hipY, hipW, hipY, boneColor);
+  ctx.beginPath();
+  ctx.moveTo(lHipX, hipY);
+  ctx.lineTo(rHipX, hipY);
+  ctx.stroke();
 
   // 肩膀
-  drawBone(shoulderCenter.x - shoulderW, shoulderCenter.y,
-           shoulderCenter.x + shoulderW, shoulderCenter.y, boneColor);
-
-  // 颈部
-  drawBone(shoulderCenter.x, shoulderCenter.y, shoulderCenter.x, neckY, boneColor);
-
-  // 头部
-  ctx.fillStyle = frontColor;
   ctx.beginPath();
-  ctx.arc(shoulderCenter.x, headY, headR, 0, Math.PI * 2);
+  ctx.moveTo(lShoulderX, shoulderY);
+  ctx.lineTo(rShoulderX, shoulderY);
+  ctx.stroke();
+
+  // 头
+  ctx.beginPath();
+  ctx.arc(0, headY, headR, 0, Math.PI * 2);
   ctx.fill();
 
   // 前面的腿和手臂
+  ctx.strokeStyle = frontColor;
   if (drawRightFirst) {
-    drawLimb(lHipX, hipY, finalLKneeX, finalLKneeY, lFootX, lFootY, frontColor);
-    drawLimb(lShoulderX, shoulderCenter.y, finalLElbowX, finalLElbowY, lHandX, lHandY, frontColor);
+    ctx.beginPath();
+    ctx.moveTo(lHipX, hipY);
+    ctx.lineTo(lKneeX, lKneeY);
+    ctx.lineTo(lFootX, lFootY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(lShoulderX, shoulderY);
+    ctx.lineTo(lElbowX, lElbowY);
+    ctx.lineTo(lHandX, lHandY);
+    ctx.stroke();
   } else {
-    drawLimb(rHipX, hipY, finalRKneeX, finalRKneeY, rFootX, rFootY, frontColor);
-    drawLimb(rShoulderX, shoulderCenter.y, finalRElbowX, finalRElbowY, rHandX, rHandY, frontColor);
+    ctx.beginPath();
+    ctx.moveTo(rHipX, hipY);
+    ctx.lineTo(rKneeX, rKneeY);
+    ctx.lineTo(rFootX, rFootY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(rShoulderX, shoulderY);
+    ctx.lineTo(rElbowX, rElbowY);
+    ctx.lineTo(rHandX, rHandY);
+    ctx.stroke();
   }
 
   ctx.restore();
