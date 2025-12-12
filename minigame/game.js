@@ -1222,23 +1222,180 @@ function draw() {
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('点击下方图标切换职阶', W / 2, iconY - 5);
+
+  // ==================== 冒险模式UI ====================
+  if (gameState === 'idle') {
+    // 开始冒险按钮
+    const btnW = 120;
+    const btnH = 45;
+    const btnX = (W - btnW) / 2;
+    const btnY = H / 2 + 80;
+
+    // 按钮背景
+    ctx.fillStyle = 'rgba(200, 50, 50, 0.9)';
+    ctx.fillRect(btnX, btnY, btnW, btnH);
+
+    // 按钮边框
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(btnX, btnY, btnW, btnH);
+
+    // 按钮文字
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('开始冒险', btnX + btnW / 2, btnY + btnH / 2);
+
+  } else if (gameState === 'adventure') {
+    // 冒险模式 - 顶部HP血条
+    const hpBarW = W * 0.6;
+    const hpBarH = 20;
+    const hpBarX = (W - hpBarW) / 2;
+    const hpBarY = H - 70;
+
+    // 血条背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(hpBarX - 5, hpBarY - 5, hpBarW + 10, hpBarH + 25);
+
+    // 血条底
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
+
+    // 血条
+    const hpRatio = Math.max(0, playerHP / playerMaxHP);
+    const hpColor = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#FF9800' : '#F44336';
+    ctx.fillStyle = hpColor;
+    ctx.fillRect(hpBarX, hpBarY, hpBarW * hpRatio, hpBarH);
+
+    // HP数值
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`HP: ${Math.ceil(playerHP)} / ${playerMaxHP}`, W / 2, hpBarY + hpBarH / 2 + 1);
+
+    // 信息显示
+    ctx.font = '11px sans-serif';
+    ctx.fillText(`击杀: ${killCount}  时间: ${Math.floor(adventureTime)}s  连击: ${comboCount}`, W / 2, hpBarY + hpBarH + 12);
+
+    // 操作提示
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('点击场景移动 | 靠近敌人自动攻击', W / 2, 60);
+
+  } else if (gameState === 'gameover') {
+    // 游戏结束画面
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#FF4444';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('游戏结束', W / 2, H / 2 - 60);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '18px sans-serif';
+    ctx.fillText(`击杀数: ${killCount}`, W / 2, H / 2 - 10);
+    ctx.fillText(`存活时间: ${Math.floor(adventureTime)}秒`, W / 2, H / 2 + 20);
+
+    // 重新开始按钮
+    const btnW = 120;
+    const btnH = 45;
+    const btnX = (W - btnW) / 2;
+    const btnY = H / 2 + 60;
+
+    ctx.fillStyle = 'rgba(50, 150, 50, 0.9)';
+    ctx.fillRect(btnX, btnY, btnW, btnH);
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(btnX, btnY, btnW, btnH);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('返回', btnX + btnW / 2, btnY + btnH / 2);
+  }
 }
 
 // ==================== 游戏循环 ====================
+let lastTime = Date.now();
+
 function gameLoop() {
-  walkTime += 0.016;
+  const now = Date.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.1); // 最大0.1秒，防止跳帧
+  lastTime = now;
+
+  walkTime += dt;
   stickManSpeed += (targetSpeed - stickManSpeed) * SPEED_LERP;
   sceneOffset += BASE_SCENE_SPEED * stickManSpeed;
+
+  // 更新冒险逻辑
+  updateAdventure(dt);
+
+  // 冒险模式下自动攻击
+  if (gameState === 'adventure') {
+    attackMonsters();
+  }
+
   draw();
   requestAnimationFrame(gameLoop);
 }
 
 // ==================== 触摸事件 ====================
 let touchStart = null;
+let cachedGroundQuad = null;
+
+// 缓存地面四边形用于点击检测
+function updateGroundQuadCache() {
+  const frontBits = getFrontBits();
+  const visibleVerts = trigramBits
+    .filter(bits => bits !== frontBits)
+    .map(bits => ({ bits, p: projCache.get(bits) }))
+    .filter(v => v.p);
+  visibleVerts.sort((a, b) => b.p.y - a.p.y);
+
+  if (visibleVerts.length >= 4) {
+    const bottom4 = visibleVerts.slice(0, 4);
+    const bottomPt = bottom4[0].p;
+    const sidePts = bottom4.slice(1, 3);
+    const leftPt = sidePts[0].p.x < sidePts[1].p.x ? sidePts[0].p : sidePts[1].p;
+    const rightPt = sidePts[0].p.x < sidePts[1].p.x ? sidePts[1].p : sidePts[0].p;
+    const topPt = bottom4[3].p;
+    cachedGroundQuad = { nearLeft: leftPt, nearRight: rightPt, farLeft: topPt, farRight: bottomPt };
+  }
+}
+
+// 屏幕坐标转地面坐标
+function screenToGround(sx, sy) {
+  if (!cachedGroundQuad) return null;
+  const q = cachedGroundQuad;
+  // 简化：使用逆双线性插值近似
+  const p00 = q.farRight;
+  const p10 = q.nearRight;
+  const p01 = q.nearLeft;
+  const p11 = q.farLeft;
+
+  // 迭代求解
+  let gx = 0.5, gy = 0.5;
+  for (let iter = 0; iter < 10; iter++) {
+    const px = (1-gx)*(1-gy)*p00.x + gx*(1-gy)*p10.x + (1-gx)*gy*p01.x + gx*gy*p11.x;
+    const py = (1-gx)*(1-gy)*p00.y + gx*(1-gy)*p10.y + (1-gx)*gy*p01.y + gx*gy*p11.y;
+    const errX = sx - px;
+    const errY = sy - py;
+    if (Math.abs(errX) < 1 && Math.abs(errY) < 1) break;
+    // 简单梯度下降
+    gx += errX * 0.002;
+    gy += errY * 0.002;
+    gx = Math.max(0, Math.min(1, gx));
+    gy = Math.max(0, Math.min(1, gy));
+  }
+  return { x: gx, y: gy };
+}
 
 wx.onTouchStart((e) => {
   if (e.touches.length > 0) {
     touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+    updateGroundQuadCache();
   }
 });
 
@@ -1248,10 +1405,48 @@ wx.onTouchEnd((e) => {
   const dx = touch.clientX - touchStart.x;
   const dy = touch.clientY - touchStart.y;
   const dt = Date.now() - touchStart.t;
+  const tx = touch.clientX;
+  const ty = touch.clientY;
 
+  // 游戏结束状态 - 检查返回按钮
+  if (gameState === 'gameover') {
+    const btnW = 120;
+    const btnH = 45;
+    const btnX = (W - btnW) / 2;
+    const btnY = H / 2 + 60;
+    if (tx >= btnX && tx <= btnX + btnW && ty >= btnY && ty <= btnY + btnH) {
+      returnToIdle();
+      touchStart = null;
+      return;
+    }
+    touchStart = null;
+    return;
+  }
+
+  // 冒险模式 - 点击移动
+  if (gameState === 'adventure') {
+    const groundPos = screenToGround(tx, ty);
+    if (groundPos && groundPos.x >= 0.05 && groundPos.x <= 0.95 && groundPos.y >= 0.05 && groundPos.y <= 0.95) {
+      playerTargetX = groundPos.x;
+      playerTargetY = groundPos.y;
+      isMoving = true;
+    }
+    touchStart = null;
+    return;
+  }
+
+  // 待机模式的交互
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    const tx = touch.clientX;
-    const ty = touch.clientY;
+    // 检查是否点击了"开始冒险"按钮
+    const advBtnW = 120;
+    const advBtnH = 45;
+    const advBtnX = (W - advBtnW) / 2;
+    const advBtnY = H / 2 + 80;
+    if (tx >= advBtnX && tx <= advBtnX + advBtnW && ty >= advBtnY && ty <= advBtnY + advBtnH) {
+      startAdventure();
+      touchStart = null;
+      return;
+    }
 
     // 检查是否点击了底部职阶图标
     const iconSize = 35;
