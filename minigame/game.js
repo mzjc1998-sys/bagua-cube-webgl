@@ -1,20 +1,6 @@
 /**
  * 八卦立方体 Roguelike - 微信小游戏入口
- *
- * 核心概念：
- * - 世界由正六边形时空间拼凑的莫比乌斯环组成
- * - 乾宫是观察/系统层面（创建角色、线上功能等）
- * - 其他宫位是冒险层面
- * - 64卦 × 6面 = 384种可能性
  */
-
-// 引入模块
-const { GAME_STATES, COLORS, CLASSES } = require('./js/config/GameConfig.js');
-const ConstellationCube = require('./js/render/ConstellationCube.js');
-const Character = require('./js/core/Character.js');
-const SaveManager = require('./js/core/SaveManager.js');
-const { BattleSystem, Enemy } = require('./js/core/BattleSystem.js');
-const YaoChangeSystem = require('./js/core/YaoChangeSystem.js');
 
 // 获取主 Canvas
 const canvas = wx.createCanvas();
@@ -26,531 +12,532 @@ const W = sysInfo.windowWidth;
 const H = sysInfo.windowHeight;
 const DPR = sysInfo.pixelRatio;
 
-// 游戏状态
-let gameState = GAME_STATES.TITLE;
-let currentCharacter = null;
-let cubeRenderer = null;
-let battleSystem = null;
-let yaoSystem = null;
+// 设置 Canvas 尺寸
+canvas.width = W * DPR;
+canvas.height = H * DPR;
 
-// UI 状态
+// roundRect polyfill
+if (!ctx.roundRect) {
+  ctx.roundRect = function(x, y, w, h, r) {
+    if (w < 2 * r) r = w / 2;
+    if (h < 2 * r) r = h / 2;
+    this.beginPath();
+    this.moveTo(x + r, y);
+    this.arcTo(x + w, y, x + w, y + h, r);
+    this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r);
+    this.arcTo(x, y, x + w, y, r);
+    this.closePath();
+    return this;
+  };
+}
+
+// =============== 游戏配置 ===============
+const TRIGRAMS = {
+  '000': { name: '乾', symbol: '☰' },
+  '001': { name: '兑', symbol: '☱' },
+  '010': { name: '离', symbol: '☲' },
+  '011': { name: '震', symbol: '☳' },
+  '100': { name: '巽', symbol: '☴' },
+  '101': { name: '坎', symbol: '☵' },
+  '110': { name: '艮', symbol: '☶' },
+  '111': { name: '坤', symbol: '☷' }
+};
+
+const CLASSES = {
+  dui: { name: 'Caster', nameCN: '术士', symbol: '☱', color: '#9932CC',
+         stats: { hp: 80, mp: 150, attack: 60, defense: 30, speed: 90 } },
+  li: { name: 'Archer', nameCN: '弓手', symbol: '☲', color: '#FF6347',
+        stats: { hp: 90, mp: 80, attack: 85, defense: 35, speed: 105 } },
+  zhen: { name: 'Lancer', nameCN: '枪兵', symbol: '☳', color: '#00FF7F',
+          stats: { hp: 100, mp: 60, attack: 90, defense: 45, speed: 130 } },
+  xun: { name: 'Saber', nameCN: '剑士', symbol: '☴', color: '#00CED1',
+         stats: { hp: 110, mp: 70, attack: 95, defense: 50, speed: 100 } },
+  kan: { name: 'Assassin', nameCN: '刺客', symbol: '☵', color: '#483D8B',
+         stats: { hp: 85, mp: 90, attack: 100, defense: 30, speed: 125 } },
+  gen: { name: 'Rider', nameCN: '骑士', symbol: '☶', color: '#8B4513',
+         stats: { hp: 150, mp: 50, attack: 75, defense: 80, speed: 85 } },
+  kun: { name: 'Berserker', nameCN: '狂战士', symbol: '☷', color: '#8B0000',
+         stats: { hp: 180, mp: 30, attack: 110, defense: 40, speed: 95 } }
+};
+
+const COLORS = {
+  BG_TOP: '#0F0F1A',
+  BG_BOTTOM: '#050508',
+  TEXT: '#E8E4D9',
+  ACCENT: '#FFD700',
+  DANGER: '#FF4444',
+  SUCCESS: '#44FF44',
+  MANA: '#4488FF'
+};
+
+// =============== 游戏状态 ===============
+let gameState = 'title'; // title, create, menu, adventure, battle, gameover
 let selectedClassIndex = 0;
-let characterName = '旅者';
+let currentCharacter = null;
 let currentWave = 0;
-let showingDetail = false;
-
-// 触摸状态
+let enemies = [];
+let battleLog = [];
 let touchStart = null;
 
-// =============== 初始化 ===============
+// 星星动画
+let starTime = 0;
 
-function init() {
-  // 创建渲染器
-  cubeRenderer = new ConstellationCube(canvas);
-
-  // 创建战斗系统
-  battleSystem = new BattleSystem();
-
-  // 创建爻变系统
-  yaoSystem = new YaoChangeSystem();
-
-  // 加载存档
-  const offlineData = SaveManager.loadOffline();
-  const onlineData = SaveManager.loadOnline();
-
-  if (offlineData && offlineData.character) {
-    currentCharacter = offlineData.character;
-    currentWave = offlineData.currentWave || 0;
-    gameState = GAME_STATES.MAIN_MENU;
-  } else {
-    gameState = GAME_STATES.TITLE;
-  }
-
-  // 开始渲染循环
-  requestAnimationFrame(gameLoop);
+// =============== 立方体顶点 ===============
+const vertices = [];
+const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
+for (const bits of trigramBits) {
+  const x = bits[2] === '1' ? 1 : -1;
+  const y = bits[0] === '1' ? 1 : -1;
+  const z = bits[1] === '1' ? 1 : -1;
+  let yangCount = 0;
+  for (const c of bits) if (c === '0') yangCount++;
+  vertices.push({
+    bits, name: TRIGRAMS[bits].name, symbol: TRIGRAMS[bits].symbol,
+    x, y, z, brightness: 0.3 + yangCount * 0.23
+  });
 }
 
-// =============== 游戏循环 ===============
+// 阴爻边（只显示阴爻）
+const edges = [
+  ['000', '001'], ['010', '011'], ['100', '101'], ['110', '111'],
+  ['000', '100'], ['001', '101'], ['010', '110'], ['011', '111'],
+  ['000', '010'], ['001', '011'], ['100', '110'], ['101', '111']
+].map(([a, b]) => {
+  let diffIdx = -1;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) { diffIdx = i; break; }
+  const isYin = a[diffIdx] === '1' || b[diffIdx] === '1';
+  return { from: a, to: b, isYin };
+});
 
-let lastTime = Date.now();
+// =============== 3D 渲染 ===============
+const rotX = Math.atan(1 / Math.sqrt(2));
+const rotY = -Math.PI / 4;
+const rotZ = Math.PI;
+const cubeSize = Math.min(W, H) * 0.3;
 
-function gameLoop() {
-  const now = Date.now();
-  const dt = now - lastTime;
-  lastTime = now;
-
-  // 清屏
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-  // 根据状态渲染
-  switch (gameState) {
-    case GAME_STATES.TITLE:
-      renderTitle(dt);
-      break;
-    case GAME_STATES.MAIN_MENU:
-      renderMainMenu(dt);
-      break;
-    case GAME_STATES.CREATE_CHAR:
-      renderCreateChar(dt);
-      break;
-    case GAME_STATES.ADVENTURE:
-      renderAdventure(dt);
-      break;
-    case GAME_STATES.BATTLE:
-      renderBattle(dt);
-      break;
-    case GAME_STATES.GAME_OVER:
-      renderGameOver(dt);
-      break;
-  }
-
-  requestAnimationFrame(gameLoop);
+function rotate3D(p) {
+  let { x, y, z } = p;
+  // Y轴旋转
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  // X轴旋转
+  const cx = Math.cos(rotX), sx = Math.sin(rotX);
+  let y2 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+  // Z轴旋转
+  const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
+  let x3 = x1 * cz - y2 * sz, y3 = x1 * sz + y2 * cz;
+  return { x: x3, y: y3, z: z2 };
 }
 
-// =============== 渲染函数 ===============
+function project(p) {
+  const pr = rotate3D(p);
+  return {
+    x: pr.x * cubeSize + W / 2,
+    y: -pr.y * cubeSize + H / 2,
+    z: pr.z
+  };
+}
 
-function renderTitle(dt) {
-  // 背景
+// =============== 绘制函数 ===============
+function drawBackground() {
   const gradient = ctx.createLinearGradient(0, 0, 0, H);
-  gradient.addColorStop(0, '#0F0F1A');
-  gradient.addColorStop(1, '#050508');
+  gradient.addColorStop(0, COLORS.BG_TOP);
+  gradient.addColorStop(1, COLORS.BG_BOTTOM);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, W, H);
 
-  // 渲染星座立方体
-  cubeRenderer.render(dt);
+  // 背景星星
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 30; i++) {
+    const sx = (Math.sin(i * 7.3) * 0.5 + 0.5) * W;
+    const sy = (Math.cos(i * 11.7) * 0.5 + 0.5) * H;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 
-  // 标题
-  ctx.fillStyle = '#FFD700';
-  ctx.font = 'bold 32px sans-serif';
+function drawStar(x, y, brightness, size) {
+  const twinkle = 0.85 + 0.15 * Math.sin(starTime + x);
+  const alpha = brightness * twinkle;
+
+  // 光晕
+  const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
+  gradient.addColorStop(0, `rgba(255,250,205,${alpha})`);
+  gradient.addColorStop(0.5, `rgba(255,250,205,${alpha * 0.3})`);
+  gradient.addColorStop(1, 'rgba(255,250,205,0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(x, y, size * 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 核心
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  ctx.beginPath();
+  ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCube() {
+  // 投影所有顶点
+  const projected = vertices.map(v => ({
+    ...v,
+    p: project(v)
+  })).sort((a, b) => b.p.z - a.p.z);
+
+  // 画阴爻线
+  ctx.strokeStyle = 'rgba(100,90,80,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  for (const edge of edges) {
+    if (!edge.isYin) continue;
+    const fromV = vertices.find(v => v.bits === edge.from);
+    const toV = vertices.find(v => v.bits === edge.to);
+    const p1 = project(fromV);
+    const p2 = project(toV);
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // 画星星
+  for (const v of projected) {
+    const size = 5 + 3 * (1 - (v.p.z + 1) / 2);
+    drawStar(v.p.x, v.p.y, v.brightness, size);
+
+    // 乾坤标签
+    if (v.bits === '000' || v.bits === '111') {
+      ctx.fillStyle = `rgba(232,228,217,${v.brightness})`;
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${v.symbol} ${v.name}`, v.p.x, v.p.y - size - 8);
+    }
+  }
+}
+
+function drawButton(x, y, w, h, text, color, active) {
+  ctx.fillStyle = active ? `rgba(${hexToRgb(color)},0.3)` : `rgba(${hexToRgb(color)},0.15)`;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.roundRect(x - w/2, y - h/2, w, h, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  ctx.font = '16px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('八卦立方体', W / 2, H * 0.15);
-
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '16px sans-serif';
-  ctx.fillText('Roguelike · 先天八卦', W / 2, H * 0.22);
-
-  // 开始按钮
-  const btnY = H * 0.75;
-  const btnW = 180;
-  const btnH = 50;
-
-  ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
-  ctx.strokeStyle = '#FFD700';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW / 2, btnY - btnH / 2, btnW, btnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#FFD700';
-  ctx.font = 'bold 18px sans-serif';
-  ctx.fillText(SaveManager.hasOfflineSave() ? '继续游戏' : '开始游戏', W / 2, btnY);
-
-  // 新游戏按钮（如果有存档）
-  if (SaveManager.hasOfflineSave()) {
-    const btn2Y = btnY + 70;
-    ctx.fillStyle = 'rgba(232, 228, 217, 0.1)';
-    ctx.strokeStyle = 'rgba(232, 228, 217, 0.5)';
-    ctx.beginPath();
-    ctx.roundRect(W / 2 - btnW / 2, btn2Y - btnH / 2, btnW, btnH, 12);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#E8E4D9';
-    ctx.font = '16px sans-serif';
-    ctx.fillText('新游戏', W / 2, btn2Y);
-  }
+  ctx.fillText(text, x, y);
 }
 
-function renderMainMenu(dt) {
-  // 渲染星座立方体背景
-  const charPos = cubeRenderer.render(dt);
-
-  // 角色信息 HUD
-  if (currentCharacter) {
-    drawCharacterHUD();
-  }
-
-  // 底部按钮
-  drawMenuButtons();
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r},${g},${b}`;
 }
 
-function renderCreateChar(dt) {
-  // 背景
-  const gradient = ctx.createLinearGradient(0, 0, 0, H);
-  gradient.addColorStop(0, '#0F0F1A');
-  gradient.addColorStop(1, '#050508');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, W, H);
+// =============== 场景渲染 ===============
+function renderTitle() {
+  drawBackground();
+  drawCube();
 
   // 标题
-  ctx.fillStyle = '#FFD700';
-  ctx.font = 'bold 24px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('创建角色', W / 2, 50);
-
-  // 职业选择
-  const classIds = Object.keys(CLASSES);
-  const selectedClass = CLASSES[classIds[selectedClassIndex]];
-
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '14px sans-serif';
-  ctx.fillText('选择职业', W / 2, 90);
-
-  // 职业卡片
-  const cardW = W * 0.8;
-  const cardH = 200;
-  const cardX = (W - cardW) / 2;
-  const cardY = 110;
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-  ctx.strokeStyle = selectedClass.color;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(cardX, cardY, cardW, cardH, 16);
-  ctx.fill();
-  ctx.stroke();
-
-  // 职业信息
-  ctx.fillStyle = selectedClass.color;
+  ctx.fillStyle = COLORS.ACCENT;
   ctx.font = 'bold 28px sans-serif';
-  ctx.fillText(`${selectedClass.symbol} ${selectedClass.name}`, W / 2, cardY + 40);
-
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '16px sans-serif';
-  ctx.fillText(selectedClass.nameCN, W / 2, cardY + 70);
-
-  ctx.fillStyle = 'rgba(232, 228, 217, 0.8)';
-  ctx.font = '14px sans-serif';
-  ctx.fillText(selectedClass.description, W / 2, cardY + 100);
-
-  // 属性预览
-  const stats = selectedClass.baseStats;
-  ctx.font = '12px sans-serif';
-  ctx.textAlign = 'left';
-  const statX = cardX + 20;
-  let statY = cardY + 130;
-
-  ctx.fillText(`HP: ${stats.hp}  攻击: ${stats.attack}  防御: ${stats.physDef}`, statX, statY);
-  statY += 20;
-  ctx.fillText(`速度: ${stats.moveSpeed}  暴击: ${stats.critRate}%  闪避: ${stats.dodge}%`, statX, statY);
-  statY += 20;
-  ctx.fillText(`法力: ${stats.mp}  幸运: ${stats.luck}`, statX, statY);
-
-  // 左右切换箭头
-  ctx.fillStyle = '#FFD700';
-  ctx.font = '36px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('◀', 30, cardY + cardH / 2);
-  ctx.fillText('▶', W - 30, cardY + cardH / 2);
+  ctx.fillText('八卦立方体', W / 2, H * 0.12);
 
-  // 创建按钮
-  const btnY = H - 80;
-  const btnW = 160;
-  const btnH = 45;
+  ctx.fillStyle = COLORS.TEXT;
+  ctx.font = '14px sans-serif';
+  ctx.fillText('Roguelike · 先天八卦', W / 2, H * 0.18);
 
-  ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
-  ctx.strokeStyle = '#FFD700';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW / 2, btnY - btnH / 2, btnW, btnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#FFD700';
-  ctx.font = 'bold 16px sans-serif';
-  ctx.fillText('开始冒险', W / 2, btnY);
+  // 开始按钮
+  drawButton(W / 2, H * 0.78, 160, 45, '开始游戏', COLORS.ACCENT, false);
 }
 
-function renderAdventure(dt) {
-  // 背景
-  const gradient = ctx.createLinearGradient(0, 0, 0, H);
-  gradient.addColorStop(0, '#1A1A2E');
-  gradient.addColorStop(1, '#0A0A12');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, W, H);
+function renderCreateChar() {
+  drawBackground();
 
-  // 当前波次信息
-  ctx.fillStyle = '#E8E4D9';
+  ctx.fillStyle = COLORS.ACCENT;
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('选择职业', W / 2, 45);
+
+  const classIds = Object.keys(CLASSES);
+  const cls = CLASSES[classIds[selectedClassIndex]];
+
+  // 职业卡片
+  const cardY = 80;
+  const cardH = 180;
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  ctx.strokeStyle = cls.color;
+  ctx.lineWidth = 2;
+  ctx.roundRect(20, cardY, W - 40, cardH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = cls.color;
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillText(`${cls.symbol} ${cls.name}`, W / 2, cardY + 35);
+
+  ctx.fillStyle = COLORS.TEXT;
+  ctx.font = '16px sans-serif';
+  ctx.fillText(cls.nameCN, W / 2, cardY + 60);
+
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'left';
+  const stats = cls.stats;
+  ctx.fillText(`HP: ${stats.hp}   攻击: ${stats.attack}   防御: ${stats.defense}`, 35, cardY + 95);
+  ctx.fillText(`MP: ${stats.mp}   速度: ${stats.speed}`, 35, cardY + 115);
+
+  // 左右箭头
+  ctx.fillStyle = COLORS.ACCENT;
+  ctx.font = '32px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('◀', 25, cardY + cardH / 2);
+  ctx.fillText('▶', W - 25, cardY + cardH / 2);
+
+  // 页码
+  ctx.fillStyle = COLORS.TEXT;
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`${selectedClassIndex + 1} / ${classIds.length}`, W / 2, cardY + cardH - 15);
+
+  // 创建按钮
+  drawButton(W / 2, H - 70, 140, 42, '开始冒险', COLORS.ACCENT, false);
+}
+
+function renderMenu() {
+  drawBackground();
+  drawCube();
+
+  // 角色信息
+  if (currentCharacter) {
+    ctx.fillStyle = 'rgba(20,20,35,0.85)';
+    ctx.roundRect(10, 10, 170, 90, 10);
+    ctx.fill();
+
+    ctx.fillStyle = COLORS.ACCENT;
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(currentCharacter.name, 20, 30);
+
+    ctx.fillStyle = COLORS.TEXT;
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`Lv.${currentCharacter.level} ${currentCharacter.className}`, 20, 48);
+
+    // HP条
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(20, 55, 150, 8);
+    ctx.fillStyle = COLORS.SUCCESS;
+    ctx.fillRect(20, 55, 150 * (currentCharacter.hp / currentCharacter.maxHp), 8);
+    ctx.fillStyle = COLORS.TEXT;
+    ctx.font = '10px sans-serif';
+    ctx.fillText(`HP: ${currentCharacter.hp}/${currentCharacter.maxHp}`, 20, 78);
+  }
+
+  // 按钮
+  drawButton(W / 2 - 60, H - 55, 90, 38, '冒险', COLORS.DANGER, false);
+  drawButton(W / 2 + 60, H - 55, 90, 38, '乾宫', COLORS.ACCENT, false);
+}
+
+function renderAdventure() {
+  drawBackground();
+
+  ctx.fillStyle = COLORS.TEXT;
   ctx.font = '16px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(`第 ${currentWave + 1} 波`, W / 2, 40);
+  ctx.fillText(`第 ${currentWave + 1} 波`, W / 2, 35);
 
   // 角色状态
   if (currentCharacter) {
-    drawCharacterHUD();
-  }
+    ctx.fillStyle = 'rgba(20,20,35,0.85)';
+    ctx.roundRect(10, 10, 150, 70, 10);
+    ctx.fill();
 
-  // 爻变信息
-  const hexInfo = yaoSystem.interpretHexagram();
-  ctx.fillStyle = 'rgba(232, 228, 217, 0.6)';
-  ctx.font = '14px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(`当前卦象: ${hexInfo.lower.name}之${hexInfo.upper.name}`, 20, H - 100);
-  ctx.fillText(`${hexInfo.interpretation}`, 20, H - 80);
-
-  // 战斗按钮
-  const btnY = H / 2;
-  const btnW = 140;
-  const btnH = 50;
-
-  ctx.fillStyle = 'rgba(255, 68, 68, 0.2)';
-  ctx.strokeStyle = '#FF4444';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW / 2, btnY - btnH / 2, btnW, btnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#FF4444';
-  ctx.font = 'bold 16px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('进入战斗', W / 2, btnY);
-
-  // 爻变按钮
-  const yaoY = btnY + 70;
-  ctx.fillStyle = 'rgba(68, 136, 255, 0.2)';
-  ctx.strokeStyle = '#4488FF';
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW / 2, yaoY - btnH / 2, btnW, btnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#4488FF';
-  ctx.fillText('投骰爻变', W / 2, yaoY);
-}
-
-function renderBattle(dt) {
-  // 背景
-  ctx.fillStyle = '#0A0A12';
-  ctx.fillRect(0, 0, W, H);
-
-  const battle = battleSystem.getBattleState();
-  if (!battle) return;
-
-  // 敌人区域
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '16px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('敌人', W / 2, 30);
-
-  // 绘制敌人
-  const enemyY = 100;
-  const enemySpacing = W / (battle.enemies.length + 1);
-
-  battle.enemies.forEach((enemy, i) => {
-    const x = enemySpacing * (i + 1);
-
-    // 敌人图标
-    ctx.fillStyle = enemy.type === 'boss' ? '#FF4444' : '#E8E4D9';
-    ctx.font = '32px sans-serif';
-    ctx.fillText(enemy.type === 'boss' ? '👹' : '👾', x, enemyY);
-
-    // 敌人名字和血量
-    ctx.font = '12px sans-serif';
-    ctx.fillText(enemy.name, x, enemyY + 30);
-    ctx.fillText(`HP: ${enemy.currentHp}/${enemy.maxHp}`, x, enemyY + 48);
-
-    // 血条
-    const barW = 60;
-    const barH = 6;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(x - barW / 2, enemyY + 55, barW, barH);
-    ctx.fillStyle = '#FF4444';
-    ctx.fillRect(x - barW / 2, enemyY + 55, barW * (enemy.currentHp / enemy.maxHp), barH);
-  });
-
-  // 玩家区域
-  if (currentCharacter) {
-    const playerY = H - 150;
-
-    // 玩家图标
-    ctx.fillStyle = '#FFD700';
-    ctx.font = '40px sans-serif';
-    ctx.fillText('⚔️', W / 2, playerY);
-
-    // 玩家状态
-    ctx.fillStyle = '#E8E4D9';
-    ctx.font = '14px sans-serif';
-    ctx.fillText(currentCharacter.name, W / 2, playerY + 35);
-    ctx.fillText(`HP: ${currentCharacter.currentHp}/${currentCharacter.currentStats.hp}`, W / 2, playerY + 55);
-
-    // HP条
-    const barW = 120;
-    const barH = 8;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(W / 2 - barW / 2, playerY + 65, barW, barH);
-    ctx.fillStyle = '#44FF44';
-    ctx.fillRect(W / 2 - barW / 2, playerY + 65, barW * (currentCharacter.currentHp / currentCharacter.currentStats.hp), barH);
-  }
-
-  // 战斗按钮
-  const btnY = H - 50;
-  const btnW = 80;
-  const btnH = 35;
-  const btnGap = 20;
-
-  // 攻击按钮
-  ctx.fillStyle = 'rgba(255, 68, 68, 0.3)';
-  ctx.strokeStyle = '#FF4444';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW - btnGap / 2, btnY - btnH / 2, btnW, btnH, 8);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#FF4444';
-  ctx.font = '14px sans-serif';
-  ctx.fillText('攻击', W / 2 - btnW / 2 - btnGap / 2, btnY);
-
-  // 逃跑按钮
-  ctx.fillStyle = 'rgba(68, 136, 255, 0.3)';
-  ctx.strokeStyle = '#4488FF';
-  ctx.beginPath();
-  ctx.roundRect(W / 2 + btnGap / 2, btnY - btnH / 2, btnW, btnH, 8);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#4488FF';
-  ctx.fillText('逃跑', W / 2 + btnW / 2 + btnGap / 2, btnY);
-
-  // 战斗日志
-  const log = battleSystem.getBattleLog();
-  if (log.length > 0) {
-    ctx.fillStyle = 'rgba(232, 228, 217, 0.8)';
+    ctx.fillStyle = COLORS.TEXT;
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
-    const recentLogs = log.slice(-3);
-    recentLogs.forEach((entry, i) => {
-      ctx.fillText(entry.message, 20, H / 2 + 20 + i * 18);
-    });
+    ctx.fillText(`${currentCharacter.name} Lv.${currentCharacter.level}`, 20, 30);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(20, 40, 130, 6);
+    ctx.fillStyle = COLORS.SUCCESS;
+    ctx.fillRect(20, 40, 130 * (currentCharacter.hp / currentCharacter.maxHp), 6);
+    ctx.fillStyle = COLORS.TEXT;
+    ctx.font = '10px sans-serif';
+    ctx.fillText(`HP: ${currentCharacter.hp}/${currentCharacter.maxHp}`, 20, 62);
   }
 
-  // 检查战斗结果
-  if (battle.state === 'victory') {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#44FF44';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('战斗胜利!', W / 2, H / 2);
-    ctx.font = '16px sans-serif';
-    ctx.fillText('点击继续', W / 2, H / 2 + 40);
-  } else if (battle.state === 'defeat') {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#FF4444';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('战斗失败', W / 2, H / 2);
-    ctx.font = '16px sans-serif';
-    ctx.fillText('点击继续', W / 2, H / 2 + 40);
-  }
+  drawButton(W / 2, H / 2, 130, 45, '进入战斗', COLORS.DANGER, false);
+  drawButton(W / 2, H / 2 + 60, 130, 45, '返回', COLORS.TEXT, false);
 }
 
-function renderGameOver(dt) {
+function renderBattle() {
   ctx.fillStyle = '#0A0A12';
   ctx.fillRect(0, 0, W, H);
 
-  ctx.fillStyle = '#FF4444';
-  ctx.font = 'bold 32px sans-serif';
+  // 敌人
+  ctx.fillStyle = COLORS.TEXT;
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('敌人', W / 2, 25);
+
+  const enemyY = 80;
+  enemies.forEach((enemy, i) => {
+    const x = W / (enemies.length + 1) * (i + 1);
+    ctx.font = '28px sans-serif';
+    ctx.fillText(enemy.type === 'boss' ? '👹' : '👾', x, enemyY);
+    ctx.font = '11px sans-serif';
+    ctx.fillText(enemy.name, x, enemyY + 25);
+    ctx.fillText(`${enemy.hp}/${enemy.maxHp}`, x, enemyY + 40);
+
+    // HP条
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(x - 25, enemyY + 45, 50, 5);
+    ctx.fillStyle = COLORS.DANGER;
+    ctx.fillRect(x - 25, enemyY + 45, 50 * (enemy.hp / enemy.maxHp), 5);
+    ctx.fillStyle = COLORS.TEXT;
+  });
+
+  // 玩家
+  if (currentCharacter) {
+    const playerY = H - 130;
+    ctx.font = '36px sans-serif';
+    ctx.fillText('⚔️', W / 2, playerY);
+    ctx.font = '13px sans-serif';
+    ctx.fillText(currentCharacter.name, W / 2, playerY + 30);
+    ctx.fillText(`HP: ${currentCharacter.hp}/${currentCharacter.maxHp}`, W / 2, playerY + 48);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillRect(W / 2 - 50, playerY + 55, 100, 7);
+    ctx.fillStyle = COLORS.SUCCESS;
+    ctx.fillRect(W / 2 - 50, playerY + 55, 100 * (currentCharacter.hp / currentCharacter.maxHp), 7);
+  }
+
+  // 战斗日志
+  ctx.fillStyle = 'rgba(232,228,217,0.7)';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left';
+  battleLog.slice(-3).forEach((msg, i) => {
+    ctx.fillText(msg, 15, H / 2 + 10 + i * 16);
+  });
+
+  // 按钮
+  drawButton(W / 2 - 50, H - 45, 75, 32, '攻击', COLORS.DANGER, false);
+  drawButton(W / 2 + 50, H - 45, 75, 32, '逃跑', COLORS.MANA, false);
+}
+
+function renderGameOver() {
+  ctx.fillStyle = '#0A0A12';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = COLORS.DANGER;
+  ctx.font = 'bold 28px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('游戏结束', W / 2, H / 3);
 
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '16px sans-serif';
-  ctx.fillText('线下存档已清空', W / 2, H / 3 + 40);
-  ctx.fillText('线上数据已保留', W / 2, H / 3 + 65);
-
-  // 重新开始按钮
-  const btnY = H * 0.6;
-  const btnW = 160;
-  const btnH = 45;
-
-  ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
-  ctx.strokeStyle = '#FFD700';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW / 2, btnY - btnH / 2, btnW, btnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#FFD700';
-  ctx.font = 'bold 16px sans-serif';
-  ctx.fillText('重新开始', W / 2, btnY);
-}
-
-// =============== UI 辅助函数 ===============
-
-function drawCharacterHUD() {
-  const hudX = 10;
-  const hudY = 10;
-  const hudW = 180;
-  const hudH = 100;
-
-  ctx.fillStyle = 'rgba(20, 20, 35, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(hudX, hudY, hudW, hudH, 12);
-  ctx.fill();
-
-  ctx.fillStyle = '#FFD700';
-  ctx.font = 'bold 14px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(currentCharacter.name, hudX + 10, hudY + 22);
-
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '12px sans-serif';
-  ctx.fillText(`Lv.${currentCharacter.level} ${CLASSES[currentCharacter.classId].nameCN}`, hudX + 10, hudY + 40);
-
-  // HP条
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-  ctx.fillRect(hudX + 10, hudY + 50, hudW - 20, 8);
-  ctx.fillStyle = '#44FF44';
-  ctx.fillRect(hudX + 10, hudY + 50, (hudW - 20) * (currentCharacter.currentHp / currentCharacter.currentStats.hp), 8);
-  ctx.fillStyle = '#E8E4D9';
-  ctx.font = '10px sans-serif';
-  ctx.fillText(`HP: ${currentCharacter.currentHp}/${currentCharacter.currentStats.hp}`, hudX + 10, hudY + 72);
-
-  // MP条
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-  ctx.fillRect(hudX + 10, hudY + 78, hudW - 20, 6);
-  ctx.fillStyle = '#4488FF';
-  ctx.fillRect(hudX + 10, hudY + 78, (hudW - 20) * (currentCharacter.currentMp / currentCharacter.currentStats.mp), 6);
-  ctx.fillText(`MP: ${currentCharacter.currentMp}/${currentCharacter.currentStats.mp}`, hudX + 10, hudY + 95);
-}
-
-function drawMenuButtons() {
-  const btnY = H - 60;
-  const btnW = 100;
-  const btnH = 40;
-  const btnGap = 15;
-
-  // 冒险按钮
-  ctx.fillStyle = 'rgba(255, 68, 68, 0.2)';
-  ctx.strokeStyle = '#FF4444';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - btnW - btnGap, btnY - btnH / 2, btnW, btnH, 10);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#FF4444';
+  ctx.fillStyle = COLORS.TEXT;
   ctx.font = '14px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('冒险', W / 2 - btnW / 2 - btnGap, btnY + 5);
+  ctx.fillText(`最终等级: ${currentCharacter ? currentCharacter.level : 1}`, W / 2, H / 3 + 35);
+  ctx.fillText(`击败波数: ${currentWave}`, W / 2, H / 3 + 55);
 
-  // 乾宫按钮
-  ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
-  ctx.strokeStyle = '#FFD700';
-  ctx.beginPath();
-  ctx.roundRect(W / 2 + btnGap, btnY - btnH / 2, btnW, btnH, 10);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#FFD700';
-  ctx.fillText('乾宫', W / 2 + btnW / 2 + btnGap, btnY + 5);
+  drawButton(W / 2, H * 0.6, 140, 42, '重新开始', COLORS.ACCENT, false);
+}
+
+// =============== 游戏逻辑 ===============
+function createCharacter(classId) {
+  const cls = CLASSES[classId];
+  currentCharacter = {
+    name: '旅者',
+    classId,
+    className: cls.nameCN,
+    level: 1,
+    exp: 0,
+    hp: cls.stats.hp,
+    maxHp: cls.stats.hp,
+    mp: cls.stats.mp,
+    maxMp: cls.stats.mp,
+    attack: cls.stats.attack,
+    defense: cls.stats.defense,
+    speed: cls.stats.speed
+  };
+}
+
+function generateEnemies() {
+  const count = Math.min(4, 1 + Math.floor(currentWave / 3));
+  enemies = [];
+  const names = ['史莱姆', '哥布林', '骷髅兵', '暗狼'];
+  const isBoss = (currentWave + 1) % 5 === 0;
+
+  for (let i = 0; i < count; i++) {
+    const baseHp = 30 + currentWave * 10;
+    enemies.push({
+      name: isBoss && i === 0 ? '远古石像' : names[Math.floor(Math.random() * names.length)],
+      type: isBoss && i === 0 ? 'boss' : 'normal',
+      hp: isBoss && i === 0 ? baseHp * 3 : baseHp,
+      maxHp: isBoss && i === 0 ? baseHp * 3 : baseHp,
+      attack: 8 + currentWave * 3
+    });
+  }
+}
+
+function playerAttack() {
+  if (enemies.length === 0) return;
+
+  const target = enemies[0];
+  const damage = Math.max(1, currentCharacter.attack - 5);
+  const roll = Math.floor(Math.random() * 6) + 1;
+  const finalDamage = Math.floor(damage * (0.8 + roll * 0.1));
+
+  target.hp = Math.max(0, target.hp - finalDamage);
+  battleLog.push(`你攻击${target.name}，骰子${roll}，造成${finalDamage}伤害`);
+
+  if (target.hp <= 0) {
+    battleLog.push(`${target.name}被击败！`);
+    enemies.shift();
+    currentCharacter.exp += 20;
+    if (currentCharacter.exp >= currentCharacter.level * 50) {
+      currentCharacter.level++;
+      currentCharacter.maxHp += 10;
+      currentCharacter.hp = currentCharacter.maxHp;
+      currentCharacter.attack += 3;
+      battleLog.push(`升级到${currentCharacter.level}级！`);
+    }
+  }
+
+  if (enemies.length === 0) {
+    battleLog.push('胜利！进入下一波');
+    setTimeout(() => {
+      currentWave++;
+      gameState = 'adventure';
+    }, 1000);
+    return;
+  }
+
+  // 敌人反击
+  setTimeout(enemyAttack, 500);
+}
+
+function enemyAttack() {
+  for (const enemy of enemies) {
+    if (enemy.hp <= 0) continue;
+    const damage = Math.max(1, enemy.attack - currentCharacter.defense / 2);
+    currentCharacter.hp = Math.max(0, currentCharacter.hp - damage);
+    battleLog.push(`${enemy.name}攻击你，造成${damage}伤害`);
+
+    if (currentCharacter.hp <= 0) {
+      battleLog.push('你倒下了...');
+      setTimeout(() => { gameState = 'gameover'; }, 1000);
+      return;
+    }
+  }
 }
 
 // =============== 触摸处理 ===============
-
 wx.onTouchStart((e) => {
   if (e.touches.length > 0) {
     touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
@@ -559,243 +546,96 @@ wx.onTouchStart((e) => {
 
 wx.onTouchEnd((e) => {
   if (!touchStart || !e.changedTouches.length) return;
-
   const touch = e.changedTouches[0];
   const dx = touch.clientX - touchStart.x;
   const dy = touch.clientY - touchStart.y;
   const dt = Date.now() - touchStart.t;
+  touchStart = null;
 
-  // 判断是否为点击
   if (dt < 300 && Math.abs(dx) < 30 && Math.abs(dy) < 30) {
     handleTap(touch.clientX, touch.clientY);
   }
-
-  touchStart = null;
 });
 
 function handleTap(x, y) {
-  switch (gameState) {
-    case GAME_STATES.TITLE:
-      handleTitleTap(x, y);
-      break;
-    case GAME_STATES.MAIN_MENU:
-      handleMenuTap(x, y);
-      break;
-    case GAME_STATES.CREATE_CHAR:
-      handleCreateCharTap(x, y);
-      break;
-    case GAME_STATES.ADVENTURE:
-      handleAdventureTap(x, y);
-      break;
-    case GAME_STATES.BATTLE:
-      handleBattleTap(x, y);
-      break;
-    case GAME_STATES.GAME_OVER:
-      handleGameOverTap(x, y);
-      break;
-  }
-}
-
-function handleTitleTap(x, y) {
-  const btnY = H * 0.75;
-  const btnW = 180;
-  const btnH = 50;
-
-  // 开始/继续按钮
-  if (x >= W / 2 - btnW / 2 && x <= W / 2 + btnW / 2 &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    if (SaveManager.hasOfflineSave()) {
-      const data = SaveManager.loadOffline();
-      if (data && data.character) {
-        currentCharacter = data.character;
-        currentWave = data.currentWave || 0;
-        gameState = GAME_STATES.MAIN_MENU;
-      }
-    } else {
-      gameState = GAME_STATES.CREATE_CHAR;
-    }
-    return;
-  }
-
-  // 新游戏按钮
-  if (SaveManager.hasOfflineSave()) {
-    const btn2Y = btnY + 70;
-    if (x >= W / 2 - btnW / 2 && x <= W / 2 + btnW / 2 &&
-      y >= btn2Y - btnH / 2 && y <= btn2Y + btnH / 2) {
-      SaveManager.clearOffline();
-      gameState = GAME_STATES.CREATE_CHAR;
-    }
-  }
-}
-
-function handleMenuTap(x, y) {
-  const btnY = H - 60;
-  const btnW = 100;
-  const btnH = 40;
-  const btnGap = 15;
-
-  // 冒险按钮
-  if (x >= W / 2 - btnW - btnGap && x <= W / 2 - btnGap &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    gameState = GAME_STATES.ADVENTURE;
-    yaoSystem.initSeed();
-    return;
-  }
-
-  // 乾宫按钮
-  if (x >= W / 2 + btnGap && x <= W / 2 + btnW + btnGap &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    // TODO: 进入乾宫（系统界面）
-    wx.showToast({ title: '乾宫功能开发中', icon: 'none' });
-  }
-}
-
-function handleCreateCharTap(x, y) {
   const classIds = Object.keys(CLASSES);
 
-  // 左箭头
-  if (x < 60) {
-    selectedClassIndex = (selectedClassIndex - 1 + classIds.length) % classIds.length;
-    return;
-  }
+  switch (gameState) {
+    case 'title':
+      if (y > H * 0.7 && y < H * 0.86) {
+        gameState = 'create';
+      }
+      break;
 
-  // 右箭头
-  if (x > W - 60) {
-    selectedClassIndex = (selectedClassIndex + 1) % classIds.length;
-    return;
-  }
+    case 'create':
+      if (x < 50) {
+        selectedClassIndex = (selectedClassIndex - 1 + classIds.length) % classIds.length;
+      } else if (x > W - 50) {
+        selectedClassIndex = (selectedClassIndex + 1) % classIds.length;
+      } else if (y > H - 100) {
+        createCharacter(classIds[selectedClassIndex]);
+        gameState = 'menu';
+      }
+      break;
 
-  // 创建按钮
-  const btnY = H - 80;
-  const btnW = 160;
-  const btnH = 45;
-  if (x >= W / 2 - btnW / 2 && x <= W / 2 + btnW / 2 &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    // 创建角色
-    currentCharacter = new Character({
-      name: characterName,
-      classId: classIds[selectedClassIndex]
-    });
-    currentWave = 0;
-
-    // 保存
-    SaveManager.saveOffline({
-      character: currentCharacter,
-      currentWave: 0
-    });
-
-    gameState = GAME_STATES.MAIN_MENU;
-  }
-}
-
-function handleAdventureTap(x, y) {
-  const btnY = H / 2;
-  const btnW = 140;
-  const btnH = 50;
-
-  // 进入战斗按钮
-  if (x >= W / 2 - btnW / 2 && x <= W / 2 + btnW / 2 &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    // 生成敌人并开始战斗
-    const enemies = BattleSystem.generateWave(currentWave + 1, 'forest');
-    battleSystem.startBattle(currentCharacter, enemies);
-    gameState = GAME_STATES.BATTLE;
-    return;
-  }
-
-  // 爻变按钮
-  const yaoY = btnY + 70;
-  if (x >= W / 2 - btnW / 2 && x <= W / 2 + btnW / 2 &&
-    y >= yaoY - btnH / 2 && y <= yaoY + btnH / 2) {
-    // 投骰决定是否爻变
-    const result = yaoSystem.rollForYaoChange();
-    if (result.triggered) {
-      const change = yaoSystem.changeYao(result.yaoIndex, result.newValue);
-      wx.showToast({
-        title: `爻变! ${change.yaoMeaning.name}`,
-        icon: 'none',
-        duration: 2000
-      });
-    } else {
-      wx.showToast({
-        title: `骰子点数: ${result.roll}，未触发爻变`,
-        icon: 'none'
-      });
-    }
-  }
-}
-
-function handleBattleTap(x, y) {
-  const battle = battleSystem.getBattleState();
-  if (!battle) return;
-
-  // 战斗结束时点击任意位置继续
-  if (battle.state === 'victory') {
-    currentWave++;
-    SaveManager.saveOffline({ character: currentCharacter, currentWave });
-    gameState = GAME_STATES.ADVENTURE;
-    return;
-  }
-
-  if (battle.state === 'defeat') {
-    SaveManager.recordDeath(currentCharacter);
-    currentCharacter = null;
-    currentWave = 0;
-    gameState = GAME_STATES.GAME_OVER;
-    return;
-  }
-
-  const btnY = H - 50;
-  const btnW = 80;
-  const btnH = 35;
-  const btnGap = 20;
-
-  // 攻击按钮
-  if (x >= W / 2 - btnW - btnGap / 2 && x <= W / 2 - btnGap / 2 &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    // 攻击第一个活着的敌人
-    const targetIndex = battle.enemies.findIndex(e => e.currentHp > 0);
-    if (targetIndex >= 0) {
-      battleSystem.playerAttack(targetIndex);
-
-      // 敌人反击
-      setTimeout(() => {
-        const state = battleSystem.getBattleState();
-        if (state && state.state === 'active') {
-          state.enemies.forEach((enemy, i) => {
-            if (enemy.currentHp > 0) {
-              battleSystem.enemyAttack(i);
-            }
-          });
+    case 'menu':
+      if (y > H - 80) {
+        if (x < W / 2) {
+          gameState = 'adventure';
+        } else {
+          wx.showToast({ title: '乾宫开发中', icon: 'none' });
         }
-      }, 500);
-    }
-    return;
-  }
+      }
+      break;
 
-  // 逃跑按钮
-  if (x >= W / 2 + btnGap / 2 && x <= W / 2 + btnW + btnGap / 2 &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    const result = battleSystem.tryEscape();
-    if (result.escaped) {
-      gameState = GAME_STATES.ADVENTURE;
-    }
+    case 'adventure':
+      if (y > H / 2 - 30 && y < H / 2 + 30) {
+        generateEnemies();
+        battleLog = ['战斗开始！'];
+        gameState = 'battle';
+      } else if (y > H / 2 + 30 && y < H / 2 + 90) {
+        gameState = 'menu';
+      }
+      break;
+
+    case 'battle':
+      if (y > H - 70) {
+        if (x < W / 2) {
+          playerAttack();
+        } else {
+          gameState = 'adventure';
+        }
+      }
+      break;
+
+    case 'gameover':
+      if (y > H * 0.5 && y < H * 0.7) {
+        currentCharacter = null;
+        currentWave = 0;
+        selectedClassIndex = 0;
+        gameState = 'create';
+      }
+      break;
   }
 }
 
-function handleGameOverTap(x, y) {
-  const btnY = H * 0.6;
-  const btnW = 160;
-  const btnH = 45;
+// =============== 游戏循环 ===============
+function gameLoop() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  starTime += 0.05;
 
-  if (x >= W / 2 - btnW / 2 && x <= W / 2 + btnW / 2 &&
-    y >= btnY - btnH / 2 && y <= btnY + btnH / 2) {
-    gameState = GAME_STATES.CREATE_CHAR;
-    selectedClassIndex = 0;
+  switch (gameState) {
+    case 'title': renderTitle(); break;
+    case 'create': renderCreateChar(); break;
+    case 'menu': renderMenu(); break;
+    case 'adventure': renderAdventure(); break;
+    case 'battle': renderBattle(); break;
+    case 'gameover': renderGameOver(); break;
   }
+
+  requestAnimationFrame(gameLoop);
 }
 
-// =============== 启动游戏 ===============
-
-init();
-console.log('八卦立方体 Roguelike 已启动');
+// 启动
+requestAnimationFrame(gameLoop);
+console.log('八卦立方体已启动');
