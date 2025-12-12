@@ -1237,6 +1237,11 @@ function drawGroundScene(groundQuad) {
   const deltaOffset = sceneOffset - lastSceneOffset;
   lastSceneOffset = sceneOffset;
 
+  // 冒险模式下计算相机偏移（让玩家保持在中心）
+  const isAdventure = (gameState === 'adventure' || gameState === 'gameover');
+  const cameraOffsetX = isAdventure ? (0.5 - playerX) : 0;
+  const cameraOffsetY = isAdventure ? (0.5 - playerY) : 0;
+
   // 待机模式下场景元素移动
   if (gameState === 'idle') {
     for (const elem of groundElements) {
@@ -1247,35 +1252,50 @@ function drawGroundScene(groundQuad) {
     }
   }
 
-  // 只绘制在边界内的元素
+  // 绘制地面元素（带相机偏移）
   for (const elem of groundElements) {
-    drawGroundElement(groundQuad, elem.type, elem.x, elem.y);
+    let drawX = elem.x + cameraOffsetX;
+    let drawY = elem.y + cameraOffsetY;
+    // 冒险模式下元素可以超出边界（但仍需在可视范围内）
+    if (isAdventure) {
+      if (drawX >= -0.2 && drawX <= 1.2 && drawY >= -0.2 && drawY <= 1.2) {
+        drawX = Math.max(0.02, Math.min(0.98, drawX));
+        drawY = Math.max(0.02, Math.min(0.98, drawY));
+        drawGroundElement(groundQuad, elem.type, drawX, drawY);
+      }
+    } else {
+      drawGroundElement(groundQuad, elem.type, elem.x, elem.y);
+    }
   }
 
-  // 冒险模式：绘制拾取物
-  if (gameState === 'adventure' || gameState === 'gameover') {
+  // 冒险模式：绘制拾取物（带相机偏移）
+  if (isAdventure) {
     for (const c of collectibles) {
-      if (c.x >= 0.02 && c.x <= 0.98 && c.y >= 0.02 && c.y <= 0.98) {
-        const pt = getGroundPoint(groundQuad, c.x, c.y);
+      const drawX = c.x + cameraOffsetX;
+      const drawY = c.y + cameraOffsetY;
+      if (drawX >= 0.02 && drawX <= 0.98 && drawY >= 0.02 && drawY <= 0.98) {
+        const pt = getGroundPoint(groundQuad, drawX, drawY);
         drawCollectible(pt.x, pt.y, pt.scale, c, walkTime);
       }
     }
   }
 
-  // 冒险模式：绘制怪物
-  if (gameState === 'adventure' || gameState === 'gameover') {
+  // 冒险模式：绘制怪物（带相机偏移）
+  if (isAdventure) {
     for (const m of monsters) {
-      if (m.x >= 0.02 && m.x <= 0.98 && m.y >= 0.02 && m.y <= 0.98) {
-        const pt = getGroundPoint(groundQuad, m.x, m.y);
+      const drawX = m.x + cameraOffsetX;
+      const drawY = m.y + cameraOffsetY;
+      if (drawX >= 0.02 && drawX <= 0.98 && drawY >= 0.02 && drawY <= 0.98) {
+        const pt = getGroundPoint(groundQuad, drawX, drawY);
         drawZombie(pt.x, pt.y, pt.scale, m, walkTime);
       }
     }
   }
 
-  // 绘制玩家
-  if (gameState === 'adventure' || gameState === 'gameover') {
-    const playerPt = getGroundPoint(groundQuad, playerX, playerY);
-    drawStickMan(playerPt.x, playerPt.y, playerPt.scale, walkTime, groundQuad);
+  // 绘制玩家（冒险模式下始终在中心）
+  if (isAdventure) {
+    const centerPt = getGroundPoint(groundQuad, 0.5, 0.5);
+    drawStickMan(centerPt.x, centerPt.y, centerPt.scale, walkTime, groundQuad);
   } else {
     const stickPt = getDiamondCenter(groundQuad);
     drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime, groundQuad);
@@ -1669,10 +1689,16 @@ wx.onTouchEnd((e) => {
   // 冒险模式 - 点击移动
   if (gameState === 'adventure') {
     const groundPos = screenToGround(tx, ty);
-    if (groundPos && groundPos.x >= 0.05 && groundPos.x <= 0.95 && groundPos.y >= 0.05 && groundPos.y <= 0.95) {
-      playerTargetX = groundPos.x;
-      playerTargetY = groundPos.y;
-      isMoving = true;
+    if (groundPos) {
+      // 屏幕坐标转世界坐标（因为相机跟随玩家，屏幕中心=玩家位置）
+      const worldX = groundPos.x - 0.5 + playerX;
+      const worldY = groundPos.y - 0.5 + playerY;
+      // 限制在有效范围内
+      if (worldX >= 0.1 && worldX <= 0.9 && worldY >= 0.1 && worldY <= 0.9) {
+        playerTargetX = worldX;
+        playerTargetY = worldY;
+        isMoving = true;
+      }
     }
     touchStart = null;
     return;
