@@ -16,48 +16,34 @@ const DPR = sysInfo.pixelRatio;
 canvas.width = W * DPR;
 canvas.height = H * DPR;
 
-// roundRect polyfill
-if (!ctx.roundRect) {
-  ctx.roundRect = function(x, y, w, h, r) {
-    if (w < 2 * r) r = w / 2;
-    if (h < 2 * r) r = h / 2;
-    this.beginPath();
-    this.moveTo(x + r, y);
-    this.arcTo(x + w, y, x + w, y + h, r);
-    this.arcTo(x + w, y + h, x, y + h, r);
-    this.arcTo(x, y + h, x, y, r);
-    this.arcTo(x, y, x + w, y, r);
-    this.closePath();
-    return this;
-  };
+// =============== 绘制圆角矩形辅助函数 ===============
+function drawRoundRect(x, y, w, h, r) {
+  if (w < 2 * r) r = w / 2;
+  if (h < 2 * r) r = h / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 // =============== 游戏配置 ===============
-const TRIGRAMS = {
-  '000': { name: '乾', symbol: '☰' },
-  '001': { name: '兑', symbol: '☱' },
-  '010': { name: '离', symbol: '☲' },
-  '011': { name: '震', symbol: '☳' },
-  '100': { name: '巽', symbol: '☴' },
-  '101': { name: '坎', symbol: '☵' },
-  '110': { name: '艮', symbol: '☶' },
-  '111': { name: '坤', symbol: '☷' }
-};
-
 const CLASSES = {
-  dui: { name: 'Caster', nameCN: '术士', symbol: '☱', color: '#9932CC',
+  dui: { name: 'Caster', nameCN: '术士', color: '#9932CC',
          stats: { hp: 80, mp: 150, attack: 60, defense: 30, speed: 90 } },
-  li: { name: 'Archer', nameCN: '弓手', symbol: '☲', color: '#FF6347',
+  li: { name: 'Archer', nameCN: '弓手', color: '#FF6347',
         stats: { hp: 90, mp: 80, attack: 85, defense: 35, speed: 105 } },
-  zhen: { name: 'Lancer', nameCN: '枪兵', symbol: '☳', color: '#00FF7F',
+  zhen: { name: 'Lancer', nameCN: '枪兵', color: '#00FF7F',
           stats: { hp: 100, mp: 60, attack: 90, defense: 45, speed: 130 } },
-  xun: { name: 'Saber', nameCN: '剑士', symbol: '☴', color: '#00CED1',
+  xun: { name: 'Saber', nameCN: '剑士', color: '#00CED1',
          stats: { hp: 110, mp: 70, attack: 95, defense: 50, speed: 100 } },
-  kan: { name: 'Assassin', nameCN: '刺客', symbol: '☵', color: '#483D8B',
+  kan: { name: 'Assassin', nameCN: '刺客', color: '#483D8B',
          stats: { hp: 85, mp: 90, attack: 100, defense: 30, speed: 125 } },
-  gen: { name: 'Rider', nameCN: '骑士', symbol: '☶', color: '#8B4513',
+  gen: { name: 'Rider', nameCN: '骑士', color: '#8B4513',
          stats: { hp: 150, mp: 50, attack: 75, defense: 80, speed: 85 } },
-  kun: { name: 'Berserker', nameCN: '狂战士', symbol: '☷', color: '#8B0000',
+  kun: { name: 'Berserker', nameCN: '狂战士', color: '#8B0000',
          stats: { hp: 180, mp: 30, attack: 110, defense: 40, speed: 95 } }
 };
 
@@ -83,48 +69,37 @@ let touchStart = null;
 // 星星动画
 let starTime = 0;
 
-// =============== 立方体顶点 ===============
-const vertices = [];
-const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
-for (const bits of trigramBits) {
-  const x = bits[2] === '1' ? 1 : -1;
-  const y = bits[0] === '1' ? 1 : -1;
-  const z = bits[1] === '1' ? 1 : -1;
-  let yangCount = 0;
-  for (const c of bits) if (c === '0') yangCount++;
-  vertices.push({
-    bits, name: TRIGRAMS[bits].name, symbol: TRIGRAMS[bits].symbol,
-    x, y, z, brightness: 0.3 + yangCount * 0.23
-  });
-}
+// =============== 立方体顶点（用于星座显示） ===============
+const vertices = [
+  { x: -1, y: -1, z: -1, brightness: 1.0 },
+  { x: 1, y: -1, z: -1, brightness: 0.77 },
+  { x: -1, y: 1, z: -1, brightness: 0.77 },
+  { x: 1, y: 1, z: -1, brightness: 0.54 },
+  { x: -1, y: -1, z: 1, brightness: 0.77 },
+  { x: 1, y: -1, z: 1, brightness: 0.54 },
+  { x: -1, y: 1, z: 1, brightness: 0.54 },
+  { x: 1, y: 1, z: 1, brightness: 0.3 }
+];
 
-// 阴爻边（只显示阴爻）
+// 立方体边
 const edges = [
-  ['000', '001'], ['010', '011'], ['100', '101'], ['110', '111'],
-  ['000', '100'], ['001', '101'], ['010', '110'], ['011', '111'],
-  ['000', '010'], ['001', '011'], ['100', '110'], ['101', '111']
-].map(([a, b]) => {
-  let diffIdx = -1;
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) { diffIdx = i; break; }
-  const isYin = a[diffIdx] === '1' || b[diffIdx] === '1';
-  return { from: a, to: b, isYin };
-});
+  [0, 1], [2, 3], [4, 5], [6, 7],
+  [0, 2], [1, 3], [4, 6], [5, 7],
+  [0, 4], [1, 5], [2, 6], [3, 7]
+];
 
 // =============== 3D 渲染 ===============
 const rotX = Math.atan(1 / Math.sqrt(2));
 const rotY = -Math.PI / 4;
 const rotZ = Math.PI;
-const cubeSize = Math.min(W, H) * 0.3;
+const cubeSize = Math.min(W, H) * 0.25;
 
 function rotate3D(p) {
   let { x, y, z } = p;
-  // Y轴旋转
   const cy = Math.cos(rotY), sy = Math.sin(rotY);
   let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
-  // X轴旋转
   const cx = Math.cos(rotX), sx = Math.sin(rotX);
   let y2 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
-  // Z轴旋转
   const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
   let x3 = x1 * cz - y2 * sz, y3 = x1 * sz + y2 * cz;
   return { x: x3, y: y3, z: z2 };
@@ -149,7 +124,7 @@ function drawBackground() {
 
   // 背景星星
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 50; i++) {
     const sx = (Math.sin(i * 7.3) * 0.5 + 0.5) * W;
     const sy = (Math.cos(i * 11.7) * 0.5 + 0.5) * H;
     ctx.beginPath();
@@ -159,7 +134,7 @@ function drawBackground() {
 }
 
 function drawStar(x, y, brightness, size) {
-  const twinkle = 0.85 + 0.15 * Math.sin(starTime + x);
+  const twinkle = 0.85 + 0.15 * Math.sin(starTime + x * 0.1);
   const alpha = brightness * twinkle;
 
   // 光晕
@@ -181,21 +156,19 @@ function drawStar(x, y, brightness, size) {
 
 function drawCube() {
   // 投影所有顶点
-  const projected = vertices.map(v => ({
+  const projected = vertices.map((v, i) => ({
     ...v,
+    idx: i,
     p: project(v)
   })).sort((a, b) => b.p.z - a.p.z);
 
-  // 画阴爻线
-  ctx.strokeStyle = 'rgba(100,90,80,0.5)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 4]);
-  for (const edge of edges) {
-    if (!edge.isYin) continue;
-    const fromV = vertices.find(v => v.bits === edge.from);
-    const toV = vertices.find(v => v.bits === edge.to);
-    const p1 = project(fromV);
-    const p2 = project(toV);
+  // 画边（虚线）
+  ctx.strokeStyle = 'rgba(100,90,80,0.4)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  for (const [i, j] of edges) {
+    const p1 = project(vertices[i]);
+    const p2 = project(vertices[j]);
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
@@ -203,18 +176,10 @@ function drawCube() {
   }
   ctx.setLineDash([]);
 
-  // 画星星
+  // 画星星（顶点）
   for (const v of projected) {
-    const size = 5 + 3 * (1 - (v.p.z + 1) / 2);
+    const size = 4 + 3 * (1 - (v.p.z + 1) / 2);
     drawStar(v.p.x, v.p.y, v.brightness, size);
-
-    // 乾坤标签
-    if (v.bits === '000' || v.bits === '111') {
-      ctx.fillStyle = `rgba(232,228,217,${v.brightness})`;
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${v.symbol} ${v.name}`, v.p.x, v.p.y - size - 8);
-    }
   }
 }
 
@@ -222,7 +187,7 @@ function drawButton(x, y, w, h, text, color, active) {
   ctx.fillStyle = active ? `rgba(${hexToRgb(color)},0.3)` : `rgba(${hexToRgb(color)},0.15)`;
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
-  ctx.roundRect(x - w/2, y - h/2, w, h, 10);
+  drawRoundRect(x - w/2, y - h/2, w, h, 10);
   ctx.fill();
   ctx.stroke();
 
@@ -276,13 +241,13 @@ function renderCreateChar() {
   ctx.fillStyle = 'rgba(255,255,255,0.05)';
   ctx.strokeStyle = cls.color;
   ctx.lineWidth = 2;
-  ctx.roundRect(20, cardY, W - 40, cardH, 12);
+  drawRoundRect(20, cardY, W - 40, cardH, 12);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = cls.color;
   ctx.font = 'bold 24px sans-serif';
-  ctx.fillText(`${cls.symbol} ${cls.name}`, W / 2, cardY + 35);
+  ctx.fillText(cls.name, W / 2, cardY + 35);
 
   ctx.fillStyle = COLORS.TEXT;
   ctx.font = '16px sans-serif';
@@ -298,8 +263,8 @@ function renderCreateChar() {
   ctx.fillStyle = COLORS.ACCENT;
   ctx.font = '32px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('◀', 25, cardY + cardH / 2);
-  ctx.fillText('▶', W - 25, cardY + cardH / 2);
+  ctx.fillText('<', 30, cardY + cardH / 2);
+  ctx.fillText('>', W - 30, cardY + cardH / 2);
 
   // 页码
   ctx.fillStyle = COLORS.TEXT;
@@ -317,7 +282,7 @@ function renderMenu() {
   // 角色信息
   if (currentCharacter) {
     ctx.fillStyle = 'rgba(20,20,35,0.85)';
-    ctx.roundRect(10, 10, 170, 90, 10);
+    drawRoundRect(10, 10, 170, 90, 10);
     ctx.fill();
 
     ctx.fillStyle = COLORS.ACCENT;
@@ -355,7 +320,7 @@ function renderAdventure() {
   // 角色状态
   if (currentCharacter) {
     ctx.fillStyle = 'rgba(20,20,35,0.85)';
-    ctx.roundRect(10, 10, 150, 70, 10);
+    drawRoundRect(10, 10, 150, 70, 10);
     ctx.fill();
 
     ctx.fillStyle = COLORS.TEXT;
@@ -390,8 +355,10 @@ function renderBattle() {
   enemies.forEach((enemy, i) => {
     const x = W / (enemies.length + 1) * (i + 1);
     ctx.font = '28px sans-serif';
-    ctx.fillText(enemy.type === 'boss' ? '👹' : '👾', x, enemyY);
+    ctx.fillStyle = enemy.type === 'boss' ? COLORS.DANGER : COLORS.TEXT;
+    ctx.fillText(enemy.type === 'boss' ? 'BOSS' : 'MOB', x, enemyY);
     ctx.font = '11px sans-serif';
+    ctx.fillStyle = COLORS.TEXT;
     ctx.fillText(enemy.name, x, enemyY + 25);
     ctx.fillText(`${enemy.hp}/${enemy.maxHp}`, x, enemyY + 40);
 
@@ -406,9 +373,11 @@ function renderBattle() {
   // 玩家
   if (currentCharacter) {
     const playerY = H - 130;
-    ctx.font = '36px sans-serif';
-    ctx.fillText('⚔️', W / 2, playerY);
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = COLORS.ACCENT;
+    ctx.fillText('PLAYER', W / 2, playerY);
     ctx.font = '13px sans-serif';
+    ctx.fillStyle = COLORS.TEXT;
     ctx.fillText(currentCharacter.name, W / 2, playerY + 30);
     ctx.fillText(`HP: ${currentCharacter.hp}/${currentCharacter.maxHp}`, W / 2, playerY + 48);
 
@@ -639,7 +608,6 @@ function gameLoop() {
 // 启动
 console.log('游戏初始化...');
 console.log('屏幕尺寸:', W, 'x', H, 'DPR:', DPR);
-console.log('Canvas尺寸:', canvas.width, 'x', canvas.height);
 
 // 先画一帧测试
 ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -650,7 +618,7 @@ ctx.font = 'bold 24px sans-serif';
 ctx.textAlign = 'center';
 ctx.fillText('加载中...', W / 2, H / 2);
 
-// 延迟启动游戏循环
+// 启动游戏循环
 setTimeout(() => {
   console.log('启动游戏循环');
   requestAnimationFrame(gameLoop);
