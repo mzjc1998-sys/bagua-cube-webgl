@@ -704,55 +704,54 @@ class StickManVerlet {
 }
 
 // =============== Alan Becker 风格火柴人动画 ===============
-// 基于 Alan Becker 的动画12原则
-// 火柴人朝向 000 方向跑（3/4 背面视角）
+// 完整的多方向视图：背面、正面、左侧、右侧
+// 基于朝向自动切换视角
 
 // 缓动函数 (Easing)
 function easeInOutSine(t) {
   return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
-function easeOutBack(t) {
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-}
-
 // 计算火柴人朝向（基于000位置）
+// 返回角度：0=向上(背面), PI=向下(正面), PI/2=向右, -PI/2=向左
 function getStickManDirection(groundQuad) {
   const zeroPos = getZeroGroundCoords(groundQuad);
-  // 从火柴人位置(0.5, 0.5)指向000的方向
   const dx = zeroPos.x - 0.5;
   const dy = zeroPos.y - 0.5;
-  return Math.atan2(dx, -dy); // 返回角度，0=向上，正=向右
+  return Math.atan2(dx, -dy);
 }
 
 function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const size = 50 * scale;
   const speed = stickManSpeed;
-
-  // 速度影响动画频率
   const runSpeed = 4 + speed * 6;
   const phase = time * runSpeed;
 
   // 获取朝向角度
-  const facingAngle = groundQuad ? getStickManDirection(groundQuad) : 0;
+  const facing = groundQuad ? getStickManDirection(groundQuad) : 0;
 
-  // 根据朝向计算透视缩放 (3/4视角)
-  // facingAngle = 0 时正对前方，PI/2时向右，-PI/2时向左
-  const perspectiveX = Math.sin(facingAngle) * 0.3; // 左右偏移
-  const depthScale = 0.7 + Math.cos(facingAngle) * 0.3; // 深度缩放
+  // 计算视角参数
+  // sideView: 1=完全侧面, 0=正面/背面
+  // facingRight: 正=向右，负=向左
+  // facingAway: 正=背面(向屏幕上)，负=正面(向观众)
+  const sideView = Math.abs(Math.sin(facing));
+  const facingRight = Math.sin(facing);
+  const facingAway = Math.cos(facing);
+
+  // 身体宽度随视角变化（正面/背面时最宽，侧面时最窄）
+  const bodyWidthScale = 0.3 + Math.abs(facingAway) * 0.7;
+
+  // 腿/臂摆动在屏幕上的可见程度（侧面时最明显）
+  const swingVisibility = sideView;
 
   // ===== 身体起伏 =====
-  const bounceRaw = Math.sin(phase * 2);
-  const bounce = easeInOutSine((bounceRaw + 1) / 2) * 2 - 1;
-  const bounceY = bounce * 3.5 * scale * speed;
+  const bounce = Math.sin(phase * 2) * 3 * scale * speed;
 
   // ===== 前倾角度 =====
-  const lean = 0.1 + speed * 0.1;
+  const lean = (0.1 + speed * 0.08) * facingAway;
 
   ctx.save();
-  ctx.translate(x, y + bounceY);
+  ctx.translate(x, y + bounce);
   ctx.rotate(lean);
 
   ctx.strokeStyle = '#333333';
@@ -764,181 +763,138 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   // ===== 骨骼尺寸 =====
   const headR = size * 0.10;
   const bodyLen = size * 0.38;
-  const shoulderW = size * 0.12 * depthScale; // 肩宽随视角变化
-  const hipW = size * 0.08 * depthScale;
-  const upperLeg = size * 0.22;
-  const lowerLeg = size * 0.22;
-  const upperArm = size * 0.16;
-  const lowerArm = size * 0.14;
+  const shoulderW = size * 0.14 * bodyWidthScale;
+  const hipW = size * 0.09 * bodyWidthScale;
+  const upperLeg = size * 0.23;
+  const lowerLeg = size * 0.23;
+  const upperArm = size * 0.17;
+  const lowerArm = size * 0.15;
 
   // 关节位置
-  const headY = -size * 0.92;
-  const neckY = headY + headR;
-  const shoulderY = neckY + size * 0.04;
+  const headY = -size * 0.90;
+  const shoulderY = headY + headR + size * 0.06;
   const hipY = shoulderY + bodyLen;
 
-  // ===== 腿部动画 =====
-  const legSwingAmp = 0.45 + speed * 0.35;
+  // ===== 跑步动画参数 =====
+  const legSwingAmp = 0.5 + speed * 0.35;
+  const armSwingAmp = 0.4 + speed * 0.3;
 
-  // 右腿角度
-  const rThighSwing = Math.sin(phase) * legSwingAmp;
-  const rKneeBend = 0.2 + Math.max(0, Math.sin(phase - 0.3)) * (0.7 + speed * 0.4);
+  // 腿部摆动角度
+  const rLegPhase = Math.sin(phase) * legSwingAmp;
+  const lLegPhase = Math.sin(phase + Math.PI) * legSwingAmp;
 
-  // 左腿角度
-  const lThighSwing = Math.sin(phase + Math.PI) * legSwingAmp;
-  const lKneeBend = 0.2 + Math.max(0, Math.sin(phase + Math.PI - 0.3)) * (0.7 + speed * 0.4);
+  // 膝盖弯曲
+  const rKneeBend = 0.15 + Math.max(0, Math.sin(phase - 0.3)) * (0.8 + speed * 0.3);
+  const lKneeBend = 0.15 + Math.max(0, Math.sin(phase + Math.PI - 0.3)) * (0.8 + speed * 0.3);
 
-  // 腿部 X 偏移（3/4视角时左右腿有不同深度）
-  const legDepthOffset = perspectiveX * size * 0.15;
+  // 手臂摆动（与对侧腿反向）
+  const rArmPhase = Math.sin(phase + Math.PI) * armSwingAmp;
+  const lArmPhase = Math.sin(phase) * armSwingAmp;
+  const rElbowBend = 1.1 + Math.sin(phase + Math.PI) * 0.25;
+  const lElbowBend = 1.1 + Math.sin(phase) * 0.25;
 
-  // 右腿关节 (考虑透视)
-  const rHipX = hipW + legDepthOffset;
-  const rKneeX = rHipX + Math.sin(rThighSwing) * upperLeg * 0.7;
-  const rKneeY = hipY + Math.cos(rThighSwing) * upperLeg;
-  const rFootX = rKneeX + Math.sin(rThighSwing + rKneeBend) * lowerLeg * 0.7;
-  const rFootY = rKneeY + Math.cos(rThighSwing + rKneeBend) * lowerLeg;
+  // ===== 根据视角计算肢体位置 =====
 
-  // 左腿关节
-  const lHipX = -hipW + legDepthOffset;
-  const lKneeX = lHipX + Math.sin(lThighSwing) * upperLeg * 0.7;
-  const lKneeY = hipY + Math.cos(lThighSwing) * upperLeg;
-  const lFootX = lKneeX + Math.sin(lThighSwing + lKneeBend) * lowerLeg * 0.7;
-  const lFootY = lKneeY + Math.cos(lThighSwing + lKneeBend) * lowerLeg;
+  // 侧面视角时：腿前后摆动在X轴上
+  // 正/背面时：腿左右分开，前后摆动在Y轴透视缩短
 
-  // ===== 手臂动画 (与对侧腿反向) =====
-  const armSwingAmp = 0.35 + speed * 0.3;
+  // 右腿
+  const rLegSwingX = rLegPhase * upperLeg * sideView * (facingRight >= 0 ? 1 : -1);
+  const rLegSwingY = rLegPhase * upperLeg * 0.3 * Math.abs(facingAway);
+  const rHipX = hipW * (facingRight >= 0 ? 1 : -1);
+  const rKneeX = rHipX + rLegSwingX;
+  const rKneeY = hipY + Math.cos(Math.abs(rLegPhase)) * upperLeg - rLegSwingY * (facingAway > 0 ? 1 : -1);
+  const rFootSwingX = Math.sin(rLegPhase + rKneeBend * Math.sign(rLegPhase)) * lowerLeg * sideView * (facingRight >= 0 ? 1 : -1);
+  const rFootX = rKneeX + rFootSwingX;
+  const rFootY = rKneeY + Math.cos(rKneeBend) * lowerLeg;
 
-  const rArmSwing = Math.sin(phase + Math.PI) * armSwingAmp;
-  const rElbowBend = 1.2 + Math.sin(phase + Math.PI) * 0.3;
+  // 左腿
+  const lLegSwingX = lLegPhase * upperLeg * sideView * (facingRight >= 0 ? 1 : -1);
+  const lLegSwingY = lLegPhase * upperLeg * 0.3 * Math.abs(facingAway);
+  const lHipX = -hipW * (facingRight >= 0 ? 1 : -1);
+  const lKneeX = lHipX + lLegSwingX;
+  const lKneeY = hipY + Math.cos(Math.abs(lLegPhase)) * upperLeg - lLegSwingY * (facingAway > 0 ? 1 : -1);
+  const lFootSwingX = Math.sin(lLegPhase + lKneeBend * Math.sign(lLegPhase)) * lowerLeg * sideView * (facingRight >= 0 ? 1 : -1);
+  const lFootX = lKneeX + lFootSwingX;
+  const lFootY = lKneeY + Math.cos(lKneeBend) * lowerLeg;
 
-  const lArmSwing = Math.sin(phase) * armSwingAmp;
-  const lElbowBend = 1.2 + Math.sin(phase) * 0.3;
+  // 右臂
+  const rArmSwingX = rArmPhase * upperArm * sideView * (facingRight >= 0 ? 1 : -1);
+  const rShoulderX = shoulderW * (facingRight >= 0 ? 1 : -1);
+  const rElbowX = rShoulderX + rArmSwingX * 0.7;
+  const rElbowY = shoulderY + Math.cos(Math.abs(rArmPhase)) * upperArm;
+  const rHandX = rElbowX + Math.sin(rArmPhase + rElbowBend * Math.sign(rArmPhase)) * lowerArm * sideView * (facingRight >= 0 ? 1 : -1) * 0.7;
+  const rHandY = rElbowY + Math.cos(rElbowBend) * lowerArm;
 
-  // 手臂透视偏移
-  const armDepthOffset = perspectiveX * size * 0.1;
+  // 左臂
+  const lArmSwingX = lArmPhase * upperArm * sideView * (facingRight >= 0 ? 1 : -1);
+  const lShoulderX = -shoulderW * (facingRight >= 0 ? 1 : -1);
+  const lElbowX = lShoulderX + lArmSwingX * 0.7;
+  const lElbowY = shoulderY + Math.cos(Math.abs(lArmPhase)) * upperArm;
+  const lHandX = lElbowX + Math.sin(lArmPhase + lElbowBend * Math.sign(lArmPhase)) * lowerArm * sideView * (facingRight >= 0 ? 1 : -1) * 0.7;
+  const lHandY = lElbowY + Math.cos(lElbowBend) * lowerArm;
 
-  // 右臂关节
-  const rShoulderX = shoulderW + armDepthOffset;
-  const rElbowX = rShoulderX + Math.sin(rArmSwing) * upperArm * 0.6;
-  const rElbowY = shoulderY + Math.cos(rArmSwing) * upperArm;
-  const rHandX = rElbowX + Math.sin(rArmSwing + rElbowBend) * lowerArm * 0.6;
-  const rHandY = rElbowY + Math.cos(rArmSwing + rElbowBend) * lowerArm;
+  // ===== 确定绘制顺序 =====
+  // 背面视图时，前摆的腿/臂在前面（离观众远）
+  // 正面视图时，前摆的腿/臂在前面（离观众近）
+  const rLegForward = rLegPhase > 0;
+  const drawRightFirst = facingAway > 0 ? !rLegForward : rLegForward;
 
-  // 左臂关节
-  const lShoulderX = -shoulderW + armDepthOffset;
-  const lElbowX = lShoulderX + Math.sin(lArmSwing) * upperArm * 0.6;
-  const lElbowY = shoulderY + Math.cos(lArmSwing) * upperArm;
-  const lHandX = lElbowX + Math.sin(lArmSwing + lElbowBend) * lowerArm * 0.6;
-  const lHandY = lElbowY + Math.cos(lArmSwing + lElbowBend) * lowerArm;
-
-  // ===== 躯干扭转 =====
-  const torsoTwist = Math.sin(phase) * 0.02 * speed;
-  const shoulderTwist = Math.sin(phase) * shoulderW * 0.15;
-  const hipTwist = Math.sin(phase) * hipW * 0.1;
-
-  // ===== 绘制顺序（从后到前）=====
-  const rightSideBack = Math.sin(phase) > 0; // 右腿在前时，右臂在后
-
-  // 绘制肢体函数
-  const drawLimb = (joints, color) => {
+  // 绘制函数
+  const drawLimb = (x1, y1, x2, y2, x3, y3, color) => {
     ctx.strokeStyle = color;
     ctx.beginPath();
-    ctx.moveTo(joints[0].x, joints[0].y);
-    for (let i = 1; i < joints.length; i++) {
-      ctx.lineTo(joints[i].x, joints[i].y);
-    }
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x3, y3);
     ctx.stroke();
   };
 
-  // 后侧腿
-  if (rightSideBack) {
-    drawLimb([
-      {x: -hipW - hipTwist, y: hipY},
-      {x: lKneeX, y: lKneeY},
-      {x: lFootX, y: lFootY}
-    ], '#666666');
+  const frontColor = '#333333';
+  const backColor = '#666666';
+
+  // ===== 绘制 =====
+
+  // 后面的腿和手臂
+  if (drawRightFirst) {
+    drawLimb(rHipX, hipY, rKneeX, rKneeY, rFootX, rFootY, backColor);
+    drawLimb(rShoulderX, shoulderY, rElbowX, rElbowY, rHandX, rHandY, backColor);
   } else {
-    drawLimb([
-      {x: hipW - hipTwist, y: hipY},
-      {x: rKneeX, y: rKneeY},
-      {x: rFootX, y: rFootY}
-    ], '#666666');
+    drawLimb(lHipX, hipY, lKneeX, lKneeY, lFootX, lFootY, backColor);
+    drawLimb(lShoulderX, shoulderY, lElbowX, lElbowY, lHandX, lHandY, backColor);
   }
 
-  // 后侧手臂
-  if (rightSideBack) {
-    drawLimb([
-      {x: shoulderW - shoulderTwist, y: shoulderY},
-      {x: rElbowX, y: rElbowY},
-      {x: rHandX, y: rHandY}
-    ], '#666666');
-  } else {
-    drawLimb([
-      {x: -shoulderW - shoulderTwist, y: shoulderY},
-      {x: lElbowX, y: lElbowY},
-      {x: lHandX, y: lHandY}
-    ], '#666666');
-  }
-
-  // 躯干（带轻微弯曲）
-  ctx.strokeStyle = '#333333';
+  // 躯干
+  ctx.strokeStyle = frontColor;
   ctx.beginPath();
-  ctx.moveTo(torsoTwist * size, shoulderY);
-  ctx.quadraticCurveTo(
-    perspectiveX * size * 0.1,
-    (shoulderY + hipY) / 2,
-    -torsoTwist * size * 0.5,
-    hipY
-  );
+  ctx.moveTo(0, shoulderY);
+  ctx.lineTo(0, hipY);
   ctx.stroke();
 
-  // 肩膀线
+  // 肩膀
   ctx.beginPath();
-  ctx.moveTo(-shoulderW - shoulderTwist, shoulderY);
-  ctx.lineTo(shoulderW - shoulderTwist, shoulderY);
+  ctx.moveTo(-shoulderW, shoulderY);
+  ctx.lineTo(shoulderW, shoulderY);
   ctx.stroke();
 
-  // 髋部线
+  // 髋部
   ctx.beginPath();
-  ctx.moveTo(-hipW - hipTwist, hipY);
-  ctx.lineTo(hipW - hipTwist, hipY);
+  ctx.moveTo(-hipW, hipY);
+  ctx.lineTo(hipW, hipY);
   ctx.stroke();
 
-  // 头部（3/4视角，稍微偏向前方）
-  const headOffsetX = perspectiveX * size * 0.03;
+  // 头部
   ctx.beginPath();
-  ctx.arc(headOffsetX, headY, headR, 0, Math.PI * 2);
+  ctx.arc(0, headY, headR, 0, Math.PI * 2);
   ctx.fill();
 
-  // 前侧腿
-  ctx.strokeStyle = '#333333';
-  if (rightSideBack) {
-    drawLimb([
-      {x: hipW - hipTwist, y: hipY},
-      {x: rKneeX, y: rKneeY},
-      {x: rFootX, y: rFootY}
-    ], '#333333');
+  // 前面的腿和手臂
+  if (drawRightFirst) {
+    drawLimb(lHipX, hipY, lKneeX, lKneeY, lFootX, lFootY, frontColor);
+    drawLimb(lShoulderX, shoulderY, lElbowX, lElbowY, lHandX, lHandY, frontColor);
   } else {
-    drawLimb([
-      {x: -hipW - hipTwist, y: hipY},
-      {x: lKneeX, y: lKneeY},
-      {x: lFootX, y: lFootY}
-    ], '#333333');
-  }
-
-  // 前侧手臂
-  if (rightSideBack) {
-    drawLimb([
-      {x: -shoulderW - shoulderTwist, y: shoulderY},
-      {x: lElbowX, y: lElbowY},
-      {x: lHandX, y: lHandY}
-    ], '#333333');
-  } else {
-    drawLimb([
-      {x: shoulderW - shoulderTwist, y: shoulderY},
-      {x: rElbowX, y: rElbowY},
-      {x: rHandX, y: rHandY}
-    ], '#333333');
+    drawLimb(rHipX, hipY, rKneeX, rKneeY, rFootX, rFootY, frontColor);
+    drawLimb(rShoulderX, shoulderY, rElbowX, rElbowY, rHandX, rHandY, frontColor);
   }
 
   ctx.restore();
