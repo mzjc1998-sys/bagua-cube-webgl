@@ -703,13 +703,88 @@ class StickManVerlet {
   }
 }
 
-// =============== Alan Becker 风格火柴人动画 ===============
-// 完整的多方向视图：背面、正面、左侧、右侧
-// 基于朝向自动切换视角
+// =============== 逆向运动学 (IK) 火柴人动画系统 ===============
+// 使用 Two-Bone IK 实现自然的肢体运动
+// 脚准确踩地，手臂自然摆动
 
 // 缓动函数 (Easing)
 function easeInOutSine(t) {
   return -(Math.cos(Math.PI * t) - 1) / 2;
+}
+
+// ===== Two-Bone IK 求解器 =====
+// 给定起点、目标点和两段骨骼长度，计算中间关节位置
+// bendDirection: 1 = 向外弯曲（膝盖向前，肘部向后），-1 = 向内弯曲
+function solveIK(startX, startY, targetX, targetY, bone1Len, bone2Len, bendDirection = 1) {
+  const dx = targetX - startX;
+  const dy = targetY - startY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  // 限制目标在可达范围内
+  const maxDist = bone1Len + bone2Len - 0.01;
+  const minDist = Math.abs(bone1Len - bone2Len) + 0.01;
+  const clampedDist = Math.max(minDist, Math.min(maxDist, dist));
+
+  // 从起点到目标的角度
+  const angleToTarget = Math.atan2(dy, dx);
+
+  // 余弦定理求中间关节角度
+  // a² = b² + c² - 2bc*cos(A)
+  const cosAngle = (bone1Len * bone1Len + clampedDist * clampedDist - bone2Len * bone2Len)
+                   / (2 * bone1Len * clampedDist);
+  const jointAngle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+
+  // 计算中间关节位置（膝盖/肘部）
+  const midAngle = angleToTarget + jointAngle * bendDirection;
+  const midX = startX + Math.cos(midAngle) * bone1Len;
+  const midY = startY + Math.sin(midAngle) * bone1Len;
+
+  // 如果目标超出范围，重新计算终点
+  let endX = targetX;
+  let endY = targetY;
+  if (dist > maxDist || dist < minDist) {
+    const ratio = clampedDist / dist;
+    endX = startX + dx * ratio;
+    endY = startY + dy * ratio;
+  }
+
+  return { midX, midY, endX, endY };
+}
+
+// ===== 走路周期中的脚步轨迹 =====
+// 返回脚相对于髋部的位置 (基于相位 0-2PI)
+function getFootTarget(phase, strideLength, stepHeight, groundY) {
+  // 归一化相位到 0-1
+  const t = ((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI * 2);
+
+  let x, y;
+
+  if (t < 0.5) {
+    // 支撑阶段 (脚在地上，向后移动)
+    const supportT = t * 2;  // 0 to 1
+    x = strideLength * (0.5 - supportT);  // 从前向后
+    y = groundY;  // 在地面上
+  } else {
+    // 摆动阶段 (脚抬起，向前移动)
+    const swingT = (t - 0.5) * 2;  // 0 to 1
+    x = strideLength * (-0.5 + swingT);  // 从后向前
+    // 抛物线轨迹抬脚
+    y = groundY - stepHeight * Math.sin(swingT * Math.PI);
+  }
+
+  return { x, y };
+}
+
+// ===== 手臂摆动轨迹 =====
+function getHandTarget(phase, swingLength, swingHeight, shoulderY) {
+  // 手臂在身体两侧自然下垂并前后摆动
+  const swing = Math.sin(phase);
+  const x = swing * swingLength;
+  // 手臂向后摆时稍微抬高（自然的跑步姿势）
+  const lift = Math.max(0, -swing) * swingHeight;
+  const y = shoulderY + swingLength * 1.8 - lift;
+
+  return { x, y };
 }
 
 // 计算火柴人朝向（基于000位置）
@@ -724,34 +799,51 @@ function getStickManDirection(groundQuad) {
 function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const size = 50 * scale;
   const speed = stickManSpeed;
-  const runSpeed = 4 + speed * 6;
-  const phase = time * runSpeed;
 
   // 获取朝向角度
   const facing = groundQuad ? getStickManDirection(groundQuad) : 0;
 
   // 计算视角参数
-  // sideView: 1=完全侧面, 0=正面/背面
-  // facingRight: 正=向右，负=向左
-  // facingAway: 正=背面(向屏幕上)，负=正面(向观众)
-  const sideView = Math.abs(Math.sin(facing));
-  const facingRight = Math.sin(facing);
-  const facingAway = Math.cos(facing);
+  const sideView = Math.abs(Math.sin(facing));      // 1=侧面, 0=正/背面
+  const facingRight = Math.sin(facing);             // 正=向右
+  const facingAway = Math.cos(facing);              // 正=背面
 
-  // 身体宽度随视角变化（正面/背面时最宽，侧面时最窄）
+  // 身体宽度随视角变化
   const bodyWidthScale = 0.3 + Math.abs(facingAway) * 0.7;
 
-  // 腿/臂摆动在屏幕上的可见程度（侧面时最明显）
-  const swingVisibility = sideView;
+  // ===== 骨骼尺寸 =====
+  const headR = size * 0.10;
+  const bodyLen = size * 0.40;
+  const shoulderW = size * 0.12 * bodyWidthScale;
+  const hipW = size * 0.08 * bodyWidthScale;
+  const upperLeg = size * 0.24;
+  const lowerLeg = size * 0.24;
+  const upperArm = size * 0.18;
+  const lowerArm = size * 0.16;
 
-  // ===== 身体起伏 =====
-  const bounce = Math.sin(phase * 2) * 3 * scale * speed;
+  // ===== 走路周期参数 =====
+  const walkSpeed = 3 + speed * 5;
+  const phase = time * walkSpeed;
 
-  // ===== 前倾角度 =====
-  const lean = (0.1 + speed * 0.08) * facingAway;
+  // 步幅和抬脚高度随速度变化
+  const strideLength = (size * 0.25 + speed * size * 0.2) * sideView;
+  const stepHeight = size * 0.12 + speed * size * 0.15;
+
+  // 身体起伏 - 每步两次起伏（双脚交替支撑）
+  const bouncePhase = phase * 2;
+  const bounce = Math.abs(Math.sin(bouncePhase)) * (3 + speed * 4) * scale;
+
+  // 前倾角度
+  const lean = (0.08 + speed * 0.1) * facingAway * sideView;
+
+  // ===== 计算关键位置 =====
+  const headY = -size * 0.92;
+  const shoulderY = headY + headR + size * 0.05;
+  const hipY = shoulderY + bodyLen;
+  const groundY = hipY + upperLeg + lowerLeg - size * 0.02;  // 地面位置
 
   ctx.save();
-  ctx.translate(x, y + bounce);
+  ctx.translate(x, y - bounce);
   ctx.rotate(lean);
 
   ctx.strokeStyle = '#333333';
@@ -760,95 +852,54 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // ===== 骨骼尺寸 =====
-  const headR = size * 0.10;
-  const bodyLen = size * 0.38;
-  const shoulderW = size * 0.14 * bodyWidthScale;
-  const hipW = size * 0.09 * bodyWidthScale;
-  const upperLeg = size * 0.23;
-  const lowerLeg = size * 0.23;
-  const upperArm = size * 0.17;
-  const lowerArm = size * 0.15;
+  // ===== 使用 IK 计算腿部位置 =====
+  // 右腿相位，左腿相位差 PI
+  const rFootTarget = getFootTarget(phase, strideLength, stepHeight, groundY);
+  const lFootTarget = getFootTarget(phase + Math.PI, strideLength, stepHeight, groundY);
 
-  // 关节位置
-  const headY = -size * 0.90;
-  const shoulderY = headY + headR + size * 0.06;
-  const hipY = shoulderY + bodyLen;
-
-  // ===== 跑步动画参数 =====
-  const legSwingAmp = 0.5 + speed * 0.35;
-  const armSwingAmp = 0.4 + speed * 0.3;
-
-  // 腿部摆动角度
-  const rLegPhase = Math.sin(phase) * legSwingAmp;
-  const lLegPhase = Math.sin(phase + Math.PI) * legSwingAmp;
-
-  // 膝盖弯曲
-  const rKneeBend = 0.15 + Math.max(0, Math.sin(phase - 0.3)) * (0.8 + speed * 0.3);
-  const lKneeBend = 0.15 + Math.max(0, Math.sin(phase + Math.PI - 0.3)) * (0.8 + speed * 0.3);
-
-  // 手臂摆动（与对侧腿反向）
-  // 跑步时手臂像钟摆一样前后摆动
-  // 向后摆时肘部弯曲更大（pumping动作）
-  const rArmAngle = Math.sin(phase + Math.PI) * armSwingAmp;  // 右臂角度
-  const lArmAngle = Math.sin(phase) * armSwingAmp;            // 左臂角度
-
-  // 肘部弯曲：向后摆时弯曲大，向前摆时较直
-  // 跑步时手臂向后摆约90度弯曲，向前摆约120-140度
-  const rElbowBend = 1.2 + rArmAngle * 0.8;  // 向后(负)时更弯
-  const lElbowBend = 1.2 + lArmAngle * 0.8;
-
-  // ===== 根据视角计算肢体位置 =====
-
-  // 侧面视角时：腿前后摆动在X轴上
-  // 正/背面时：腿左右分开，前后摆动在Y轴透视缩短
-
-  // 右腿
-  const rLegSwingX = rLegPhase * upperLeg * sideView * (facingRight >= 0 ? 1 : -1);
-  const rLegSwingY = rLegPhase * upperLeg * 0.3 * Math.abs(facingAway);
+  // 髋部位置（考虑视角）
   const rHipX = hipW * (facingRight >= 0 ? 1 : -1);
-  const rKneeX = rHipX + rLegSwingX;
-  const rKneeY = hipY + Math.cos(Math.abs(rLegPhase)) * upperLeg - rLegSwingY * (facingAway > 0 ? 1 : -1);
-  const rFootSwingX = Math.sin(rLegPhase + rKneeBend * Math.sign(rLegPhase)) * lowerLeg * sideView * (facingRight >= 0 ? 1 : -1);
-  const rFootX = rKneeX + rFootSwingX;
-  const rFootY = rKneeY + Math.cos(rKneeBend) * lowerLeg;
-
-  // 左腿
-  const lLegSwingX = lLegPhase * upperLeg * sideView * (facingRight >= 0 ? 1 : -1);
-  const lLegSwingY = lLegPhase * upperLeg * 0.3 * Math.abs(facingAway);
   const lHipX = -hipW * (facingRight >= 0 ? 1 : -1);
-  const lKneeX = lHipX + lLegSwingX;
-  const lKneeY = hipY + Math.cos(Math.abs(lLegPhase)) * upperLeg - lLegSwingY * (facingAway > 0 ? 1 : -1);
-  const lFootSwingX = Math.sin(lLegPhase + lKneeBend * Math.sign(lLegPhase)) * lowerLeg * sideView * (facingRight >= 0 ? 1 : -1);
-  const lFootX = lKneeX + lFootSwingX;
-  const lFootY = lKneeY + Math.cos(lKneeBend) * lowerLeg;
 
-  // 右臂 - 从肩膀像钟摆一样摆动
+  // 脚的目标位置（考虑视角的透视变形）
+  const viewDirX = facingRight >= 0 ? 1 : -1;
+  const rFootX = rHipX + rFootTarget.x * viewDirX;
+  const rFootY = rFootTarget.y - (rFootTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+  const lFootX = lHipX + lFootTarget.x * viewDirX;
+  const lFootY = lFootTarget.y - (lFootTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+
+  // 使用 IK 求解膝盖位置（膝盖向前弯曲）
+  const rLegIK = solveIK(rHipX, hipY, rFootX, rFootY, upperLeg, lowerLeg, -viewDirX);
+  const lLegIK = solveIK(lHipX, hipY, lFootX, lFootY, upperLeg, lowerLeg, -viewDirX);
+
+  // ===== 使用 IK 计算手臂位置 =====
+  // 手臂与对侧腿反向摆动
+  const rArmPhase = phase + Math.PI;  // 右臂与左腿同相
+  const lArmPhase = phase;            // 左臂与右腿同相
+
+  const armSwingLen = (size * 0.12 + speed * size * 0.15) * sideView;
+  const armSwingHeight = size * 0.08 * speed;
+
+  const rHandTarget = getHandTarget(rArmPhase, armSwingLen, armSwingHeight, shoulderY);
+  const lHandTarget = getHandTarget(lArmPhase, armSwingLen, armSwingHeight, shoulderY);
+
+  // 肩膀位置
   const rShoulderX = shoulderW * (facingRight >= 0 ? 1 : -1);
-  // 手臂摆动的可见度：侧面时在X方向，正/背面时在Y方向（透视缩短）
-  const armSwingX = sideView * (facingRight >= 0 ? 1 : -1);
-  const armSwingY = Math.abs(facingAway) * 0.4 * (facingAway > 0 ? 1 : -1);
-
-  // 上臂：从肩膀向下，根据摆动角度前后移动
-  const rElbowX = rShoulderX + Math.sin(rArmAngle) * upperArm * armSwingX;
-  const rElbowY = shoulderY + Math.cos(rArmAngle) * upperArm - Math.sin(rArmAngle) * upperArm * armSwingY;
-  // 前臂：从肘部延伸，根据肘部弯曲角度
-  const rForearmAngle = rArmAngle + rElbowBend;
-  const rHandX = rElbowX + Math.sin(rForearmAngle) * lowerArm * armSwingX;
-  const rHandY = rElbowY + Math.cos(rForearmAngle) * lowerArm - Math.sin(rForearmAngle) * lowerArm * armSwingY;
-
-  // 左臂
   const lShoulderX = -shoulderW * (facingRight >= 0 ? 1 : -1);
-  const lElbowX = lShoulderX + Math.sin(lArmAngle) * upperArm * armSwingX;
-  const lElbowY = shoulderY + Math.cos(lArmAngle) * upperArm - Math.sin(lArmAngle) * upperArm * armSwingY;
-  const lForearmAngle = lArmAngle + lElbowBend;
-  const lHandX = lElbowX + Math.sin(lForearmAngle) * lowerArm * armSwingX;
-  const lHandY = lElbowY + Math.cos(lForearmAngle) * lowerArm - Math.sin(lForearmAngle) * lowerArm * armSwingY;
+
+  // 手的目标位置
+  const rHandX = rShoulderX + rHandTarget.x * viewDirX;
+  const rHandY = rHandTarget.y - (rHandTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+  const lHandX = lShoulderX + lHandTarget.x * viewDirX;
+  const lHandY = lHandTarget.y - (lHandTarget.x * 0.3 * Math.abs(facingAway) * (facingAway > 0 ? -1 : 1));
+
+  // 使用 IK 求解肘部位置（肘部向后弯曲）
+  const rArmIK = solveIK(rShoulderX, shoulderY, rHandX, rHandY, upperArm, lowerArm, viewDirX);
+  const lArmIK = solveIK(lShoulderX, shoulderY, lHandX, lHandY, upperArm, lowerArm, viewDirX);
 
   // ===== 确定绘制顺序 =====
-  // 背面视图时，前摆的腿/臂在前面（离观众远）
-  // 正面视图时，前摆的腿/臂在前面（离观众近）
-  const rLegForward = rLegPhase > 0;
+  // 根据脚的前后位置决定哪条腿在前面
+  const rLegForward = rFootTarget.x > 0;
   const drawRightFirst = facingAway > 0 ? !rLegForward : rLegForward;
 
   // 绘制函数
@@ -862,17 +913,17 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   };
 
   const frontColor = '#333333';
-  const backColor = '#666666';
+  const backColor = '#555555';
 
   // ===== 绘制 =====
 
   // 后面的腿和手臂
   if (drawRightFirst) {
-    drawLimb(rHipX, hipY, rKneeX, rKneeY, rFootX, rFootY, backColor);
-    drawLimb(rShoulderX, shoulderY, rElbowX, rElbowY, rHandX, rHandY, backColor);
+    drawLimb(rHipX, hipY, rLegIK.midX, rLegIK.midY, rLegIK.endX, rLegIK.endY, backColor);
+    drawLimb(rShoulderX, shoulderY, rArmIK.midX, rArmIK.midY, rArmIK.endX, rArmIK.endY, backColor);
   } else {
-    drawLimb(lHipX, hipY, lKneeX, lKneeY, lFootX, lFootY, backColor);
-    drawLimb(lShoulderX, shoulderY, lElbowX, lElbowY, lHandX, lHandY, backColor);
+    drawLimb(lHipX, hipY, lLegIK.midX, lLegIK.midY, lLegIK.endX, lLegIK.endY, backColor);
+    drawLimb(lShoulderX, shoulderY, lArmIK.midX, lArmIK.midY, lArmIK.endX, lArmIK.endY, backColor);
   }
 
   // 躯干
@@ -901,11 +952,11 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
 
   // 前面的腿和手臂
   if (drawRightFirst) {
-    drawLimb(lHipX, hipY, lKneeX, lKneeY, lFootX, lFootY, frontColor);
-    drawLimb(lShoulderX, shoulderY, lElbowX, lElbowY, lHandX, lHandY, frontColor);
+    drawLimb(lHipX, hipY, lLegIK.midX, lLegIK.midY, lLegIK.endX, lLegIK.endY, frontColor);
+    drawLimb(lShoulderX, shoulderY, lArmIK.midX, lArmIK.midY, lArmIK.endX, lArmIK.endY, frontColor);
   } else {
-    drawLimb(rHipX, hipY, rKneeX, rKneeY, rFootX, rFootY, frontColor);
-    drawLimb(rShoulderX, shoulderY, rElbowX, rElbowY, rHandX, rHandY, frontColor);
+    drawLimb(rHipX, hipY, rLegIK.midX, rLegIK.midY, rLegIK.endX, rLegIK.endY, frontColor);
+    drawLimb(rShoulderX, shoulderY, rArmIK.midX, rArmIK.midY, rArmIK.endX, rArmIK.endY, frontColor);
   }
 
   ctx.restore();
