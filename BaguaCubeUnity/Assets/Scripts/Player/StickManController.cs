@@ -1,177 +1,278 @@
 using UnityEngine;
+using System.Collections.Generic;
 
-namespace BaguaCube.Player
+/// <summary>
+/// 火柴人控制器 - 程序化骨骼动画
+/// 使用sin()函数模拟行走动画
+/// </summary>
+public class StickManController : MonoBehaviour
 {
-    /// <summary>
-    /// 火柴人控制器 - 控制移动、动画和布娃娃切换
-    /// </summary>
-    public class StickManController : MonoBehaviour
+    [Header("身体参数")]
+    public float bodyHeight = 1.8f;
+    public float headRadius = 0.15f;
+    public float bodyLength = 0.6f;
+    public float limbLength = 0.4f;
+    public float limbWidth = 0.05f;
+
+    [Header("动画参数")]
+    public float walkSpeed = 0.7f;
+    public float animationSpeed = 1f;
+
+    [Header("材质")]
+    public Material limbMaterial;
+
+    // 骨骼
+    private Transform head;
+    private Transform body;
+    private Transform hipL, hipR;
+    private Transform kneeL, kneeR;
+    private Transform footL, footR;
+    private Transform shoulderL, shoulderR;
+    private Transform elbowL, elbowR;
+    private Transform handL, handR;
+
+    // 线渲染器
+    private LineRenderer bodyLine;
+    private LineRenderer legLLine, legRLine;
+    private LineRenderer armLLine, armRLine;
+
+    // 动画时间
+    private float walkTime = 0f;
+    private float targetSpeed = 0.7f;
+    private float currentSpeed = 0.7f;
+    private float facing = 0f;
+    private float targetFacing = 0f;
+
+    // 引用
+    private BaguaCube baguaCube;
+    private Vector3 targetPosition;
+
+    void Awake()
     {
-        [Header("Movement Settings")]
-        [SerializeField] private float moveSpeed = 5f;
-        [SerializeField] private float runSpeed = 10f;
-        [SerializeField] private float acceleration = 8f;
+        CreateSkeleton();
+        CreateVisuals();
+    }
 
-        [Header("Animation")]
-        [SerializeField] private Animator animator;
-
-        [Header("Ragdoll")]
-        [SerializeField] private StickManRagdoll ragdoll;
-
-        [Header("Ground Check")]
-        [SerializeField] private Transform groundCheck;
-        [SerializeField] private float groundDistance = 0.2f;
-        [SerializeField] private LayerMask groundMask;
-
-        // 状态
-        private Vector3 velocity;
-        private Vector3 targetDirection;
-        private float currentSpeed;
-        private bool isGrounded;
-        private bool isRagdoll;
-
-        // 组件
-        private Rigidbody rb;
-        private CharacterController characterController;
-
-        // 动画参数哈希
-        private static readonly int SpeedHash = Animator.StringToHash("Speed");
-        private static readonly int IsGroundedHash = Animator.StringToHash("IsGrounded");
-        private static readonly int DirectionXHash = Animator.StringToHash("DirectionX");
-        private static readonly int DirectionZHash = Animator.StringToHash("DirectionZ");
-
-        private void Awake()
+    void Start()
+    {
+        baguaCube = FindObjectOfType<BaguaCube>();
+        if (baguaCube != null)
         {
-            rb = GetComponent<Rigidbody>();
-            characterController = GetComponent<CharacterController>();
+            baguaCube.OnPalaceChanged += OnPalaceChanged;
+            UpdateTargetPosition();
+        }
+    }
 
-            if (ragdoll == null)
-                ragdoll = GetComponent<StickManRagdoll>();
+    void CreateSkeleton()
+    {
+        // 创建骨骼层级
+        head = CreateBone("Head");
+        body = CreateBone("Body");
+
+        hipL = CreateBone("HipL");
+        hipR = CreateBone("HipR");
+        kneeL = CreateBone("KneeL");
+        kneeR = CreateBone("KneeR");
+        footL = CreateBone("FootL");
+        footR = CreateBone("FootR");
+
+        shoulderL = CreateBone("ShoulderL");
+        shoulderR = CreateBone("ShoulderR");
+        elbowL = CreateBone("ElbowL");
+        elbowR = CreateBone("ElbowR");
+        handL = CreateBone("HandL");
+        handR = CreateBone("HandR");
+    }
+
+    Transform CreateBone(string name)
+    {
+        GameObject obj = new GameObject(name);
+        obj.transform.SetParent(transform);
+        return obj.transform;
+    }
+
+    void CreateVisuals()
+    {
+        if (limbMaterial == null)
+        {
+            limbMaterial = new Material(Shader.Find("Unlit/Color"));
+            limbMaterial.color = new Color(0.2f, 0.2f, 0.2f);
         }
 
-        private void Update()
-        {
-            if (isRagdoll) return;
+        // 头部
+        GameObject headObj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        headObj.name = "HeadVisual";
+        headObj.transform.SetParent(head);
+        headObj.transform.localPosition = Vector3.zero;
+        headObj.transform.localScale = Vector3.one * headRadius * 2;
+        headObj.GetComponent<Renderer>().material = limbMaterial;
+        Destroy(headObj.GetComponent<Collider>());
 
-            CheckGround();
-            HandleInput();
-            UpdateAnimation();
-        }
+        // 身体线
+        bodyLine = CreateLimb("BodyLine");
 
-        private void FixedUpdate()
-        {
-            if (isRagdoll) return;
+        // 腿部线
+        legLLine = CreateLimb("LegL");
+        legRLine = CreateLimb("LegR");
 
-            ApplyMovement();
-        }
+        // 手臂线
+        armLLine = CreateLimb("ArmL");
+        armRLine = CreateLimb("ArmR");
+    }
 
-        private void CheckGround()
-        {
-            isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
-        }
+    LineRenderer CreateLimb(string name)
+    {
+        GameObject obj = new GameObject(name);
+        obj.transform.SetParent(transform);
 
-        private void HandleInput()
-        {
-            // 获取输入
-            float horizontal = Input.GetAxisRaw("Horizontal");
-            float vertical = Input.GetAxisRaw("Vertical");
+        LineRenderer lr = obj.AddComponent<LineRenderer>();
+        lr.material = limbMaterial;
+        lr.startWidth = limbWidth;
+        lr.endWidth = limbWidth;
+        lr.positionCount = 3;
+        lr.useWorldSpace = true;
 
-            // 计算目标方向
-            targetDirection = new Vector3(horizontal, 0f, vertical).normalized;
+        return lr;
+    }
 
-            // 计算目标速度
-            float targetSpeed = Input.GetKey(KeyCode.LeftShift) ? runSpeed : moveSpeed;
+    void Update()
+    {
+        walkTime += Time.deltaTime * animationSpeed;
+        currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed, 0.05f);
+        facing = Mathf.LerpAngle(facing, targetFacing, 0.1f);
 
-            if (targetDirection.magnitude >= 0.1f)
-            {
-                currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed, acceleration * Time.deltaTime);
-            }
-            else
-            {
-                currentSpeed = Mathf.Lerp(currentSpeed, 0f, acceleration * Time.deltaTime);
-            }
-        }
+        UpdateAnimation();
+    }
 
-        private void ApplyMovement()
-        {
-            if (targetDirection.magnitude >= 0.1f)
-            {
-                // 旋转角色面向移动方向
-                float targetAngle = Mathf.Atan2(targetDirection.x, targetDirection.z) * Mathf.Rad2Deg;
-                transform.rotation = Quaternion.Slerp(
-                    transform.rotation,
-                    Quaternion.Euler(0f, targetAngle, 0f),
-                    10f * Time.fixedDeltaTime
-                );
-            }
+    void UpdateAnimation()
+    {
+        float speed = currentSpeed;
+        float t = walkTime * (4f + speed * 6f);
+        float swingAmp = 0.5f + speed * 0.3f;
 
-            // 移动
-            Vector3 moveDirection = targetDirection * currentSpeed;
+        // 身体位置
+        float bounce = Mathf.Abs(Mathf.Sin(t * 2f)) * 0.05f * speed;
+        Vector3 bodyPos = transform.position + Vector3.up * bounce;
 
-            if (characterController != null)
-            {
-                characterController.Move(moveDirection * Time.fixedDeltaTime);
-            }
-            else if (rb != null)
-            {
-                rb.MovePosition(rb.position + moveDirection * Time.fixedDeltaTime);
-            }
-        }
+        // 髋部高度
+        float hipY = bodyHeight * 0.45f;
+        float shoulderY = bodyHeight * 0.85f;
+        float headY = bodyHeight;
 
-        private void UpdateAnimation()
-        {
-            if (animator == null) return;
+        // 更新骨骼位置
+        head.position = bodyPos + Vector3.up * headY;
 
-            animator.SetFloat(SpeedHash, currentSpeed / runSpeed);
-            animator.SetBool(IsGroundedHash, isGrounded);
-            animator.SetFloat(DirectionXHash, targetDirection.x);
-            animator.SetFloat(DirectionZHash, targetDirection.z);
-        }
+        Vector3 hipCenter = bodyPos + Vector3.up * hipY;
+        Vector3 shoulderCenter = bodyPos + Vector3.up * shoulderY;
 
-        /// <summary>
-        /// 激活布娃娃模式
-        /// </summary>
-        public void ActivateRagdoll(Vector3 impactForce)
-        {
-            if (ragdoll == null) return;
+        // 根据朝向计算侧向
+        float facingRad = facing * Mathf.Deg2Rad;
+        Vector3 forward = new Vector3(Mathf.Sin(facingRad), 0, Mathf.Cos(facingRad));
+        Vector3 right = new Vector3(Mathf.Cos(facingRad), 0, -Mathf.Sin(facingRad));
 
-            isRagdoll = true;
+        float sideView = Mathf.Abs(Mathf.Sin(facingRad));
+        float bodyWidth = 0.1f + sideView * 0.1f;
 
-            if (animator != null)
-                animator.enabled = false;
+        // 髋部
+        hipL.position = hipCenter - right * bodyWidth;
+        hipR.position = hipCenter + right * bodyWidth;
 
-            if (characterController != null)
-                characterController.enabled = false;
+        // 肩部
+        shoulderL.position = shoulderCenter - right * bodyWidth * 1.2f;
+        shoulderR.position = shoulderCenter + right * bodyWidth * 1.2f;
 
-            ragdoll.EnableRagdoll(impactForce);
-        }
+        // 腿部动画
+        float rThigh = Mathf.Sin(t) * swingAmp;
+        float rShin = Mathf.Sin(t - 0.5f) * swingAmp * 0.8f - 0.3f;
+        float lThigh = Mathf.Sin(t + Mathf.PI) * swingAmp;
+        float lShin = Mathf.Sin(t + Mathf.PI - 0.5f) * swingAmp * 0.8f - 0.3f;
 
-        /// <summary>
-        /// 从布娃娃恢复
-        /// </summary>
-        public void RecoverFromRagdoll()
-        {
-            if (ragdoll == null) return;
+        // 手臂动画
+        float rArm = Mathf.Sin(t + Mathf.PI) * swingAmp * 0.6f;
+        float rForearm = Mathf.Sin(t + Mathf.PI - 0.3f) * swingAmp * 0.4f + 0.5f;
+        float lArm = Mathf.Sin(t) * swingAmp * 0.6f;
+        float lForearm = Mathf.Sin(t - 0.3f) * swingAmp * 0.4f + 0.5f;
 
-            ragdoll.DisableRagdoll();
+        // 计算关节位置
+        float legLen = limbLength;
+        float armLen = limbLength * 0.8f;
 
-            if (animator != null)
-                animator.enabled = true;
+        // 右腿
+        kneeR.position = hipR.position + forward * Mathf.Sin(rThigh) * legLen * sideView
+                        + Vector3.down * Mathf.Cos(rThigh) * legLen;
+        footR.position = kneeR.position + forward * Mathf.Sin(rThigh + rShin) * legLen * sideView
+                        + Vector3.down * Mathf.Cos(rThigh + rShin) * legLen;
 
-            if (characterController != null)
-                characterController.enabled = true;
+        // 左腿
+        kneeL.position = hipL.position + forward * Mathf.Sin(lThigh) * legLen * sideView
+                        + Vector3.down * Mathf.Cos(lThigh) * legLen;
+        footL.position = kneeL.position + forward * Mathf.Sin(lThigh + lShin) * legLen * sideView
+                        + Vector3.down * Mathf.Cos(lThigh + lShin) * legLen;
 
-            isRagdoll = false;
-        }
+        // 右臂
+        elbowR.position = shoulderR.position + forward * Mathf.Sin(rArm) * armLen * sideView
+                         + Vector3.down * Mathf.Cos(rArm) * armLen;
+        handR.position = elbowR.position + forward * Mathf.Sin(rArm + rForearm) * armLen * sideView
+                        + Vector3.down * Mathf.Cos(rArm + rForearm) * armLen;
 
-        private void OnCollisionEnter(Collision collision)
-        {
-            // 检测高速碰撞触发布娃娃
-            if (collision.relativeVelocity.magnitude > 10f)
-            {
-                Vector3 impactForce = collision.relativeVelocity * 0.5f;
-                ActivateRagdoll(impactForce);
-            }
-        }
+        // 左臂
+        elbowL.position = shoulderL.position + forward * Mathf.Sin(lArm) * armLen * sideView
+                         + Vector3.down * Mathf.Cos(lArm) * armLen;
+        handL.position = elbowL.position + forward * Mathf.Sin(lArm + lForearm) * armLen * sideView
+                        + Vector3.down * Mathf.Cos(lArm + lForearm) * armLen;
+
+        // 更新线渲染器
+        UpdateLineRenderer(bodyLine, shoulderCenter, hipCenter);
+        UpdateLineRenderer(legRLine, hipR.position, kneeR.position, footR.position);
+        UpdateLineRenderer(legLLine, hipL.position, kneeL.position, footL.position);
+        UpdateLineRenderer(armRLine, shoulderR.position, elbowR.position, handR.position);
+        UpdateLineRenderer(armLLine, shoulderL.position, elbowL.position, handL.position);
+    }
+
+    void UpdateLineRenderer(LineRenderer lr, Vector3 start, Vector3 end)
+    {
+        lr.positionCount = 2;
+        lr.SetPosition(0, start);
+        lr.SetPosition(1, end);
+    }
+
+    void UpdateLineRenderer(LineRenderer lr, Vector3 p1, Vector3 p2, Vector3 p3)
+    {
+        lr.positionCount = 3;
+        lr.SetPosition(0, p1);
+        lr.SetPosition(1, p2);
+        lr.SetPosition(2, p3);
+    }
+
+    void OnPalaceChanged(string palaceName)
+    {
+        UpdateTargetPosition();
+    }
+
+    void UpdateTargetPosition()
+    {
+        if (baguaCube == null) return;
+
+        // 计算朝向 (朝向对面顶点)
+        Vector3 frontPos = baguaCube.GetFrontPosition();
+        Vector3 backPos = baguaCube.GetBackPosition();
+        Vector3 dir = (backPos - frontPos).normalized;
+
+        targetFacing = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+    }
+
+    public void SetSpeed(float speed)
+    {
+        targetSpeed = Mathf.Clamp01(speed);
+    }
+
+    public void SetFacing(float angle)
+    {
+        targetFacing = angle;
+    }
+
+    public void SetPosition(Vector3 pos)
+    {
+        transform.position = pos;
     }
 }
