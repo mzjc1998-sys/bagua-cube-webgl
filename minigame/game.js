@@ -212,12 +212,16 @@ function getGroundPoint(groundQuad, x, y) {
 function getDiamondCenter(groundQuad) { return getGroundPoint(groundQuad, 0.5, 0.5); }
 
 // ==================== 绘制场景元素 ====================
+// 比例说明：边长10m，人高1.7m(17%)，树高3m(30%)，草高0.3m(3%)，花高0.5m(5%)
+// 屏幕上地面高度约为 H * 0.3，所以基础单位 = H * 0.3 / 10 = H * 0.03
+const BASE_UNIT = Math.min(W, H) * 0.03;  // 1米在屏幕上的像素
+
 function drawTree(x, y, scale) {
-  const h = 30 * scale;
-  const trunkH = h * 0.4;
-  const crownH = h * 0.6;
+  const h = BASE_UNIT * 3 * scale;  // 树高3米
+  const trunkH = h * 0.35;
+  const crownH = h * 0.65;
   ctx.strokeStyle = '#5D4037';
-  ctx.lineWidth = Math.max(1, 2 * scale);
+  ctx.lineWidth = Math.max(1, 1.5 * scale);
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(x, y - trunkH);
@@ -225,29 +229,29 @@ function drawTree(x, y, scale) {
   ctx.strokeStyle = '#2E7D32';
   ctx.beginPath();
   ctx.moveTo(x, y - trunkH - crownH);
-  ctx.lineTo(x - crownH * 0.5, y - trunkH);
-  ctx.lineTo(x + crownH * 0.5, y - trunkH);
+  ctx.lineTo(x - crownH * 0.4, y - trunkH);
+  ctx.lineTo(x + crownH * 0.4, y - trunkH);
   ctx.closePath();
   ctx.stroke();
 }
 
 function drawGrass(x, y, scale) {
-  const h = 10 * scale;
+  const h = BASE_UNIT * 0.3 * scale;  // 草高0.3米
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = Math.max(1, 1 * scale);
-  ctx.beginPath(); ctx.moveTo(x - 3 * scale, y); ctx.lineTo(x - 5 * scale, y - h); ctx.stroke();
+  ctx.lineWidth = Math.max(1, 0.8 * scale);
+  ctx.beginPath(); ctx.moveTo(x - 2 * scale, y); ctx.lineTo(x - 3 * scale, y - h); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h * 1.2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(x + 3 * scale, y); ctx.lineTo(x + 5 * scale, y - h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 2 * scale, y); ctx.lineTo(x + 3 * scale, y - h); ctx.stroke();
 }
 
 function drawFlower(x, y, scale) {
-  const h = 15 * scale;
+  const h = BASE_UNIT * 0.5 * scale;  // 花高0.5米
   ctx.strokeStyle = '#4CAF50';
-  ctx.lineWidth = Math.max(1, 1 * scale);
+  ctx.lineWidth = Math.max(1, 0.8 * scale);
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
   ctx.strokeStyle = '#FF6B6B';
-  ctx.lineWidth = Math.max(1, 2 * scale);
-  const flowerSize = 5 * scale;
+  ctx.lineWidth = Math.max(1, 1.5 * scale);
+  const flowerSize = BASE_UNIT * 0.12 * scale;
   const cx = x, cy = y - h;
   ctx.beginPath(); ctx.moveTo(cx, cy - flowerSize); ctx.lineTo(cx, cy + flowerSize); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx - flowerSize, cy); ctx.lineTo(cx + flowerSize, cy); ctx.stroke();
@@ -273,12 +277,14 @@ function drawStickMan(x, y, scale, time, groundQuad) {
   const facingRight = Math.sin(facing) >= 0 ? 1 : -1;
   const facingAway = Math.cos(facing);
 
-  const len = 12 * scale;
-  const headR = len * 0.5;
-  const bodyLen = len * 1.8;
-  const legLen = len * 1.0;
-  const armLen = len * 0.8;
-  const bodyW = len * 0.5 * (0.3 + Math.abs(facingAway) * 0.7);
+  // 人高1.7米，头0.25m，躯干0.6m，腿0.85m
+  const personH = BASE_UNIT * 1.7 * scale;
+  const len = personH / 3.8;  // 基础单位
+  const headR = len * 0.5;    // 头半径 ~0.25m
+  const bodyLen = len * 1.3;  // 躯干 ~0.6m
+  const legLen = len * 1.0;   // 腿 ~0.85m (大腿+小腿)
+  const armLen = len * 0.7;   // 手臂
+  const bodyW = len * 0.4 * (0.3 + Math.abs(facingAway) * 0.7);
 
   const swingAmp = 0.5 + speed * 0.3;
   const rThigh = Math.sin(t) * swingAmp;
@@ -322,7 +328,7 @@ function drawStickMan(x, y, scale, time, groundQuad) {
 
   ctx.strokeStyle = '#333333';
   ctx.fillStyle = '#333333';
-  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.lineWidth = Math.max(1, 2 * scale);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
