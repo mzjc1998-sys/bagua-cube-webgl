@@ -532,38 +532,53 @@ class StickManVerlet {
     const p = this.points;
     const strength = PHYSICS.muscleStrength;
 
-    // 腿部摆动
-    const legSwing = Math.sin(phase) * strength * s * 0.015;
-    const legLift = Math.cos(phase) * strength * s * 0.008;
+    // ===== 保持身体直立的力 =====
+    // 抵消重力，让上半身保持直立
+    const antigravity = PHYSICS.gravity * 1.1;
+    p.head.applyForce(0, -antigravity * p.head.mass);
+    p.neck.applyForce(0, -antigravity * p.neck.mass);
+    p.chest.applyForce(0, -antigravity * p.chest.mass);
+    p.waist.applyForce(0, -antigravity * p.waist.mass);
+    p.hip.applyForce(0, -antigravity * p.hip.mass * 0.8);
 
-    // 右腿向前摆动
-    p.rKnee.applyForce(legSwing, -Math.abs(legLift));
-    p.rFoot.applyForce(legSwing * 1.2, -Math.abs(legLift) * 0.5);
+    // 保持脊椎垂直的力（把头拉向髋部正上方）
+    const spineCorrection = (p.head.x - p.hip.x) * 0.05;
+    p.head.applyForce(-spineCorrection, 0);
+    p.chest.applyForce(-spineCorrection * 0.5, 0);
+
+    // ===== 腿部摆动 =====
+    const legSwing = Math.sin(phase) * strength * s * 0.02;
+    const legLift = Math.abs(Math.sin(phase)) * strength * s * 0.015;
+
+    // 右腿
+    p.rKnee.applyForce(legSwing, -legLift);
+    p.rFoot.applyForce(legSwing * 1.5, 0);
 
     // 左腿反向
-    p.lKnee.applyForce(-legSwing, -Math.abs(-legLift));
-    p.lFoot.applyForce(-legSwing * 1.2, -Math.abs(-legLift) * 0.5);
+    p.lKnee.applyForce(-legSwing, -legLift);
+    p.lFoot.applyForce(-legSwing * 1.5, 0);
 
-    // 手臂与腿反向摆动
-    const armSwing = Math.sin(phase + Math.PI) * strength * s * 0.012;
+    // ===== 手臂与腿反向摆动 =====
+    const armSwing = Math.sin(phase + Math.PI) * strength * s * 0.015;
 
-    p.rElbow.applyForce(armSwing * 0.5, 0);
-    p.rHand.applyForce(armSwing, 0);
-    p.lElbow.applyForce(-armSwing * 0.5, 0);
-    p.lHand.applyForce(-armSwing, 0);
+    p.rElbow.applyForce(armSwing * 0.6, 0);
+    p.rHand.applyForce(armSwing * 1.2, 0);
+    p.lElbow.applyForce(-armSwing * 0.6, 0);
+    p.lHand.applyForce(-armSwing * 1.2, 0);
 
-    // 躯干轻微扭转
-    const torsoTwist = Math.sin(phase) * strength * s * 0.003;
-    p.chest.applyForce(torsoTwist, 0);
-    p.waist.applyForce(-torsoTwist * 0.5, 0);
+    // ===== 躯干扭转 =====
+    const torsoTwist = Math.sin(phase) * strength * s * 0.004;
+    p.lShoulder.applyForce(torsoTwist, 0);
+    p.rShoulder.applyForce(-torsoTwist, 0);
 
-    // 身体起伏
-    const bounce = Math.abs(Math.sin(phase * 2)) * strength * s * 0.002;
+    // ===== 身体起伏（跑步节奏）=====
+    const bounce = Math.abs(Math.sin(phase * 2)) * strength * s * 0.008;
     p.hip.applyForce(0, -bounce);
+    p.chest.applyForce(0, -bounce * 0.5);
 
-    // 前倾
-    p.head.applyForce(strength * s * 0.002, 0);
-    p.chest.applyForce(strength * s * 0.001, 0);
+    // ===== 轻微前倾 =====
+    p.head.applyForce(strength * s * 0.003, 0);
+    p.chest.applyForce(strength * s * 0.002, 0);
   }
 
   update(time) {
@@ -592,12 +607,19 @@ class StickManVerlet {
       // 地面约束（脚不能低于地面）
       const groundY = 0;
       for (const key of ['lFoot', 'rFoot']) {
-        const p = this.points[key];
-        if (p.y > groundY) {
-          p.y = groundY;
-          p.oldX += (p.x - p.oldX) * (1 - PHYSICS.groundFriction);
+        const pt = this.points[key];
+        if (pt.y > groundY) {
+          pt.y = groundY;
+          pt.oldX += (pt.x - pt.oldX) * (1 - PHYSICS.groundFriction);
         }
       }
+
+      // 髋部高度约束（保持站立高度）
+      const s = this.scale * 50;
+      const targetHipY = -s * 0.35;
+      const hipCorrection = (this.points.hip.y - targetHipY) * 0.3;
+      this.points.hip.y -= hipCorrection;
+      this.points.waist.y -= hipCorrection * 0.5;
     }
   }
 
