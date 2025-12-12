@@ -1,20 +1,12 @@
 {
   "deviceOrientation": "portrait",
   "showStatusBar": false,
-  "networkTimeout": 60000,
-  "workers": "workers",
-  "subpackages": [
-    {
-      "name": "unity",
-      "root": "Build/",
-      "independent": true
-    }
-  ],
-  "preloadRule": {
-    "Build/": {
-      "network": "wifi",
-      "packages": ["unity"]
-    }
+  "networkTimeout": {
+    "request": 60000,
+    "connectSocket": 60000,
+    "uploadFile": 60000,
+    "downloadFile": 60000
   },
+  "subpackages": [],
   "resizable": false
 }
