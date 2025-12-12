@@ -180,6 +180,79 @@ function lerpAngle(a, b, t) {
   return a + diff * t;
 }
 
+// ==================== 职阶系统 ====================
+const CLASS_TYPES = {
+  warrior: {
+    name: '战士',
+    color: '#C62828',
+    stats: { str: 10, agi: 5, int: 3, vit: 8 },
+    weapon: 'sword',
+    armor: 'heavy',
+    description: '近战物理输出，高生命值'
+  },
+  mage: {
+    name: '法师',
+    color: '#5E35B1',
+    stats: { str: 2, agi: 4, int: 12, vit: 4 },
+    weapon: 'staff',
+    armor: 'robe',
+    description: '远程魔法输出，高智力'
+  },
+  archer: {
+    name: '弓箭手',
+    color: '#2E7D32',
+    stats: { str: 5, agi: 12, int: 4, vit: 5 },
+    weapon: 'bow',
+    armor: 'light',
+    description: '远程物理输出，高敏捷'
+  },
+  assassin: {
+    name: '刺客',
+    color: '#37474F',
+    stats: { str: 7, agi: 10, int: 3, vit: 4 },
+    weapon: 'dagger',
+    armor: 'light',
+    description: '高爆发，高暴击'
+  },
+  priest: {
+    name: '牧师',
+    color: '#FDD835',
+    stats: { str: 2, agi: 3, int: 10, vit: 7 },
+    weapon: 'wand',
+    armor: 'robe',
+    description: '治疗辅助，高恢复'
+  },
+  knight: {
+    name: '骑士',
+    color: '#1565C0',
+    stats: { str: 8, agi: 4, int: 4, vit: 12 },
+    weapon: 'lance',
+    armor: 'heavy',
+    description: '坦克职业，高防御'
+  }
+};
+
+let currentClass = 'warrior';
+let playerLevel = 1;
+let playerExp = 0;
+let expToNext = 100;
+
+// 计算当前属性（基础 + 等级加成）
+function getPlayerStats() {
+  const base = CLASS_TYPES[currentClass].stats;
+  const levelBonus = playerLevel - 1;
+  return {
+    str: base.str + levelBonus * 2,
+    agi: base.agi + levelBonus * 2,
+    int: base.int + levelBonus * 2,
+    vit: base.vit + levelBonus * 2,
+    hp: (base.vit + levelBonus * 2) * 10,
+    mp: (base.int + levelBonus * 2) * 5,
+    atk: base.str + levelBonus * 2 + Math.floor(base.agi / 2),
+    def: Math.floor(base.vit / 2) + levelBonus
+  };
+}
+
 // ==================== 场景元素 ====================
 const groundElements = [
   { type: 'tree', x: 0.12, y: 0.18 },
@@ -255,6 +328,192 @@ function drawFlower(x, y, scale) {
   const cx = x, cy = y - h;
   ctx.beginPath(); ctx.moveTo(cx, cy - flowerSize); ctx.lineTo(cx, cy + flowerSize); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx - flowerSize, cy); ctx.lineTo(cx + flowerSize, cy); ctx.stroke();
+}
+
+// ==================== 武器绘制 ====================
+function drawWeapon(weaponType, handX, handY, scale, angle, facingRight) {
+  const s = scale * 0.8;
+  const flip = facingRight;
+  ctx.save();
+  ctx.translate(handX, handY);
+  ctx.rotate(angle);
+  ctx.scale(flip, 1);
+
+  switch (weaponType) {
+    case 'sword': // 剑
+      ctx.strokeStyle = '#757575';
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -BASE_UNIT * 0.8 * s);
+      ctx.stroke();
+      // 剑刃
+      ctx.strokeStyle = '#B0BEC5';
+      ctx.lineWidth = Math.max(1, 3 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, -BASE_UNIT * 0.8 * s);
+      ctx.lineTo(0, -BASE_UNIT * 1.5 * s);
+      ctx.stroke();
+      // 剑尖
+      ctx.beginPath();
+      ctx.moveTo(0, -BASE_UNIT * 1.5 * s);
+      ctx.lineTo(0, -BASE_UNIT * 1.7 * s);
+      ctx.strokeStyle = '#CFD8DC';
+      ctx.lineWidth = Math.max(1, 1 * s);
+      ctx.stroke();
+      // 护手
+      ctx.strokeStyle = '#8D6E63';
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.moveTo(-BASE_UNIT * 0.15 * s, -BASE_UNIT * 0.75 * s);
+      ctx.lineTo(BASE_UNIT * 0.15 * s, -BASE_UNIT * 0.75 * s);
+      ctx.stroke();
+      break;
+
+    case 'staff': // 法杖
+      ctx.strokeStyle = '#5D4037';
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, BASE_UNIT * 0.3 * s);
+      ctx.lineTo(0, -BASE_UNIT * 1.8 * s);
+      ctx.stroke();
+      // 法杖头部水晶
+      ctx.fillStyle = '#7E57C2';
+      ctx.beginPath();
+      ctx.arc(0, -BASE_UNIT * 1.9 * s, BASE_UNIT * 0.12 * s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#B39DDB';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      break;
+
+    case 'bow': // 弓
+      ctx.strokeStyle = '#8D6E63';
+      ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.beginPath();
+      ctx.arc(BASE_UNIT * 0.3 * s, -BASE_UNIT * 0.5 * s, BASE_UNIT * 0.8 * s, Math.PI * 0.7, Math.PI * 1.3);
+      ctx.stroke();
+      // 弓弦
+      ctx.strokeStyle = '#BDBDBD';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(BASE_UNIT * 0.05 * s, BASE_UNIT * 0.2 * s);
+      ctx.lineTo(BASE_UNIT * 0.05 * s, -BASE_UNIT * 1.2 * s);
+      ctx.stroke();
+      break;
+
+    case 'dagger': // 匕首
+      ctx.strokeStyle = '#424242';
+      ctx.lineWidth = Math.max(1, 1.5 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -BASE_UNIT * 0.5 * s);
+      ctx.stroke();
+      ctx.strokeStyle = '#90A4AE';
+      ctx.lineWidth = Math.max(1, 2.5 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, -BASE_UNIT * 0.5 * s);
+      ctx.lineTo(0, -BASE_UNIT * 0.9 * s);
+      ctx.stroke();
+      break;
+
+    case 'wand': // 魔杖
+      ctx.strokeStyle = '#FFF8E1';
+      ctx.lineWidth = Math.max(1, 1.5 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -BASE_UNIT * 1.0 * s);
+      ctx.stroke();
+      // 魔杖顶部星星
+      ctx.fillStyle = '#FFD54F';
+      ctx.beginPath();
+      const starY = -BASE_UNIT * 1.1 * s;
+      for (let i = 0; i < 5; i++) {
+        const a = (i * 72 - 90) * Math.PI / 180;
+        const r = BASE_UNIT * 0.08 * s;
+        if (i === 0) ctx.moveTo(Math.cos(a) * r, starY + Math.sin(a) * r);
+        else ctx.lineTo(Math.cos(a) * r, starY + Math.sin(a) * r);
+        const a2 = ((i * 72 + 36) - 90) * Math.PI / 180;
+        ctx.lineTo(Math.cos(a2) * r * 0.4, starY + Math.sin(a2) * r * 0.4);
+      }
+      ctx.closePath();
+      ctx.fill();
+      break;
+
+    case 'lance': // 长枪
+      ctx.strokeStyle = '#5D4037';
+      ctx.lineWidth = Math.max(1, 2.5 * s);
+      ctx.beginPath();
+      ctx.moveTo(0, BASE_UNIT * 0.5 * s);
+      ctx.lineTo(0, -BASE_UNIT * 2.0 * s);
+      ctx.stroke();
+      // 枪头
+      ctx.fillStyle = '#78909C';
+      ctx.beginPath();
+      ctx.moveTo(0, -BASE_UNIT * 2.0 * s);
+      ctx.lineTo(-BASE_UNIT * 0.08 * s, -BASE_UNIT * 2.3 * s);
+      ctx.lineTo(0, -BASE_UNIT * 2.5 * s);
+      ctx.lineTo(BASE_UNIT * 0.08 * s, -BASE_UNIT * 2.3 * s);
+      ctx.closePath();
+      ctx.fill();
+      break;
+  }
+  ctx.restore();
+}
+
+// 绘制护甲效果
+function drawArmor(armorType, x, shoulderY, bodyLen, bodyW, headR, scale, classColor) {
+  const s = scale;
+  switch (armorType) {
+    case 'heavy': // 重甲
+      ctx.strokeStyle = classColor;
+      ctx.lineWidth = Math.max(2, 4 * s);
+      // 胸甲
+      ctx.beginPath();
+      ctx.moveTo(-bodyW * 1.3, shoulderY);
+      ctx.lineTo(-bodyW * 1.3, shoulderY + bodyLen * 0.6);
+      ctx.lineTo(bodyW * 1.3, shoulderY + bodyLen * 0.6);
+      ctx.lineTo(bodyW * 1.3, shoulderY);
+      ctx.stroke();
+      // 肩甲
+      ctx.beginPath();
+      ctx.arc(-bodyW * 1.5, shoulderY, bodyW * 0.4, 0, Math.PI, true);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bodyW * 1.5, shoulderY, bodyW * 0.4, 0, Math.PI, true);
+      ctx.stroke();
+      break;
+
+    case 'light': // 轻甲
+      ctx.strokeStyle = classColor;
+      ctx.lineWidth = Math.max(1, 2 * s);
+      // 皮甲
+      ctx.beginPath();
+      ctx.moveTo(-bodyW, shoulderY + bodyLen * 0.2);
+      ctx.lineTo(-bodyW, shoulderY + bodyLen * 0.5);
+      ctx.lineTo(bodyW, shoulderY + bodyLen * 0.5);
+      ctx.lineTo(bodyW, shoulderY + bodyLen * 0.2);
+      ctx.stroke();
+      break;
+
+    case 'robe': // 法袍
+      ctx.strokeStyle = classColor;
+      ctx.lineWidth = Math.max(1, 1.5 * s);
+      // 长袍
+      ctx.beginPath();
+      ctx.moveTo(-bodyW * 0.8, shoulderY);
+      ctx.lineTo(-bodyW * 1.2, shoulderY + bodyLen * 1.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bodyW * 0.8, shoulderY);
+      ctx.lineTo(bodyW * 1.2, shoulderY + bodyLen * 1.5);
+      ctx.stroke();
+      // 兜帽轮廓
+      ctx.beginPath();
+      ctx.arc(0, shoulderY - headR * 0.5, headR * 1.3, Math.PI * 0.8, Math.PI * 0.2, true);
+      ctx.stroke();
+      break;
+  }
 }
 
 // ==================== 火柴人 ====================
@@ -360,6 +619,21 @@ function drawStickMan(x, y, scale, time, groundQuad) {
     ctx.beginPath(); ctx.moveTo(rHipX, hipY); ctx.lineTo(rKneeX, rKneeY); ctx.lineTo(rFootX, rFootY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(rShoulderX, shoulderY); ctx.lineTo(rElbowX, rElbowY); ctx.lineTo(rHandX, rHandY); ctx.stroke();
   }
+
+  // 绘制装备和武器
+  const classInfo = CLASS_TYPES[currentClass];
+
+  // 绘制护甲
+  drawArmor(classInfo.armor, 0, shoulderY, bodyLen, bodyW, headR, scale, classInfo.color);
+
+  // 绘制武器（在前手）
+  const weaponAngle = Math.sin(t) * 0.3; // 武器随走路摆动
+  if (drawRightFirst) {
+    drawWeapon(classInfo.weapon, lHandX, lHandY, scale, weaponAngle, facingRight);
+  } else {
+    drawWeapon(classInfo.weapon, rHandX, rHandY, scale, weaponAngle, facingRight);
+  }
+
   ctx.restore();
 }
 
@@ -513,20 +787,79 @@ function draw() {
     drawGroundScene(groundQuad);
   }
 
-  // UI
+  // UI - 左上角宫位信息
   ctx.fillStyle = 'rgba(0,0,0,0.8)';
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 25);
   ctx.font = '11px sans-serif';
   ctx.fillText('点击顶点切换视角', 15, 42);
-  ctx.fillText(`超立方体时空切片 · ${CUBE_SIZE}m × ${CUBE_SIZE}m × ${CUBE_SIZE}m`, 15, 58);
 
-  // 底部模式指示
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.font = '12px sans-serif';
+  // 右上角 - 职阶信息面板
+  const classInfo = CLASS_TYPES[currentClass];
+  const stats = getPlayerStats();
+  const panelX = W - 130;
+  const panelY = 10;
+
+  // 面板背景
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(panelX - 5, panelY, 125, 95);
+
+  // 职阶名称
+  ctx.fillStyle = classInfo.color;
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${classInfo.name} Lv.${playerLevel}`, panelX, panelY + 15);
+
+  // 属性
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(`力量:${stats.str} 敏捷:${stats.agi}`, panelX, panelY + 32);
+  ctx.fillText(`智力:${stats.int} 体力:${stats.vit}`, panelX, panelY + 45);
+  ctx.fillText(`HP:${stats.hp} MP:${stats.mp}`, panelX, panelY + 58);
+  ctx.fillText(`攻击:${stats.atk} 防御:${stats.def}`, panelX, panelY + 71);
+
+  // 切换提示
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '9px sans-serif';
+  ctx.fillText('点击此处切换职阶', panelX, panelY + 88);
+
+  // 底部 - 职阶图标
+  const iconSize = 35;
+  const iconY = H - iconSize - 15;
+  const iconSpacing = 45;
+  const classKeys = Object.keys(CLASS_TYPES);
+  const totalWidth = classKeys.length * iconSpacing - (iconSpacing - iconSize);
+  const startX = (W - totalWidth) / 2;
+
+  for (let i = 0; i < classKeys.length; i++) {
+    const key = classKeys[i];
+    const info = CLASS_TYPES[key];
+    const ix = startX + i * iconSpacing;
+
+    // 图标背景
+    ctx.fillStyle = key === currentClass ? info.color : 'rgba(100,100,100,0.6)';
+    ctx.fillRect(ix, iconY, iconSize, iconSize);
+
+    // 边框
+    if (key === currentClass) {
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ix, iconY, iconSize, iconSize);
+    }
+
+    // 职阶首字
+    ctx.fillStyle = key === currentClass ? '#FFFFFF' : '#CCCCCC';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(info.name[0], ix + iconSize / 2, iconY + iconSize / 2 + 5);
+  }
+
+  // 底部提示
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = '10px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('Canvas 2D 模式', W / 2, H - 20);
+  ctx.fillText('点击下方图标切换职阶', W / 2, iconY - 5);
 }
 
 // ==================== 游戏循环 ====================
@@ -553,8 +886,45 @@ wx.onTouchEnd((e) => {
   const dx = touch.clientX - touchStart.x;
   const dy = touch.clientY - touchStart.y;
   const dt = Date.now() - touchStart.t;
+
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    const hit = hitTest(touch.clientX, touch.clientY);
+    const tx = touch.clientX;
+    const ty = touch.clientY;
+
+    // 检查是否点击了底部职阶图标
+    const iconSize = 35;
+    const iconY = H - iconSize - 15;
+    const iconSpacing = 45;
+    const classKeys = Object.keys(CLASS_TYPES);
+    const totalWidth = classKeys.length * iconSpacing - (iconSpacing - iconSize);
+    const startX = (W - totalWidth) / 2;
+
+    if (ty >= iconY && ty <= iconY + iconSize) {
+      for (let i = 0; i < classKeys.length; i++) {
+        const ix = startX + i * iconSpacing;
+        if (tx >= ix && tx <= ix + iconSize) {
+          currentClass = classKeys[i];
+          console.log(`切换职阶: ${CLASS_TYPES[currentClass].name}`);
+          touchStart = null;
+          return;
+        }
+      }
+    }
+
+    // 检查是否点击了右上角面板（切换到下一职阶）
+    const panelX = W - 130;
+    const panelY = 10;
+    if (tx >= panelX - 5 && tx <= panelX + 120 && ty >= panelY && ty <= panelY + 95) {
+      const keys = Object.keys(CLASS_TYPES);
+      const currentIdx = keys.indexOf(currentClass);
+      currentClass = keys[(currentIdx + 1) % keys.length];
+      console.log(`切换职阶: ${CLASS_TYPES[currentClass].name}`);
+      touchStart = null;
+      return;
+    }
+
+    // 检查是否点击了立方体顶点
+    const hit = hitTest(tx, ty);
     if (hit) {
       const name = bitsToName[hit];
       if (palacePairs[name]) {
