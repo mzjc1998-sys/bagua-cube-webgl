@@ -637,5 +637,23 @@ function gameLoop() {
 }
 
 // 启动
-requestAnimationFrame(gameLoop);
-console.log('八卦立方体已启动');
+console.log('游戏初始化...');
+console.log('屏幕尺寸:', W, 'x', H, 'DPR:', DPR);
+console.log('Canvas尺寸:', canvas.width, 'x', canvas.height);
+
+// 先画一帧测试
+ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+ctx.fillStyle = '#0F0F1A';
+ctx.fillRect(0, 0, W, H);
+ctx.fillStyle = '#FFD700';
+ctx.font = 'bold 24px sans-serif';
+ctx.textAlign = 'center';
+ctx.fillText('加载中...', W / 2, H / 2);
+
+// 延迟启动游戏循环
+setTimeout(() => {
+  console.log('启动游戏循环');
+  requestAnimationFrame(gameLoop);
+}, 100);
+
+console.log('八卦立方体初始化完成');
