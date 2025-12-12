@@ -788,10 +788,15 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const lKneeBend = 0.15 + Math.max(0, Math.sin(phase + Math.PI - 0.3)) * (0.8 + speed * 0.3);
 
   // 手臂摆动（与对侧腿反向）
-  const rArmPhase = Math.sin(phase + Math.PI) * armSwingAmp;
-  const lArmPhase = Math.sin(phase) * armSwingAmp;
-  const rElbowBend = 1.1 + Math.sin(phase + Math.PI) * 0.25;
-  const lElbowBend = 1.1 + Math.sin(phase) * 0.25;
+  // 跑步时手臂像钟摆一样前后摆动
+  // 向后摆时肘部弯曲更大（pumping动作）
+  const rArmAngle = Math.sin(phase + Math.PI) * armSwingAmp;  // 右臂角度
+  const lArmAngle = Math.sin(phase) * armSwingAmp;            // 左臂角度
+
+  // 肘部弯曲：向后摆时弯曲大，向前摆时较直
+  // 跑步时手臂向后摆约90度弯曲，向前摆约120-140度
+  const rElbowBend = 1.2 + rArmAngle * 0.8;  // 向后(负)时更弯
+  const lElbowBend = 1.2 + lArmAngle * 0.8;
 
   // ===== 根据视角计算肢体位置 =====
 
@@ -818,21 +823,27 @@ function drawStickManPhysics(x, y, scale, time, groundQuad) {
   const lFootX = lKneeX + lFootSwingX;
   const lFootY = lKneeY + Math.cos(lKneeBend) * lowerLeg;
 
-  // 右臂
-  const rArmSwingX = rArmPhase * upperArm * sideView * (facingRight >= 0 ? 1 : -1);
+  // 右臂 - 从肩膀像钟摆一样摆动
   const rShoulderX = shoulderW * (facingRight >= 0 ? 1 : -1);
-  const rElbowX = rShoulderX + rArmSwingX * 0.7;
-  const rElbowY = shoulderY + Math.cos(Math.abs(rArmPhase)) * upperArm;
-  const rHandX = rElbowX + Math.sin(rArmPhase + rElbowBend * Math.sign(rArmPhase)) * lowerArm * sideView * (facingRight >= 0 ? 1 : -1) * 0.7;
-  const rHandY = rElbowY + Math.cos(rElbowBend) * lowerArm;
+  // 手臂摆动的可见度：侧面时在X方向，正/背面时在Y方向（透视缩短）
+  const armSwingX = sideView * (facingRight >= 0 ? 1 : -1);
+  const armSwingY = Math.abs(facingAway) * 0.4 * (facingAway > 0 ? 1 : -1);
+
+  // 上臂：从肩膀向下，根据摆动角度前后移动
+  const rElbowX = rShoulderX + Math.sin(rArmAngle) * upperArm * armSwingX;
+  const rElbowY = shoulderY + Math.cos(rArmAngle) * upperArm - Math.sin(rArmAngle) * upperArm * armSwingY;
+  // 前臂：从肘部延伸，根据肘部弯曲角度
+  const rForearmAngle = rArmAngle + rElbowBend;
+  const rHandX = rElbowX + Math.sin(rForearmAngle) * lowerArm * armSwingX;
+  const rHandY = rElbowY + Math.cos(rForearmAngle) * lowerArm - Math.sin(rForearmAngle) * lowerArm * armSwingY;
 
   // 左臂
-  const lArmSwingX = lArmPhase * upperArm * sideView * (facingRight >= 0 ? 1 : -1);
   const lShoulderX = -shoulderW * (facingRight >= 0 ? 1 : -1);
-  const lElbowX = lShoulderX + lArmSwingX * 0.7;
-  const lElbowY = shoulderY + Math.cos(Math.abs(lArmPhase)) * upperArm;
-  const lHandX = lElbowX + Math.sin(lArmPhase + lElbowBend * Math.sign(lArmPhase)) * lowerArm * sideView * (facingRight >= 0 ? 1 : -1) * 0.7;
-  const lHandY = lElbowY + Math.cos(lElbowBend) * lowerArm;
+  const lElbowX = lShoulderX + Math.sin(lArmAngle) * upperArm * armSwingX;
+  const lElbowY = shoulderY + Math.cos(lArmAngle) * upperArm - Math.sin(lArmAngle) * upperArm * armSwingY;
+  const lForearmAngle = lArmAngle + lElbowBend;
+  const lHandX = lElbowX + Math.sin(lForearmAngle) * lowerArm * armSwingX;
+  const lHandY = lElbowY + Math.cos(lForearmAngle) * lowerArm - Math.sin(lForearmAngle) * lowerArm * armSwingY;
 
   // ===== 确定绘制顺序 =====
   // 背面视图时，前摆的腿/臂在前面（离观众远）
