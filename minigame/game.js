@@ -374,7 +374,8 @@ function getZeroGroundCoords(groundQuad) {
 }
 
 function drawGroundElement(groundQuad, type, x, y) {
-  if (x < -0.1 || x > 1.1 || y < -0.1 || y > 1.1) return;
+  // 严格限制在正方形面内 (0-1 范围)
+  if (x < 0.02 || x > 0.98 || y < 0.02 || y > 0.98) return;
   const pt = getGroundPoint(groundQuad, x, y);
   if (type === 'tree') drawTree(pt.x, pt.y, pt.scale);
   else if (type === 'grass') drawGrass(pt.x, pt.y, pt.scale);
@@ -398,12 +399,9 @@ function drawGroundScene(groundQuad) {
     elem.y = ((elem.y % 1.0) + 1.0) % 1.0;
   }
 
+  // 只绘制在边界内的元素
   for (const elem of groundElements) {
-    for (let ox = -1; ox <= 1; ox++) {
-      for (let oy = -1; oy <= 1; oy++) {
-        drawGroundElement(groundQuad, elem.type, elem.x + ox, elem.y + oy);
-      }
-    }
+    drawGroundElement(groundQuad, elem.type, elem.x, elem.y);
   }
   const stickPt = getDiamondCenter(groundQuad);
   drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime, groundQuad);
