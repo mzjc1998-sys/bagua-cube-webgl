@@ -326,14 +326,373 @@ function easeOutElastic(t) {
   return Math.sin(-13 * Math.PI / 2 * (t + 1)) * Math.pow(2, -10 * t) + 1;
 }
 
-// 人体跑步生物力学动画
-// 基于真实人体运动学：
-// 1. 手臂与对侧腿交叉摆动（右腿前=左臂前）
-// 2. 肘部保持约90度弯曲
-// 3. 肩部随手臂旋转，与髋部反向
-// 4. 上身前倾5-10度
-// 5. 头部保持稳定
+// =============== Verlet 物理系统 ===============
+// 基于 Verlet 积分的火柴人物理引擎
+// 参考: https://pikuma.com/blog/verlet-integration-2d-cloth-physics-simulation
+
+// 物理参数
+const PHYSICS = {
+  gravity: 0.15,        // 重力
+  friction: 0.99,       // 空气摩擦
+  groundFriction: 0.8,  // 地面摩擦
+  bounce: 0.3,          // 弹性
+  stiffness: 0.8,       // 约束刚度
+  iterations: 5,        // 约束迭代次数
+  muscleStrength: 0.4,  // 肌肉力量
+  bendiness: 0.3,       // 弯曲程度
+};
+
+// Verlet 点类
+class VerletPoint {
+  constructor(x, y, pinned = false, mass = 1) {
+    this.x = x;
+    this.y = y;
+    this.oldX = x;
+    this.oldY = y;
+    this.pinned = pinned;
+    this.mass = mass;
+  }
+
+  update(gravity, friction) {
+    if (this.pinned) return;
+
+    const vx = (this.x - this.oldX) * friction;
+    const vy = (this.y - this.oldY) * friction;
+
+    this.oldX = this.x;
+    this.oldY = this.y;
+
+    this.x += vx;
+    this.y += vy + gravity * this.mass;
+  }
+
+  applyForce(fx, fy) {
+    if (this.pinned) return;
+    this.x += fx;
+    this.y += fy;
+  }
+}
+
+// Verlet 约束（棍子）类
+class VerletStick {
+  constructor(p1, p2, length = null, stiffness = PHYSICS.stiffness) {
+    this.p1 = p1;
+    this.p2 = p2;
+    this.length = length || Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    this.stiffness = stiffness;
+  }
+
+  solve() {
+    const dx = this.p2.x - this.p1.x;
+    const dy = this.p2.y - this.p1.y;
+    const dist = Math.hypot(dx, dy);
+    const diff = (this.length - dist) / dist * this.stiffness;
+
+    const offsetX = dx * diff * 0.5;
+    const offsetY = dy * diff * 0.5;
+
+    if (!this.p1.pinned) {
+      this.p1.x -= offsetX;
+      this.p1.y -= offsetY;
+    }
+    if (!this.p2.pinned) {
+      this.p2.x += offsetX;
+      this.p2.y += offsetY;
+    }
+  }
+}
+
+// 角度约束类（控制关节弯曲范围）
+class AngleConstraint {
+  constructor(p1, p2, p3, minAngle, maxAngle, stiffness = 0.3) {
+    this.p1 = p1; // 起点
+    this.p2 = p2; // 中点（关节）
+    this.p3 = p3; // 终点
+    this.minAngle = minAngle;
+    this.maxAngle = maxAngle;
+    this.stiffness = stiffness;
+  }
+
+  solve() {
+    const angle = Math.atan2(this.p3.y - this.p2.y, this.p3.x - this.p2.x) -
+                  Math.atan2(this.p1.y - this.p2.y, this.p1.x - this.p2.x);
+
+    let normalizedAngle = angle;
+    while (normalizedAngle < -Math.PI) normalizedAngle += Math.PI * 2;
+    while (normalizedAngle > Math.PI) normalizedAngle -= Math.PI * 2;
+
+    if (normalizedAngle < this.minAngle) {
+      this.rotatePoint(this.p3, this.p2, this.minAngle - normalizedAngle);
+    } else if (normalizedAngle > this.maxAngle) {
+      this.rotatePoint(this.p3, this.p2, this.maxAngle - normalizedAngle);
+    }
+  }
+
+  rotatePoint(point, pivot, angle) {
+    if (point.pinned) return;
+    const cos = Math.cos(angle * this.stiffness);
+    const sin = Math.sin(angle * this.stiffness);
+    const dx = point.x - pivot.x;
+    const dy = point.y - pivot.y;
+    point.x = pivot.x + dx * cos - dy * sin;
+    point.y = pivot.y + dx * sin + dy * cos;
+  }
+}
+
+// 火柴人 Verlet 骨骼系统
+class StickManVerlet {
+  constructor(x, y, scale) {
+    this.baseX = x;
+    this.baseY = y;
+    this.scale = scale;
+    this.points = {};
+    this.sticks = [];
+    this.angleConstraints = [];
+
+    this.initSkeleton();
+  }
+
+  initSkeleton() {
+    const s = this.scale * 50;
+
+    // 创建骨骼点（从头到脚）
+    // 头部
+    this.points.head = new VerletPoint(0, -s * 0.9, false, 0.8);
+
+    // 躯干（多节脊椎，允许弯曲）
+    this.points.neck = new VerletPoint(0, -s * 0.78, false, 0.5);
+    this.points.chest = new VerletPoint(0, -s * 0.6, false, 1.2);
+    this.points.waist = new VerletPoint(0, -s * 0.45, false, 1.0);
+    this.points.hip = new VerletPoint(0, -s * 0.35, false, 1.2);
+
+    // 左臂
+    this.points.lShoulder = new VerletPoint(-s * 0.12, -s * 0.7, false, 0.3);
+    this.points.lElbow = new VerletPoint(-s * 0.22, -s * 0.55, false, 0.2);
+    this.points.lHand = new VerletPoint(-s * 0.28, -s * 0.4, false, 0.1);
+
+    // 右臂
+    this.points.rShoulder = new VerletPoint(s * 0.12, -s * 0.7, false, 0.3);
+    this.points.rElbow = new VerletPoint(s * 0.22, -s * 0.55, false, 0.2);
+    this.points.rHand = new VerletPoint(s * 0.28, -s * 0.4, false, 0.1);
+
+    // 左腿
+    this.points.lHip = new VerletPoint(-s * 0.06, -s * 0.35, false, 0.4);
+    this.points.lKnee = new VerletPoint(-s * 0.08, -s * 0.18, false, 0.3);
+    this.points.lFoot = new VerletPoint(-s * 0.06, 0, false, 0.2);
+
+    // 右腿
+    this.points.rHip = new VerletPoint(s * 0.06, -s * 0.35, false, 0.4);
+    this.points.rKnee = new VerletPoint(s * 0.08, -s * 0.18, false, 0.3);
+    this.points.rFoot = new VerletPoint(s * 0.06, 0, false, 0.2);
+
+    // 创建约束（骨骼连接）
+    const p = this.points;
+
+    // 头颈躯干
+    this.sticks.push(new VerletStick(p.head, p.neck, s * 0.12));
+    this.sticks.push(new VerletStick(p.neck, p.chest, s * 0.18));
+    this.sticks.push(new VerletStick(p.chest, p.waist, s * 0.15));
+    this.sticks.push(new VerletStick(p.waist, p.hip, s * 0.10));
+
+    // 肩膀连接
+    this.sticks.push(new VerletStick(p.chest, p.lShoulder, s * 0.15));
+    this.sticks.push(new VerletStick(p.chest, p.rShoulder, s * 0.15));
+    this.sticks.push(new VerletStick(p.lShoulder, p.rShoulder, s * 0.24));
+
+    // 髋部连接
+    this.sticks.push(new VerletStick(p.hip, p.lHip, s * 0.08));
+    this.sticks.push(new VerletStick(p.hip, p.rHip, s * 0.08));
+    this.sticks.push(new VerletStick(p.lHip, p.rHip, s * 0.12));
+
+    // 左臂
+    this.sticks.push(new VerletStick(p.lShoulder, p.lElbow, s * 0.18));
+    this.sticks.push(new VerletStick(p.lElbow, p.lHand, s * 0.16));
+
+    // 右臂
+    this.sticks.push(new VerletStick(p.rShoulder, p.rElbow, s * 0.18));
+    this.sticks.push(new VerletStick(p.rElbow, p.rHand, s * 0.16));
+
+    // 左腿
+    this.sticks.push(new VerletStick(p.lHip, p.lKnee, s * 0.20));
+    this.sticks.push(new VerletStick(p.lKnee, p.lFoot, s * 0.20));
+
+    // 右腿
+    this.sticks.push(new VerletStick(p.rHip, p.rKnee, s * 0.20));
+    this.sticks.push(new VerletStick(p.rKnee, p.rFoot, s * 0.20));
+
+    // 稳定性约束（防止身体变形）
+    this.sticks.push(new VerletStick(p.head, p.chest, s * 0.30, 0.5));
+    this.sticks.push(new VerletStick(p.neck, p.waist, s * 0.33, 0.3));
+    this.sticks.push(new VerletStick(p.chest, p.hip, s * 0.25, 0.5));
+  }
+
+  // 应用跑步动画的肌肉力
+  applyRunningForces(phase) {
+    const s = this.scale * 50;
+    const p = this.points;
+    const strength = PHYSICS.muscleStrength;
+
+    // 腿部摆动
+    const legSwing = Math.sin(phase) * strength * s * 0.015;
+    const legLift = Math.cos(phase) * strength * s * 0.008;
+
+    // 右腿向前摆动
+    p.rKnee.applyForce(legSwing, -Math.abs(legLift));
+    p.rFoot.applyForce(legSwing * 1.2, -Math.abs(legLift) * 0.5);
+
+    // 左腿反向
+    p.lKnee.applyForce(-legSwing, -Math.abs(-legLift));
+    p.lFoot.applyForce(-legSwing * 1.2, -Math.abs(-legLift) * 0.5);
+
+    // 手臂与腿反向摆动
+    const armSwing = Math.sin(phase + Math.PI) * strength * s * 0.012;
+
+    p.rElbow.applyForce(armSwing * 0.5, 0);
+    p.rHand.applyForce(armSwing, 0);
+    p.lElbow.applyForce(-armSwing * 0.5, 0);
+    p.lHand.applyForce(-armSwing, 0);
+
+    // 躯干轻微扭转
+    const torsoTwist = Math.sin(phase) * strength * s * 0.003;
+    p.chest.applyForce(torsoTwist, 0);
+    p.waist.applyForce(-torsoTwist * 0.5, 0);
+
+    // 身体起伏
+    const bounce = Math.abs(Math.sin(phase * 2)) * strength * s * 0.002;
+    p.hip.applyForce(0, -bounce);
+
+    // 前倾
+    p.head.applyForce(strength * s * 0.002, 0);
+    p.chest.applyForce(strength * s * 0.001, 0);
+  }
+
+  update(time) {
+    const phase = time * 7; // 跑步速度
+
+    // 应用肌肉力
+    this.applyRunningForces(phase);
+
+    // 更新所有点的位置（Verlet积分）
+    for (const key in this.points) {
+      this.points[key].update(PHYSICS.gravity, PHYSICS.friction);
+    }
+
+    // 约束求解（多次迭代以增加稳定性）
+    for (let i = 0; i < PHYSICS.iterations; i++) {
+      // 骨骼长度约束
+      for (const stick of this.sticks) {
+        stick.solve();
+      }
+
+      // 角度约束
+      for (const ac of this.angleConstraints) {
+        ac.solve();
+      }
+
+      // 地面约束（脚不能低于地面）
+      const groundY = 0;
+      for (const key of ['lFoot', 'rFoot']) {
+        const p = this.points[key];
+        if (p.y > groundY) {
+          p.y = groundY;
+          p.oldX += (p.x - p.oldX) * (1 - PHYSICS.groundFriction);
+        }
+      }
+    }
+  }
+
+  draw(ctx, offsetX, offsetY) {
+    const p = this.points;
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.strokeStyle = '#333333';
+    ctx.fillStyle = '#333333';
+    ctx.lineWidth = Math.max(1.5, 2.5 * this.scale);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 绘制弯曲的线段（使用二次贝塞尔曲线）
+    const drawBendableLimb = (start, mid, end, bendFactor = PHYSICS.bendiness) => {
+      // 计算弯曲控制点
+      const mx = (start.x + end.x) / 2;
+      const my = (start.y + end.y) / 2;
+      const cx = mid.x + (mid.x - mx) * bendFactor;
+      const cy = mid.y + (mid.y - my) * bendFactor;
+
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(cx, cy, mid.x, mid.y);
+      ctx.quadraticCurveTo(
+        mid.x + (mid.x - (mid.x + end.x) / 2) * bendFactor,
+        mid.y + (mid.y - (mid.y + end.y) / 2) * bendFactor,
+        end.x, end.y
+      );
+      ctx.stroke();
+    };
+
+    // 绘制简单线段
+    const drawLine = (p1, p2) => {
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    };
+
+    // 绘制弯曲脊椎
+    ctx.beginPath();
+    ctx.moveTo(p.head.x, p.head.y);
+    ctx.quadraticCurveTo(p.neck.x, p.neck.y, p.chest.x, p.chest.y);
+    ctx.quadraticCurveTo(p.waist.x, p.waist.y, p.hip.x, p.hip.y);
+    ctx.stroke();
+
+    // 头部
+    const headRadius = this.scale * 50 * 0.08;
+    ctx.beginPath();
+    ctx.arc(p.head.x, p.head.y - headRadius, headRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 肩膀
+    drawLine(p.lShoulder, p.rShoulder);
+
+    // 髋部
+    drawLine(p.lHip, p.rHip);
+
+    // 左臂（弯曲）
+    drawBendableLimb(p.lShoulder, p.lElbow, p.lHand);
+
+    // 右臂（弯曲）
+    drawBendableLimb(p.rShoulder, p.rElbow, p.rHand);
+
+    // 左腿（弯曲）
+    drawBendableLimb(p.lHip, p.lKnee, p.lFoot);
+
+    // 右腿（弯曲）
+    drawBendableLimb(p.rHip, p.rKnee, p.rFoot);
+
+    ctx.restore();
+  }
+}
+
+// 全局火柴人实例
+let stickMan = null;
+
+// 绘制火柴人（使用 Verlet 物理）
 function drawStickManPhysics(x, y, scale, time) {
+  // 初始化或重置火柴人
+  if (!stickMan || Math.abs(stickMan.scale - scale) > 0.01) {
+    stickMan = new StickManVerlet(x, y, scale);
+  }
+
+  // 更新物理
+  stickMan.update(time);
+
+  // 绘制
+  stickMan.draw(ctx, x, y);
+}
+
+// 保留旧函数作为备用
+function drawStickManPhysicsOld(x, y, scale, time) {
   const size = 50 * scale;
   const runSpeed = 7;
   const phase = time * runSpeed;
