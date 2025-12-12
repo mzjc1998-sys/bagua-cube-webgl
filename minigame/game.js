@@ -415,12 +415,29 @@ function draw() {
     const b4 = sortedVerts.slice(0, 4);
     const quad = [b4[1].p.x < b4[2].p.x ? b4[1].p : b4[2].p, b4[1].p.x < b4[2].p.x ? b4[2].p : b4[1].p, b4[0].p, b4[3].p];
 
-    // 场景元素向后移动（火柴人朝前走，场景向后退）
-    // 在地面坐标系中，y=0 是远端，y=1 是近端（火柴人脚下后方）
-    // 火柴人朝远端走，所以场景元素 y 应该增加（从远端移向近端再循环）
-    const moveSpeed = 0.002;
+    // 计算 000 点相对于地面中心的方向（屏幕坐标）
+    const zero = projCache.get('000');
+    const groundCenterX = (quad[0].x + quad[1].x + quad[2].x + quad[3].x) / 4;
+    const groundCenterY = (quad[0].y + quad[1].y + quad[2].y + quad[3].y) / 4;
+
+    // 000 点方向（火柴人朝向）
+    const dirToZeroX = zero.x - groundCenterX;
+    const dirToZeroY = zero.y - groundCenterY;
+    const dirLen = Math.sqrt(dirToZeroX * dirToZeroX + dirToZeroY * dirToZeroY) || 1;
+
+    // 场景元素朝 000 的反方向移动（归一化后的方向）
+    const moveSpeed = 0.003;
+    const moveDirX = -dirToZeroX / dirLen * moveSpeed;
+    const moveDirY = -dirToZeroY / dirLen * moveSpeed;
+
+    // 计算地面四边形的宽高用于归一化
+    const quadW = Math.abs(quad[1].x - quad[0].x) || 1;
+    const quadH = Math.abs(quad[3].y - quad[0].y) || 1;
+
     for (const e of groundElements) {
-      e.y = ((e.y + moveSpeed) % 1 + 1) % 1;
+      // 将移动量转换为地面坐标系的比例
+      e.x = ((e.x + moveDirX / quadW) % 1 + 1) % 1;
+      e.y = ((e.y + moveDirY / quadH) % 1 + 1) % 1;
     }
 
     // 绘制场景元素（带随机大小）
