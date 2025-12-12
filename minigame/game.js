@@ -2,7 +2,173 @@
  * 八卦立方体 - 微信小游戏
  * 四维超立方体的三维投影 - 时空切片
  * 边长10m的正方体内部视角
+ *
+ * 支持两种渲染模式：
+ * 1. Canvas 2D - 轻量级，兼容性好
+ * 2. Unity WebGL - 3D 渲染，功能丰富
  */
+
+const GameConfig = require('./game-config.js');
+const UnityBridge = require('./unity-bridge.js');
+
+// 游戏实例
+let gameInstance = null;
+
+// ==================== Unity 模式加载器 ====================
+function initUnityGame() {
+  console.log('初始化 Unity WebGL 模式...');
+
+  const UnityAdapter = require('./unity-adapter.js');
+
+  // 创建 canvas
+  const canvas = wx.createCanvas();
+
+  // 初始化 Unity 适配器
+  if (!UnityAdapter.init(canvas, {
+    dataUrl: GameConfig.getUnityBuildPath(GameConfig.unity.dataFile),
+    frameworkUrl: GameConfig.getUnityBuildPath(GameConfig.unity.frameworkFile),
+    codeUrl: GameConfig.getUnityBuildPath(GameConfig.unity.wasmFile),
+  })) {
+    console.error('Unity adapter init failed, fallback to Canvas mode');
+    return initCanvasFallback();
+  }
+
+  // 初始化 WeChat 桥接
+  UnityBridge.init();
+  UnityBridge.initTouchListeners();
+
+  // 显示加载界面
+  showLoadingScreen(canvas);
+
+  // 加载进度回调
+  UnityAdapter.onProgress = (progress) => {
+    updateLoadingProgress(canvas, progress);
+  };
+
+  // 加载完成回调
+  UnityAdapter.onReady = (instance) => {
+    console.log('Unity WebGL 加载完成');
+    hideLoadingScreen();
+
+    // 发送初始配置到 Unity
+    UnityAdapter.sendMessage('GameManager', 'InitFromWeChat', JSON.stringify({
+      systemInfo: UnityBridge.getSystemInfo(),
+      config: GameConfig.common,
+    }));
+  };
+
+  // 加载失败回调
+  UnityAdapter.onError = (error) => {
+    console.error('Unity WebGL 加载失败:', error);
+    wx.showModal({
+      title: '加载失败',
+      content: '3D 模式加载失败，是否切换到 2D 模式？',
+      success: (res) => {
+        if (res.confirm) {
+          initCanvasFallback();
+        }
+      }
+    });
+  };
+
+  // 开始加载
+  UnityAdapter.load();
+
+  return {
+    type: 'unity',
+    adapter: UnityAdapter,
+    bridge: UnityBridge,
+  };
+}
+
+// 加载界面
+let loadingCtx = null;
+
+function showLoadingScreen(canvas) {
+  loadingCtx = canvas.getContext('2d');
+  const sysInfo = wx.getSystemInfoSync();
+  const W = sysInfo.windowWidth;
+  const H = sysInfo.windowHeight;
+  const DPR = sysInfo.pixelRatio;
+
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+
+  loadingCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  loadingCtx.fillStyle = '#1a1a2e';
+  loadingCtx.fillRect(0, 0, W, H);
+
+  loadingCtx.fillStyle = '#ffffff';
+  loadingCtx.font = 'bold 24px sans-serif';
+  loadingCtx.textAlign = 'center';
+  loadingCtx.fillText('八卦立方体', W / 2, H / 2 - 50);
+
+  loadingCtx.font = '14px sans-serif';
+  loadingCtx.fillText('加载中...', W / 2, H / 2);
+}
+
+function updateLoadingProgress(canvas, progress) {
+  if (!loadingCtx) return;
+
+  const sysInfo = wx.getSystemInfoSync();
+  const W = sysInfo.windowWidth;
+  const H = sysInfo.windowHeight;
+  const DPR = sysInfo.pixelRatio;
+
+  loadingCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // 清除进度条区域
+  loadingCtx.fillStyle = '#1a1a2e';
+  loadingCtx.fillRect(W / 2 - 100, H / 2 + 20, 200, 30);
+
+  // 绘制进度条背景
+  loadingCtx.fillStyle = '#333355';
+  loadingCtx.fillRect(W / 2 - 100, H / 2 + 30, 200, 10);
+
+  // 绘制进度条
+  loadingCtx.fillStyle = '#6366f1';
+  loadingCtx.fillRect(W / 2 - 100, H / 2 + 30, 200 * progress, 10);
+
+  // 绘制百分比
+  loadingCtx.fillStyle = '#ffffff';
+  loadingCtx.font = '12px sans-serif';
+  loadingCtx.textAlign = 'center';
+  loadingCtx.fillText(`${Math.round(progress * 100)}%`, W / 2, H / 2 + 60);
+}
+
+function hideLoadingScreen() {
+  loadingCtx = null;
+}
+
+// Canvas 模式回退
+function initCanvasFallback() {
+  console.log('回退到 Canvas 2D 模式');
+  GameConfig.setCanvasMode();
+  const { initCanvasGame } = require('./game-canvas.js');
+  return initCanvasGame();
+}
+
+// ==================== 主入口 ====================
+function main() {
+  console.log('八卦立方体启动...');
+  console.log('版本:', GameConfig.common.version);
+
+  // 自动选择最佳模式
+  GameConfig.autoSelectMode();
+
+  if (GameConfig.isUnityMode()) {
+    gameInstance = initUnityGame();
+  } else {
+    const { initCanvasGame } = require('./game-canvas.js');
+    gameInstance = initCanvasGame();
+  }
+}
+
+// 启动游戏
+main();
+
+// ==================== 以下保留原始 Canvas 实现作为默认模式 ====================
+// 当 game-canvas.js 加载失败时使用
 
 const canvas = wx.createCanvas();
 const ctx = canvas.getContext('2d');

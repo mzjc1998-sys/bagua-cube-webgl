@@ -1,16 +1,62 @@
 {
-  "description": "八卦立方体小游戏",
+  "description": "八卦立方体小游戏 - 支持 Unity WebGL",
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "file",
+        "value": ".gitignore"
+      },
+      {
+        "type": "file",
+        "value": "*.md"
+      }
+    ]
+  },
   "setting": {
     "urlCheck": false,
     "es6": true,
     "enhance": true,
     "compileHotReLoad": true,
     "postcss": true,
-    "minified": false
+    "minified": true,
+    "newFeature": true,
+    "coverView": true,
+    "nodeModules": false,
+    "autoAudits": false,
+    "showShadowRootInWxmlPanel": true,
+    "scopeDataCheck": false,
+    "uglifyFileName": false,
+    "checkInvalidKey": true,
+    "checkSiteMap": true,
+    "uploadWithSourceMap": true,
+    "compileHotReLoad": true,
+    "useMultiFrameRuntime": true,
+    "useApiHook": true,
+    "useApiHostProcess": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "useIsolateContext": true,
+    "userConfirmedBundleSwitch": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "disableUseStrict": false,
+    "showES6CompileOption": false,
+    "useCompilerPlugins": false
   },
   "compileType": "game",
   "libVersion": "2.19.4",
   "appid": "",
   "projectname": "bagua-cube",
-  "condition": {}
+  "condition": {},
+  "srcMiniprogramRoot": "./",
+  "gamePlugins": {},
+  "scripts": {
+    "beforeCompile": "",
+    "beforePreview": "",
+    "beforeUpload": ""
+  }
 }

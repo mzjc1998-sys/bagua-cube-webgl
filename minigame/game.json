@@ -1,4 +1,20 @@
 {
   "deviceOrientation": "portrait",
-  "showStatusBar": false
+  "showStatusBar": false,
+  "networkTimeout": 60000,
+  "workers": "workers",
+  "subpackages": [
+    {
+      "name": "unity",
+      "root": "Build/",
+      "independent": true
+    }
+  ],
+  "preloadRule": {
+    "Build/": {
+      "network": "wifi",
+      "packages": ["unity"]
+    }
+  },
+  "resizable": false
 }
