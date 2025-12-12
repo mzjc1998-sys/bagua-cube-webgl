@@ -237,6 +237,60 @@ let playerLevel = 1;
 let playerExp = 0;
 let expToNext = 100;
 
+// ==================== 数据持久化 ====================
+const SAVE_KEY = 'bagua_game_save';
+
+// 保存游戏数据
+function saveGameData() {
+  try {
+    const saveData = {
+      currentClass,
+      playerLevel,
+      playerExp,
+      expToNext,
+      currentPalace,
+      version: 1
+    };
+    wx.setStorageSync(SAVE_KEY, JSON.stringify(saveData));
+    console.log('游戏数据已保存');
+  } catch (e) {
+    console.error('保存游戏数据失败:', e);
+  }
+}
+
+// 加载游戏数据
+function loadGameData() {
+  try {
+    const saved = wx.getStorageSync(SAVE_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      if (data.currentClass && CLASS_TYPES[data.currentClass]) {
+        currentClass = data.currentClass;
+      }
+      if (typeof data.playerLevel === 'number' && data.playerLevel >= 1) {
+        playerLevel = data.playerLevel;
+      }
+      if (typeof data.playerExp === 'number' && data.playerExp >= 0) {
+        playerExp = data.playerExp;
+      }
+      if (typeof data.expToNext === 'number' && data.expToNext > 0) {
+        expToNext = data.expToNext;
+      }
+      if (data.currentPalace && palacePairs[data.currentPalace]) {
+        currentPalace = data.currentPalace;
+      }
+      console.log(`游戏数据已加载: ${CLASS_TYPES[currentClass].name} Lv.${playerLevel}`);
+      return true;
+    }
+  } catch (e) {
+    console.error('加载游戏数据失败:', e);
+  }
+  return false;
+}
+
+// 游戏启动时加载数据
+loadGameData();
+
 // 计算当前属性（基础 + 等级加成）
 function getPlayerStats() {
   const base = CLASS_TYPES[currentClass].stats;
@@ -251,6 +305,294 @@ function getPlayerStats() {
     atk: base.str + levelBonus * 2 + Math.floor(base.agi / 2),
     def: Math.floor(base.vit / 2) + levelBonus
   };
+}
+
+// ==================== 冒险系统 ====================
+let gameState = 'idle'; // 'idle' | 'adventure' | 'gameover'
+let adventureTime = 0;
+let killCount = 0;
+let playerHP = 100;
+let playerMaxHP = 100;
+let playerX = 0.5;  // 玩家在地面上的位置 (0-1)
+let playerY = 0.5;
+let playerTargetX = 0.5;
+let playerTargetY = 0.5;
+let isMoving = false;
+let lastAttackTime = 0;
+let attackCooldown = 0.5; // 攻击冷却时间(秒)
+let comboCount = 0;
+
+// 怪物数组
+let monsters = [];
+let monsterSpawnTimer = 0;
+let monsterSpawnInterval = 2.0; // 初始生成间隔
+
+// 僵尸怪物定义
+const MONSTER_TYPES = {
+  zombie: {
+    name: '僵尸',
+    color: '#4A7C59',
+    hp: 30,
+    damage: 10,
+    speed: 0.003,
+    exp: 20,
+    size: 0.8
+  }
+};
+
+// 创建怪物
+function spawnMonster() {
+  // 从四面八方生成
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  switch (side) {
+    case 0: x = Math.random(); y = 0; break;      // 上
+    case 1: x = Math.random(); y = 1; break;      // 下
+    case 2: x = 0; y = Math.random(); break;      // 左
+    case 3: x = 1; y = Math.random(); break;      // 右
+  }
+
+  const type = 'zombie';
+  const info = MONSTER_TYPES[type];
+  monsters.push({
+    type,
+    x,
+    y,
+    hp: info.hp,
+    maxHp: info.hp,
+    damage: info.damage,
+    speed: info.speed * (0.8 + Math.random() * 0.4), // 速度有些随机
+    exp: info.exp,
+    size: info.size,
+    hitTimer: 0, // 被击中闪烁
+    walkPhase: Math.random() * Math.PI * 2 // 走路动画相位
+  });
+}
+
+// 绘制僵尸
+function drawZombie(x, y, scale, monster, time) {
+  const info = MONSTER_TYPES[monster.type];
+  const s = scale * info.size;
+  const personH = BASE_UNIT * 1.5 * s;
+  const len = personH / 3.5;
+  const headR = len * 0.45;
+  const bodyLen = len * 1.2;
+  const legLen = len * 0.9;
+  const armLen = len * 0.7;
+
+  // 走路动画
+  const t = time * 3 + monster.walkPhase;
+  const legSwing = Math.sin(t) * 0.4;
+  const armSwing = Math.sin(t + Math.PI) * 0.3;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // 被击中时闪白
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
+  const darkColor = monster.hitTimer > 0 ? '#CCCCCC' : '#2D4A35';
+
+  ctx.strokeStyle = baseColor;
+  ctx.fillStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 2 * s);
+  ctx.lineCap = 'round';
+
+  const hipY = 0;
+  const shoulderY = -bodyLen;
+  const headY = shoulderY - headR;
+
+  // 腿（僵硬的走路姿势）
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.2, hipY);
+  ctx.lineTo(-len * 0.2 + Math.sin(legSwing) * legLen * 0.3, hipY + legLen);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.2, hipY);
+  ctx.lineTo(len * 0.2 + Math.sin(-legSwing) * legLen * 0.3, hipY + legLen);
+  ctx.stroke();
+
+  // 身体
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(0, shoulderY);
+  ctx.stroke();
+
+  // 手臂（僵尸标志性的前伸手臂）
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.3, shoulderY);
+  ctx.lineTo(-len * 0.3 + armLen * 0.8, shoulderY + Math.sin(armSwing) * armLen * 0.2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.3, shoulderY);
+  ctx.lineTo(len * 0.3 + armLen * 0.8, shoulderY + Math.sin(-armSwing) * armLen * 0.2);
+  ctx.stroke();
+
+  // 头（略大，歪斜）
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(len * 0.1, headY, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 眼睛（红色发光）
+  ctx.fillStyle = '#FF0000';
+  ctx.beginPath();
+  ctx.arc(len * 0.05, headY - headR * 0.2, headR * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(len * 0.2, headY - headR * 0.2, headR * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 血条
+  if (monster.hp < monster.maxHp) {
+    const barW = len * 2;
+    const barH = 3;
+    const barY = headY - headR - 8;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(-barW / 2, barY, barW, barH);
+    ctx.fillStyle = '#E53935';
+    ctx.fillRect(-barW / 2, barY, barW * (monster.hp / monster.maxHp), barH);
+  }
+
+  ctx.restore();
+}
+
+// 开始冒险
+function startAdventure() {
+  gameState = 'adventure';
+  adventureTime = 0;
+  killCount = 0;
+  const stats = getPlayerStats();
+  playerMaxHP = stats.hp;
+  playerHP = playerMaxHP;
+  playerX = 0.5;
+  playerY = 0.5;
+  monsters = [];
+  monsterSpawnTimer = 0;
+  monsterSpawnInterval = 2.0;
+  comboCount = 0;
+  console.log('冒险开始！');
+}
+
+// 结束冒险
+function endAdventure() {
+  gameState = 'gameover';
+  console.log(`冒险结束！击杀: ${killCount}, 存活时间: ${Math.floor(adventureTime)}秒`);
+}
+
+// 返回待机
+function returnToIdle() {
+  gameState = 'idle';
+  monsters = [];
+}
+
+// 攻击怪物
+function attackMonsters() {
+  if (walkTime - lastAttackTime < attackCooldown) return;
+
+  const stats = getPlayerStats();
+  const attackRange = 0.15; // 攻击范围
+  let hitAny = false;
+
+  for (let i = monsters.length - 1; i >= 0; i--) {
+    const m = monsters[i];
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < attackRange) {
+      m.hp -= stats.atk;
+      m.hitTimer = 0.15;
+      hitAny = true;
+
+      if (m.hp <= 0) {
+        // 怪物死亡
+        playerExp += m.exp;
+        killCount++;
+        comboCount++;
+        monsters.splice(i, 1);
+
+        // 升级检测
+        while (playerExp >= expToNext) {
+          playerExp -= expToNext;
+          playerLevel++;
+          expToNext = Math.floor(expToNext * 1.5);
+          const newStats = getPlayerStats();
+          playerMaxHP = newStats.hp;
+          playerHP = Math.min(playerHP + 20, playerMaxHP);
+          console.log(`升级! Lv.${playerLevel}`);
+          saveGameData(); // 保存升级数据
+        }
+      }
+    }
+  }
+
+  if (hitAny) {
+    lastAttackTime = walkTime;
+  }
+}
+
+// 更新冒险逻辑
+function updateAdventure(dt) {
+  if (gameState !== 'adventure') return;
+
+  adventureTime += dt;
+
+  // 难度随时间增加
+  if (adventureTime > 30) monsterSpawnInterval = 1.5;
+  if (adventureTime > 60) monsterSpawnInterval = 1.0;
+  if (adventureTime > 120) monsterSpawnInterval = 0.7;
+
+  // 生成怪物
+  monsterSpawnTimer += dt;
+  if (monsterSpawnTimer >= monsterSpawnInterval) {
+    monsterSpawnTimer = 0;
+    spawnMonster();
+  }
+
+  // 玩家移动
+  if (isMoving) {
+    const dx = playerTargetX - playerX;
+    const dy = playerTargetY - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 0.01) {
+      const speed = 0.008;
+      playerX += (dx / dist) * speed;
+      playerY += (dy / dist) * speed;
+      playerX = Math.max(0.1, Math.min(0.9, playerX));
+      playerY = Math.max(0.1, Math.min(0.9, playerY));
+    } else {
+      isMoving = false;
+    }
+  }
+
+  // 更新怪物
+  for (const m of monsters) {
+    // 朝玩家移动
+    const dx = playerX - m.x;
+    const dy = playerY - m.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 0.05) {
+      m.x += (dx / dist) * m.speed;
+      m.y += (dy / dist) * m.speed;
+    }
+
+    // 攻击玩家
+    if (dist < 0.08) {
+      playerHP -= m.damage * dt;
+      comboCount = 0;
+    }
+
+    // 更新被击中闪烁
+    if (m.hitTimer > 0) {
+      m.hitTimer -= dt;
+    }
+  }
+
+  // 检查死亡
+  if (playerHP <= 0) {
+    playerHP = 0;
+    endAdventure();
+  }
 }
 
 // ==================== 场景元素 ====================
@@ -672,19 +1014,39 @@ function drawGroundScene(groundQuad) {
   const deltaOffset = sceneOffset - lastSceneOffset;
   lastSceneOffset = sceneOffset;
 
-  for (const elem of groundElements) {
-    elem.x += deltaOffset * normX;
-    elem.y += deltaOffset * normY;
-    elem.x = ((elem.x % 1.0) + 1.0) % 1.0;
-    elem.y = ((elem.y % 1.0) + 1.0) % 1.0;
+  // 待机模式下场景元素移动
+  if (gameState === 'idle') {
+    for (const elem of groundElements) {
+      elem.x += deltaOffset * normX;
+      elem.y += deltaOffset * normY;
+      elem.x = ((elem.x % 1.0) + 1.0) % 1.0;
+      elem.y = ((elem.y % 1.0) + 1.0) % 1.0;
+    }
   }
 
   // 只绘制在边界内的元素
   for (const elem of groundElements) {
     drawGroundElement(groundQuad, elem.type, elem.x, elem.y);
   }
-  const stickPt = getDiamondCenter(groundQuad);
-  drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime, groundQuad);
+
+  // 冒险模式：绘制怪物
+  if (gameState === 'adventure' || gameState === 'gameover') {
+    for (const m of monsters) {
+      if (m.x >= 0.02 && m.x <= 0.98 && m.y >= 0.02 && m.y <= 0.98) {
+        const pt = getGroundPoint(groundQuad, m.x, m.y);
+        drawZombie(pt.x, pt.y, pt.scale, m, walkTime);
+      }
+    }
+  }
+
+  // 绘制玩家
+  if (gameState === 'adventure' || gameState === 'gameover') {
+    const playerPt = getGroundPoint(groundQuad, playerX, playerY);
+    drawStickMan(playerPt.x, playerPt.y, playerPt.scale, walkTime, groundQuad);
+  } else {
+    const stickPt = getDiamondCenter(groundQuad);
+    drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime, groundQuad);
+  }
 }
 
 // ==================== 点击检测 ====================
@@ -905,6 +1267,7 @@ wx.onTouchEnd((e) => {
         if (tx >= ix && tx <= ix + iconSize) {
           currentClass = classKeys[i];
           console.log(`切换职阶: ${CLASS_TYPES[currentClass].name}`);
+          saveGameData(); // 保存职阶选择
           touchStart = null;
           return;
         }
@@ -919,6 +1282,7 @@ wx.onTouchEnd((e) => {
       const currentIdx = keys.indexOf(currentClass);
       currentClass = keys[(currentIdx + 1) % keys.length];
       console.log(`切换职阶: ${CLASS_TYPES[currentClass].name}`);
+      saveGameData(); // 保存职阶选择
       touchStart = null;
       return;
     }
@@ -930,6 +1294,7 @@ wx.onTouchEnd((e) => {
       if (palacePairs[name]) {
         currentPalace = name;
         rotX = 0; rotY = 0; rotZ = Math.PI;
+        saveGameData(); // 保存宫位选择
       }
     }
   }
