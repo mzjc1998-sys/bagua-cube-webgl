@@ -1,13 +1,11 @@
 /**
  * 八卦立方体 - 微信小游戏
- * 正六边形投影，乾在中心
+ * 宫视角模式：点击顶点切换视角
  */
 
-// 获取 Canvas
 const canvas = wx.createCanvas();
 const ctx = canvas.getContext('2d');
 
-// 系统信息
 const sysInfo = wx.getSystemInfoSync();
 const W = sysInfo.windowWidth;
 const H = sysInfo.windowHeight;
@@ -16,172 +14,300 @@ const DPR = sysInfo.pixelRatio;
 canvas.width = W * DPR;
 canvas.height = H * DPR;
 
+// =============== 颜色定义 ===============
+const COLOR_YANG = '#cfd6df';   // 阳爻（浅色）
+const COLOR_YIN = '#1f2329';    // 阴爻（深色）
+const COLOR_NODE = '#0b0f14';   // 顶点
+const COLOR_BG = '#eef2f7';     // 背景
+
 // =============== 八卦定义 ===============
-const TRIGRAMS = {
-  '000': { name: '乾' },
-  '001': { name: '兑' },
-  '010': { name: '离' },
-  '011': { name: '震' },
-  '100': { name: '巽' },
-  '101': { name: '坎' },
-  '110': { name: '艮' },
-  '111': { name: '坤' }
+const bitsToName = {
+  '000': '乾', '001': '兑', '010': '离', '011': '震',
+  '100': '巽', '101': '坎', '110': '艮', '111': '坤'
 };
 
-// =============== 六边形布局 ===============
-const R = Math.min(W, H) * 0.35;
-const centerX = W / 2;
-const centerY = H / 2;
+// =============== 顶点坐标 ===============
+// 按照原始代码的映射：x=bit2, y=bit0, z=bit1
+const trigramPos = {};
+const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
 
-const sin60 = Math.sqrt(3) / 2;
-const cos60 = 0.5;
+for (const bits of trigramBits) {
+  const b0 = bits[0], b1 = bits[1], b2 = bits[2];
+  const x = (b2 === '1') ? 1 : -1;
+  const y = (b0 === '1') ? 1 : -1;
+  const z = (b1 === '1') ? 1 : -1;
+  trigramPos[bits] = { x, y, z, bits, name: bitsToName[bits] };
+}
 
-const positions = {
-  '000': { x: 0, y: 0, z: 1 },
-  '101': { x: 0, y: -R, z: 0 },
-  '100': { x: -R * sin60, y: -R * cos60, z: 0 },
-  '001': { x: R * sin60, y: -R * cos60, z: 0 },
-  '110': { x: -R * sin60, y: R * cos60, z: 0 },
-  '010': { x: 0, y: R, z: 0 },
-  '011': { x: R * sin60, y: R * cos60, z: 0 },
-  '111': { x: 0, y: 0, z: -1 }
-};
-
-// =============== 立方体边 ===============
-// 汉明距离为1的顶点相连，但排除 000-100, 000-001, 000-010
+// =============== 边定义 ===============
+// 汉明距离为1的顶点相连，记录是哪一位不同（用于颜色）
 const edges = [];
-const bitsList = Object.keys(TRIGRAMS);
-
-// 要排除的边
-const excludeEdges = [
-  ['000', '100'],
-  ['000', '001'],
-  ['000', '010']
-];
-
-function isExcluded(a, b) {
-  for (const [e1, e2] of excludeEdges) {
-    if ((a === e1 && b === e2) || (a === e2 && b === e1)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-for (let i = 0; i < bitsList.length; i++) {
-  for (let j = i + 1; j < bitsList.length; j++) {
-    const a = bitsList[i];
-    const b = bitsList[j];
-
-    // 排除指定的边
-    if (isExcluded(a, b)) continue;
-
-    let diff = 0;
+for (let i = 0; i < trigramBits.length; i++) {
+  for (let j = i + 1; j < trigramBits.length; j++) {
+    const a = trigramBits[i];
+    const b = trigramBits[j];
+    let diffBit = -1;
+    let diffCount = 0;
     for (let k = 0; k < 3; k++) {
-      if (a[k] !== b[k]) diff++;
+      if (a[k] !== b[k]) {
+        diffBit = k;
+        diffCount++;
+      }
     }
-    if (diff === 1) {
-      edges.push([a, b]);
+    if (diffCount === 1) {
+      // val: 这条边上变化的那个bit的值（决定颜色）
+      const val = parseInt(a[diffBit]);
+      edges.push({ a, b, diffBit, val });
     }
   }
 }
 
-// =============== 绘制函数 ===============
+// =============== 宫视角定义 ===============
+// 每个宫有前后两个卦（体对角线上的两个顶点）
+const palacePairs = {
+  '乾': ['000', '111'],
+  '坤': ['111', '000'],
+  '兑': ['001', '110'],
+  '艮': ['110', '001'],
+  '离': ['010', '101'],
+  '坎': ['101', '010'],
+  '震': ['011', '100'],
+  '巽': ['100', '011']
+};
+
+// 当前宫视角
+let currentPalace = '乾';
+
+// =============== 向量工具 ===============
+function vecSub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
+function vecScale(v, s) { return { x: v.x * s, y: v.y * s, z: v.z * s }; }
+function vecLength(v) { return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+function vecNorm(v) { const L = vecLength(v) || 1; return { x: v.x / L, y: v.y / L, z: v.z / L }; }
+
+// =============== 宫视角矩阵计算 ===============
+function neighborBitsForUp(bits) {
+  const b0 = bits[0], b1 = bits[1], b2 = bits[2];
+  const flipped = b1 === '0' ? '1' : '0';
+  return '' + b0 + flipped + b2;
+}
+
+function basisForPalace(frontBits, backBits) {
+  const pA = trigramPos[frontBits];
+  const pB = trigramPos[backBits];
+  const forward = vecNorm(vecSub(pB, pA));
+
+  const qBits = neighborBitsForUp(frontBits);
+  const q = trigramPos[qBits];
+  let upCand = vecSub(q, pA);
+  const projLen = upCand.x * forward.x + upCand.y * forward.y + upCand.z * forward.z;
+  upCand = { x: upCand.x - forward.x * projLen, y: upCand.y - forward.y * projLen, z: upCand.z - forward.z * projLen };
+  const up = vecNorm(upCand);
+
+  let right = {
+    x: up.y * forward.z - up.z * forward.y,
+    y: up.z * forward.x - up.x * forward.z,
+    z: up.x * forward.y - up.y * forward.x
+  };
+  right = vecNorm(right);
+
+  return [
+    right.x, right.y, right.z,
+    up.x, up.y, up.z,
+    forward.x, forward.y, forward.z
+  ];
+}
+
+// 计算所有宫的变换矩阵
+const palaceBases = {};
+for (const name in palacePairs) {
+  const [f, b] = palacePairs[name];
+  palaceBases[name] = basisForPalace(f, b);
+}
+
+// =============== 3D变换 ===============
+let rotX = 0;
+let rotY = 0;
+let rotZ = Math.PI;
+const zoom = 1.0;
+
+function applyPalaceMat(p) {
+  const m = palaceBases[currentPalace];
+  if (!m) return p;
+  return {
+    x: m[0] * p.x + m[1] * p.y + m[2] * p.z,
+    y: m[3] * p.x + m[4] * p.y + m[5] * p.z,
+    z: m[6] * p.x + m[7] * p.y + m[8] * p.z
+  };
+}
+
+function rotate3D(p) {
+  let v = applyPalaceMat(p);
+  let x = v.x * zoom;
+  let y = v.y * zoom;
+  let z = v.z * zoom;
+
+  const cy = Math.cos(rotY), sy = Math.sin(rotY);
+  let x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  const cx = Math.cos(rotX), sx = Math.sin(rotX);
+  let y2 = y * cx - z1 * sx, z2 = y * sx + z1 * cx;
+  const cz = Math.cos(rotZ), sz = Math.sin(rotZ);
+  let x3 = x1 * cz - y2 * sz, y3 = x1 * sz + y2 * cz;
+
+  return { x: x3, y: y3, z: z2 };
+}
+
+function project(p) {
+  const pr = rotate3D(p);
+  const scale = Math.min(W, H) * 0.35;
+  return {
+    x: pr.x * scale + W / 2,
+    y: -pr.y * scale + H / 2,
+    z: pr.z
+  };
+}
+
+// =============== 投影缓存 ===============
+let projCache = new Map();
+
+function updateProjCache() {
+  projCache.clear();
+  for (const bits in trigramPos) {
+    const p = project(trigramPos[bits]);
+    projCache.set(bits, p);
+  }
+}
+
+// =============== 碰撞检测 ===============
+function hitTest(px, py) {
+  let best = null;
+  let bestD2 = Infinity;
+  const hitRadius = 25;
+
+  for (const bits in trigramPos) {
+    const p = projCache.get(bits);
+    if (!p) continue;
+    const dx = px - p.x;
+    const dy = py - p.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < hitRadius * hitRadius && d2 < bestD2) {
+      bestD2 = d2;
+      best = bits;
+    }
+  }
+  return best;
+}
+
+// =============== 绘制 ===============
 function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
   // 背景
-  ctx.fillStyle = '#ECEEF1';
+  ctx.fillStyle = COLOR_BG;
   ctx.fillRect(0, 0, W, H);
 
-  // 先画后面的边（浅色）- 与坤相连的边
-  ctx.strokeStyle = '#BBBBBB';
-  ctx.lineWidth = 1.5;
+  updateProjCache();
 
-  for (const [a, b] of edges) {
-    if (a === '111' || b === '111') {
-      const p1 = positions[a];
-      const p2 = positions[b];
-      ctx.beginPath();
-      ctx.moveTo(centerX + p1.x, centerY + p1.y);
-      ctx.lineTo(centerX + p2.x, centerY + p2.y);
-      ctx.stroke();
-    }
-  }
+  // 按深度排序边
+  const sortedEdges = edges.map(e => {
+    const pa = projCache.get(e.a);
+    const pb = projCache.get(e.b);
+    const avgZ = (pa.z + pb.z) / 2;
+    return { ...e, pa, pb, avgZ };
+  }).sort((a, b) => a.avgZ - b.avgZ);
 
-  // 外圈的边（六边形边）- 深色
-  ctx.strokeStyle = '#333333';
-  ctx.lineWidth = 2;
-
-  for (const [a, b] of edges) {
-    if (a === '111' || b === '111') continue;
-    if (a === '000' || b === '000') continue;
-
-    const p1 = positions[a];
-    const p2 = positions[b];
+  // 画边
+  for (const e of sortedEdges) {
     ctx.beginPath();
-    ctx.moveTo(centerX + p1.x, centerY + p1.y);
-    ctx.lineTo(centerX + p2.x, centerY + p2.y);
+    ctx.moveTo(e.pa.x, e.pa.y);
+    ctx.lineTo(e.pb.x, e.pb.y);
+
+    // 根据 val 决定颜色（0=阳爻浅色，1=阴爻深色）
+    ctx.strokeStyle = e.val === 0 ? COLOR_YANG : COLOR_YIN;
+    ctx.lineWidth = e.avgZ > 0 ? 3 : 2;
     ctx.stroke();
   }
 
-  // 与乾相连的边（如果有的话）
-  for (const [a, b] of edges) {
-    if (a === '000' || b === '000') {
-      const p1 = positions[a];
-      const p2 = positions[b];
-      ctx.strokeStyle = '#333333';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(centerX + p1.x, centerY + p1.y);
-      ctx.lineTo(centerX + p2.x, centerY + p2.y);
-      ctx.stroke();
-    }
-  }
+  // 按深度排序顶点
+  const sortedVerts = trigramBits.map(bits => {
+    const p = projCache.get(bits);
+    return { bits, p, name: bitsToName[bits] };
+  }).sort((a, b) => a.p.z - b.p.z);
 
-  // 画顶点
-  const sortedBits = Object.keys(positions).sort((a, b) => positions[a].z - positions[b].z);
+  // 画顶点和标签
+  for (const v of sortedVerts) {
+    const p = v.p;
+    const isFront = p.z > 0;
+    const radius = isFront ? 10 : 8;
 
-  for (const bits of sortedBits) {
-    const pos = positions[bits];
-
-    // 坤在后面，跳过
-    if (bits === '111') continue;
-
-    const px = centerX + pos.x;
-    const py = centerY + pos.y;
-
-    // 顶点圆点
-    const radius = bits === '000' ? 12 : 10;
-    ctx.fillStyle = '#222222';
+    // 顶点
+    ctx.fillStyle = COLOR_NODE;
     ctx.beginPath();
-    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // 只显示二进制编码，不显示卦名
-    ctx.fillStyle = '#333333';
-    ctx.font = '15px sans-serif';
+    // 标签
+    ctx.fillStyle = COLOR_NODE;
+    ctx.font = isFront ? '14px sans-serif' : '12px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    let labelX = px;
-    let labelY = py - radius - 12;
-
-    // 乾和下排的标签放下面
-    if (bits === '000' || bits === '110' || bits === '010' || bits === '011') {
-      labelY = py + radius + 15;
-    }
-
-    ctx.fillText(bits, labelX, labelY);
+    // 标签位置
+    const labelY = p.y - radius - 12;
+    ctx.fillText(`${v.name} ${v.bits}`, p.x, labelY);
   }
+
+  // 显示当前宫
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 30);
+  ctx.font = '12px sans-serif';
+  ctx.fillText('点击顶点切换视角', 15, 50);
 }
 
-// =============== 触摸交互 ===============
+// =============== 触摸处理 ===============
+let touchStart = null;
+
 wx.onTouchStart((e) => {
-  console.log('Touch:', e.touches[0].clientX, e.touches[0].clientY);
+  if (e.touches.length > 0) {
+    touchStart = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      t: Date.now()
+    };
+  }
+});
+
+wx.onTouchEnd((e) => {
+  if (!touchStart || !e.changedTouches.length) return;
+
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+  const dt = Date.now() - touchStart.t;
+
+  // 判断是点击还是拖动
+  if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+    // 点击：检测是否点中顶点
+    const hit = hitTest(touch.clientX, touch.clientY);
+    if (hit) {
+      // 切换到对应的宫视角
+      const name = bitsToName[hit];
+      if (palacePairs[name]) {
+        currentPalace = name;
+        rotX = 0;
+        rotY = 0;
+        rotZ = Math.PI;
+        draw();
+      }
+    }
+  }
+
+  touchStart = null;
 });
 
 // =============== 启动 ===============
 console.log('八卦立方体初始化...');
+console.log('当前宫:', currentPalace);
 draw();
 console.log('绘制完成');
