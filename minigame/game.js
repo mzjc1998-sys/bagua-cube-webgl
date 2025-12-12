@@ -1,6 +1,8 @@
 /**
  * 八卦立方体 - 微信小游戏
  * 宫视角模式：点击顶点切换视角
+ * 顶点颜色：0白1黑（根据0/1数量决定灰度）
+ * 边颜色：阳爻白，阴爻黑
  */
 
 const canvas = wx.createCanvas();
@@ -15,10 +17,21 @@ canvas.width = W * DPR;
 canvas.height = H * DPR;
 
 // =============== 颜色定义 ===============
-const COLOR_YANG = '#cfd6df';   // 阳爻（浅色）
-const COLOR_YIN = '#1f2329';    // 阴爻（深色）
-const COLOR_NODE = '#0b0f14';   // 顶点
-const COLOR_BG = '#eef2f7';     // 背景
+const COLOR_BG = '#eef2f7';
+
+// 根据1的数量计算灰度（0个1=白，3个1=黑）
+function getNodeColor(bits) {
+  let ones = 0;
+  for (const c of bits) if (c === '1') ones++;
+  // 0个1 = 白(255), 3个1 = 黑(0)
+  const gray = Math.round(255 * (1 - ones / 3));
+  return `rgb(${gray},${gray},${gray})`;
+}
+
+// 边的颜色：阳爻(0)=白，阴爻(1)=黑
+function getEdgeColor(val) {
+  return val === 0 ? '#FFFFFF' : '#000000';
+}
 
 // =============== 八卦定义 ===============
 const bitsToName = {
@@ -27,7 +40,6 @@ const bitsToName = {
 };
 
 // =============== 顶点坐标 ===============
-// 按照原始代码的映射：x=bit2, y=bit0, z=bit1
 const trigramPos = {};
 const trigramBits = ['000', '001', '010', '011', '100', '101', '110', '111'];
 
@@ -40,7 +52,8 @@ for (const bits of trigramBits) {
 }
 
 // =============== 边定义 ===============
-// 汉明距离为1的顶点相连，记录是哪一位不同（用于颜色）
+// 边的颜色：使用第一个顶点在变化位上的值
+// 0=阳爻(白)，1=阴爻(黑)
 const edges = [];
 for (let i = 0; i < trigramBits.length; i++) {
   for (let j = i + 1; j < trigramBits.length; j++) {
@@ -55,7 +68,7 @@ for (let i = 0; i < trigramBits.length; i++) {
       }
     }
     if (diffCount === 1) {
-      // val: 这条边上变化的那个bit的值（决定颜色）
+      // 边的值：第一个顶点在变化位上的bit值
       const val = parseInt(a[diffBit]);
       edges.push({ a, b, diffBit, val });
     }
@@ -63,7 +76,6 @@ for (let i = 0; i < trigramBits.length; i++) {
 }
 
 // =============== 宫视角定义 ===============
-// 每个宫有前后两个卦（体对角线上的两个顶点）
 const palacePairs = {
   '乾': ['000', '111'],
   '坤': ['111', '000'],
@@ -75,12 +87,10 @@ const palacePairs = {
   '巽': ['100', '011']
 };
 
-// 当前宫视角
 let currentPalace = '乾';
 
 // =============== 向量工具 ===============
 function vecSub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
-function vecScale(v, s) { return { x: v.x * s, y: v.y * s, z: v.z * s }; }
 function vecLength(v) { return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
 function vecNorm(v) { const L = vecLength(v) || 1; return { x: v.x / L, y: v.y / L, z: v.z / L }; }
 
@@ -117,7 +127,6 @@ function basisForPalace(frontBits, backBits) {
   ];
 }
 
-// 计算所有宫的变换矩阵
 const palaceBases = {};
 for (const name in palacePairs) {
   const [f, b] = palacePairs[name];
@@ -221,9 +230,20 @@ function draw() {
     ctx.moveTo(e.pa.x, e.pa.y);
     ctx.lineTo(e.pb.x, e.pb.y);
 
-    // 根据 val 决定颜色（0=阳爻浅色，1=阴爻深色）
-    ctx.strokeStyle = e.val === 0 ? COLOR_YANG : COLOR_YIN;
-    ctx.lineWidth = e.avgZ > 0 ? 3 : 2;
+    // 阳爻(0)=白色，阴爻(1)=黑色
+    ctx.strokeStyle = getEdgeColor(e.val);
+    ctx.lineWidth = e.avgZ > 0 ? 4 : 3;
+
+    // 为白色边添加黑色描边以便在浅色背景上可见
+    if (e.val === 0) {
+      ctx.save();
+      ctx.strokeStyle = '#888888';
+      ctx.lineWidth = e.avgZ > 0 ? 6 : 5;
+      ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = e.avgZ > 0 ? 3 : 2;
+    }
     ctx.stroke();
   }
 
@@ -237,27 +257,40 @@ function draw() {
   for (const v of sortedVerts) {
     const p = v.p;
     const isFront = p.z > 0;
-    const radius = isFront ? 10 : 8;
+    const radius = isFront ? 12 : 9;
 
-    // 顶点
-    ctx.fillStyle = COLOR_NODE;
+    // 顶点颜色：根据1的数量
+    const nodeColor = getNodeColor(v.bits);
+
+    // 画描边（让白色顶点可见）
     ctx.beginPath();
-    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, radius + 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#666666';
     ctx.fill();
 
-    // 标签
-    ctx.fillStyle = COLOR_NODE;
-    ctx.font = isFront ? '14px sans-serif' : '12px sans-serif';
+    // 画顶点
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = nodeColor;
+    ctx.fill();
+
+    // 标签颜色：与顶点相反以便可读
+    let ones = 0;
+    for (const c of v.bits) if (c === '1') ones++;
+    const labelColor = ones >= 2 ? '#FFFFFF' : '#000000';
+
+    ctx.fillStyle = labelColor;
+    ctx.font = isFront ? 'bold 13px sans-serif' : '11px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     // 标签位置
-    const labelY = p.y - radius - 12;
+    const labelY = p.y - radius - 14;
     ctx.fillText(`${v.name} ${v.bits}`, p.x, labelY);
   }
 
   // 显示当前宫
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
   ctx.font = 'bold 16px sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 30);
@@ -286,12 +319,9 @@ wx.onTouchEnd((e) => {
   const dy = touch.clientY - touchStart.y;
   const dt = Date.now() - touchStart.t;
 
-  // 判断是点击还是拖动
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    // 点击：检测是否点中顶点
     const hit = hitTest(touch.clientX, touch.clientY);
     if (hit) {
-      // 切换到对应的宫视角
       const name = bitsToName[hit];
       if (palacePairs[name]) {
         currentPalace = name;
@@ -308,6 +338,5 @@ wx.onTouchEnd((e) => {
 
 // =============== 启动 ===============
 console.log('八卦立方体初始化...');
-console.log('当前宫:', currentPalace);
 draw();
 console.log('绘制完成');
