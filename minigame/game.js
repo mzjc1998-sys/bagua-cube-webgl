@@ -18,6 +18,148 @@ canvas.height = H * DPR;
 // ==================== 颜色配置 ====================
 const COLOR_BG = '#eef2f7';
 
+// ==================== 音效系统 ====================
+let audioContext = null;
+let soundEnabled = true;
+
+// 初始化音频上下文
+function initAudio() {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) {
+    console.log('Web Audio API not supported');
+    soundEnabled = false;
+  }
+}
+
+// 播放音效
+function playSound(type) {
+  if (!soundEnabled || !audioContext) return;
+
+  // 确保音频上下文是运行状态
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+
+  const now = audioContext.currentTime;
+
+  switch (type) {
+    case 'attack':
+      // 攻击音效：短促的打击声
+      playSweep(200, 80, 0.08, 0.3);
+      break;
+    case 'hit':
+      // 击中音效：低沉撞击
+      playNoise(0.05, 0.4);
+      playTone(100, 0.05, 0.2, 'square');
+      break;
+    case 'crit':
+      // 暴击音效：更响亮的打击
+      playSweep(400, 100, 0.1, 0.5);
+      playTone(600, 0.05, 0.3, 'sine');
+      break;
+    case 'hurt':
+      // 受伤音效：低频撞击
+      playTone(80, 0.15, 0.4, 'sawtooth');
+      break;
+    case 'kill':
+      // 击杀音效：满足的叮声
+      playTone(880, 0.08, 0.2, 'sine');
+      setTimeout(() => playTone(1100, 0.08, 0.15, 'sine'), 50);
+      break;
+    case 'levelup':
+      // 升级音效：上升音阶
+      playTone(440, 0.1, 0.3, 'sine');
+      setTimeout(() => playTone(550, 0.1, 0.3, 'sine'), 100);
+      setTimeout(() => playTone(660, 0.1, 0.3, 'sine'), 200);
+      setTimeout(() => playTone(880, 0.15, 0.4, 'sine'), 300);
+      break;
+    case 'skill':
+      // 技能音效：能量释放
+      playSweep(300, 600, 0.15, 0.4);
+      playNoise(0.1, 0.2);
+      break;
+    case 'pickup':
+      // 拾取音效：清脆的叮
+      playTone(1200, 0.05, 0.2, 'sine');
+      break;
+    case 'heal':
+      // 回血音效：柔和上升
+      playTone(400, 0.1, 0.2, 'sine');
+      setTimeout(() => playTone(500, 0.1, 0.2, 'sine'), 80);
+      break;
+    case 'death':
+      // 死亡音效：下降音调
+      playSweep(400, 80, 0.5, 0.5);
+      break;
+    case 'start':
+      // 开始冒险音效
+      playTone(330, 0.1, 0.3, 'sine');
+      setTimeout(() => playTone(440, 0.1, 0.3, 'sine'), 100);
+      setTimeout(() => playTone(550, 0.15, 0.4, 'sine'), 200);
+      break;
+  }
+}
+
+// 播放单音
+function playTone(freq, duration, volume, type = 'sine') {
+  if (!audioContext) return;
+  const osc = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(volume, audioContext.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioContext.destination);
+  osc.start();
+  osc.stop(audioContext.currentTime + duration);
+}
+
+// 播放扫频
+function playSweep(startFreq, endFreq, duration, volume) {
+  if (!audioContext) return;
+  const osc = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(startFreq, audioContext.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(endFreq, audioContext.currentTime + duration);
+  gain.gain.setValueAtTime(volume, audioContext.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioContext.destination);
+  osc.start();
+  osc.stop(audioContext.currentTime + duration);
+}
+
+// 播放噪声（用于打击感）
+function playNoise(duration, volume) {
+  if (!audioContext) return;
+  const bufferSize = audioContext.sampleRate * duration;
+  const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  const noise = audioContext.createBufferSource();
+  const gain = audioContext.createGain();
+  noise.buffer = buffer;
+  gain.gain.setValueAtTime(volume, audioContext.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+  noise.connect(gain);
+  gain.connect(audioContext.destination);
+  noise.start();
+}
+
+// 切换音效
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  if (soundEnabled && !audioContext) {
+    initAudio();
+  }
+  return soundEnabled;
+}
+
 function getNodeColor(bits) {
   let ones = 0;
   for (const c of bits) if (c === '1') ones++;
@@ -717,6 +859,7 @@ function autoUseSkills() {
 
 // 使用技能
 function useSkill(skill) {
+  playSound('skill');
   const nearestMonster = findNearestMonster();
 
   // 触发技能使用动画
@@ -1561,6 +1704,7 @@ let playerTargetX = 0.5;
 let playerTargetY = 0.5;
 let isMoving = false;
 let lastAttackTime = 0;
+let lastHurtSoundTime = 0;  // 受伤音效冷却
 // 平滑移动方向
 let smoothDirX = 0;
 let smoothDirY = 0;
@@ -2248,6 +2392,8 @@ function drawMonsterHPBar(len, headY, headR, monster) {
 
 // 开始冒险
 function startAdventure() {
+  initAudio();  // 确保音频初始化
+  playSound('start');
   gameState = 'adventure';
   isPaused = false;
   adventureTime = 0;
@@ -2297,6 +2443,7 @@ function startAdventure() {
 // 结束冒险
 function endAdventure() {
   gameState = 'gameover';
+  playSound('death');
   console.log(`冒险结束！击杀: ${killCount}, 存活时间: ${Math.floor(adventureTime)}秒`);
 }
 
@@ -2353,6 +2500,28 @@ function drawPauseButton() {
   const gap = 4;
   ctx.fillRect(btnX + btnSize / 2 - barW - gap / 2, btnY + (btnSize - barH) / 2, barW, barH);
   ctx.fillRect(btnX + btnSize / 2 + gap / 2, btnY + (btnSize - barH) / 2, barW, barH);
+
+  return { x: btnX, y: btnY, size: btnSize };
+}
+
+// 绘制音效按钮
+function drawSoundButton() {
+  const btnSize = 36;
+  const btnX = W - btnSize - 10;
+  const btnY = 10;
+
+  // 按钮背景
+  ctx.fillStyle = soundEnabled ? 'rgba(0, 100, 0, 0.6)' : 'rgba(100, 0, 0, 0.6)';
+  ctx.beginPath();
+  ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 音效图标
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(soundEnabled ? '🔊' : '🔇', btnX + btnSize / 2, btnY + btnSize / 2);
 
   return { x: btnX, y: btnY, size: btnSize };
 }
@@ -2444,11 +2613,15 @@ function attackMonsters() {
       m.hitTimer = isCrit ? 0.25 : 0.15; // 暴击闪烁更久
       hitAny = true;
 
+      // 播放击中音效
+      playSound(isCrit ? 'crit' : 'hit');
+
       // 创建攻击特效
       createAttackEffect(m.x, m.y, damage, isCrit);
 
       if (m.hp <= 0) {
         // 怪物死亡
+        playSound('kill');
         playerExp += m.exp;
         killCount++;
         comboCount++;
@@ -2467,6 +2640,7 @@ function attackMonsters() {
           const newStats = getPlayerStats();
           playerMaxHP = newStats.hp;
           playerHP = Math.min(playerHP + 20, playerMaxHP);
+          playSound('levelup');
           console.log(`升级! Lv.${playerLevel}`);
           saveGameData(); // 保存升级数据
           // 10级时触发职业选择
@@ -2760,6 +2934,11 @@ function updateAdventure(dt) {
       const armorReduction = 1 - (stats.armor / 100);
       playerHP -= m.damage * dt * armorReduction;
       comboCount = 0;
+      // 受伤音效（0.3秒冷却避免刷屏）
+      if (walkTime - lastHurtSoundTime > 0.3) {
+        playSound('hurt');
+        lastHurtSoundTime = walkTime;
+      }
     }
 
     // 更新被击中闪烁
@@ -2964,10 +3143,13 @@ function updateCollectibles(dt) {
       // 拾取成功
       const info = COLLECTIBLE_TYPES[c.type];
       if (c.type === 'gold') {
+        playSound('pickup');
         goldCollected += c.value;
       } else if (c.type === 'health') {
+        playSound('heal');
         playerHP = Math.min(playerHP + c.value, playerMaxHP);
       } else if (c.type === 'exp') {
+        playSound('pickup');
         playerExp += c.value;
         // 检查升级
         while (playerExp >= expToNext) {
@@ -3730,6 +3912,9 @@ function draw() {
 
   // 底部 - 开始冒险按钮（只在待机模式显示）
   if (gameState === 'idle') {
+    // 右上角音效按钮
+    drawSoundButton();
+
     // 居中的大按钮
     const btnW = 140;
     const btnH = 50;
@@ -3800,7 +3985,8 @@ function draw() {
     ctx.fillStyle = '#00BCD4';
     ctx.fillText(`时间: ${Math.floor(adventureTime)}s`, W - 10, 54);
 
-    // 暂停按钮（右上角，战斗信息下方）
+    // 音效按钮和暂停按钮（右上角）
+    drawSoundButton();
     drawPauseButton();
 
     // 操作提示（顶部中央）
@@ -4578,6 +4764,19 @@ wx.onTouchEnd((e) => {
       return;
     }
 
+    touchStart = null;
+    return;
+  }
+
+  // 检查音效按钮（所有状态下都可用）
+  const soundBtnSize = 36;
+  const soundBtnX = W - soundBtnSize - 10;
+  const soundBtnY = 10;
+  const soundCenterX = soundBtnX + soundBtnSize / 2;
+  const soundCenterY = soundBtnY + soundBtnSize / 2;
+  const soundDist = Math.sqrt((tx - soundCenterX) ** 2 + (ty - soundCenterY) ** 2);
+  if (soundDist <= soundBtnSize / 2 + 5) {
+    toggleSound();
     touchStart = null;
     return;
   }
