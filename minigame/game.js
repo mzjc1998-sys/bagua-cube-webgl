@@ -181,7 +181,7 @@ function lerpAngle(a, b, t) {
 }
 
 // ==================== 角色系统 ====================
-// 默认角色（100级前使用最低属性）
+// 默认角色（10级前使用最低属性）
 const DEFAULT_CHARACTER = {
   name: '火柴人',
   color: '#666666',
@@ -198,7 +198,7 @@ const DEFAULT_CHARACTER = {
   description: '普通的火柴人'
 };
 
-// 职阶系统（100级后解锁）
+// 职阶系统（10级后解锁）
 // 参考以撒的结合设计：HP、移速、伤害、攻速、射程、幸运
 const CLASS_TYPES = {
   warrior: {
@@ -295,7 +295,7 @@ const CLASS_TYPES = {
   }
 };
 
-let currentClass = 'none'; // 100级前无职业
+let currentClass = 'none'; // 10级前无职业
 let playerLevel = 1;
 let playerExp = 0;
 let expToNext = 60;  // 第一级只需60经验（3只僵尸）
@@ -789,6 +789,99 @@ let passiveStacks = {}; // 被动技能层数
 let skillTooltip = null; // { skill, x, y } 当前显示的技能提示
 let longPressTimer = null; // 长按计时器
 let skillHitBoxes = []; // 技能槽点击区域
+
+// 职业选择状态
+let isSelectingClass = false;
+
+// 开始职业选择
+function startClassSelection() {
+  if (playerLevel >= 10 && currentClass === 'none') {
+    isSelectingClass = true;
+  }
+}
+
+// 选择职业
+function selectClass(classId) {
+  if (CLASS_TYPES[classId]) {
+    currentClass = classId;
+    isSelectingClass = false;
+    // 更新属性
+    const newStats = getPlayerStats();
+    playerMaxHP = newStats.hp;
+    playerHP = playerMaxHP; // 选择职业后满血
+    saveGameData();
+    console.log(`选择职业: ${CLASS_TYPES[classId].name}`);
+  }
+}
+
+// 绘制职业选择UI
+function drawClassSelectionUI() {
+  // 半透明背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 标题
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🎉 达到10级！选择你的职业', W / 2, 50);
+
+  // 职业卡片
+  const classKeys = Object.keys(CLASS_TYPES);
+  const cardW = 100;
+  const cardH = 140;
+  const gap = 10;
+  const totalW = classKeys.length * cardW + (classKeys.length - 1) * gap;
+  const startX = (W - totalW) / 2;
+  const startY = 90;
+
+  classKeys.forEach((classId, i) => {
+    const cls = CLASS_TYPES[classId];
+    const x = startX + i * (cardW + gap);
+    const y = startY;
+
+    // 卡片背景
+    ctx.fillStyle = 'rgba(40, 40, 50, 0.95)';
+    ctx.fillRect(x, y, cardW, cardH);
+
+    // 卡片边框
+    ctx.strokeStyle = cls.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, cardW, cardH);
+
+    // 职业颜色块
+    ctx.fillStyle = cls.color;
+    ctx.fillRect(x + 10, y + 10, cardW - 20, 40);
+
+    // 职业名称
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(cls.name, x + cardW / 2, y + 30);
+
+    // 属性简介
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#AAAAAA';
+    ctx.textAlign = 'left';
+    ctx.fillText(`HP: ${cls.stats.hp}`, x + 8, y + 65);
+    ctx.fillText(`伤害: ${cls.stats.dmg}`, x + 8, y + 80);
+    ctx.fillText(`攻速: ${cls.stats.atkSpd}s`, x + 8, y + 95);
+    ctx.fillText(`范围: ${(cls.stats.range * 100).toFixed(0)}`, x + 8, y + 110);
+
+    // 描述
+    ctx.fillStyle = '#888888';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(cls.description.slice(0, 8), x + cardW / 2, y + cardH - 10);
+  });
+
+  // 提示
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('点击选择职业', W / 2, H - 30);
+}
 
 // 获取可用的技能列表（排除已拥有的）
 function getAvailableSkills() {
@@ -1607,8 +1700,8 @@ function loadGameData() {
       if (typeof data.playerLevel === 'number' && data.playerLevel >= 1) {
         playerLevel = data.playerLevel;
       }
-      // 只有100级以上才能使用职业
-      if (playerLevel >= 100 && data.currentClass && CLASS_TYPES[data.currentClass]) {
+      // 只有10级以上才能使用职业
+      if (playerLevel >= 10 && data.currentClass && CLASS_TYPES[data.currentClass]) {
         currentClass = data.currentClass;
       } else {
         currentClass = 'none';
@@ -1664,8 +1757,8 @@ loadGameData();
 
 // 获取当前角色信息
 function getCurrentCharacter() {
-  // 100级后才能使用职业
-  if (playerLevel >= 100 && currentClass !== 'none' && CLASS_TYPES[currentClass]) {
+  // 10级后才能使用职业
+  if (playerLevel >= 10 && currentClass !== 'none' && CLASS_TYPES[currentClass]) {
     return CLASS_TYPES[currentClass];
   }
   return DEFAULT_CHARACTER;
@@ -2517,8 +2610,12 @@ function attackMonsters() {
           playerHP = Math.min(playerHP + 20, playerMaxHP);
           console.log(`升级! Lv.${playerLevel}`);
           saveGameData(); // 保存升级数据
+          // 10级时触发职业选择
+          if (playerLevel === 10 && currentClass === 'none') {
+            startClassSelection();
+          }
           // 触发技能选择
-          if (!isSelectingSkill) {
+          else if (!isSelectingSkill && !isSelectingClass) {
             startSkillSelection();
           }
         }
@@ -3533,7 +3630,7 @@ function drawStickMan(x, y, scale, time, groundQuad) {
     ctx.beginPath(); ctx.moveTo(rShoulderX, shoulderY); ctx.lineTo(rElbowX, rElbowY); ctx.lineTo(rHandX, rHandY); ctx.stroke();
   }
 
-  // 绘制装备和武器（100级后有职业才显示）
+  // 绘制装备和武器（10级后有职业才显示）
   const character = getCurrentCharacter();
 
   // 绘制护甲（只有有护甲时才绘制）
@@ -3892,6 +3989,11 @@ function draw() {
   // 技能选择UI（全屏覆盖）
   if (isSelectingSkill && skillChoices.length > 0) {
     drawSkillSelectionUI();
+  }
+
+  // 职业选择UI（全屏覆盖，优先级高于技能选择）
+  if (isSelectingClass) {
+    drawClassSelectionUI();
   }
 }
 
@@ -4577,7 +4679,30 @@ wx.onTouchEnd((e) => {
     return;
   }
 
-  // 技能选择状态 - 最高优先级
+  // 职业选择状态 - 最高优先级
+  if (isSelectingClass) {
+    const classKeys = Object.keys(CLASS_TYPES);
+    const cardW = 100;
+    const cardH = 140;
+    const gap = 10;
+    const totalW = classKeys.length * cardW + (classKeys.length - 1) * gap;
+    const startX = (W - totalW) / 2;
+    const startY = 90;
+
+    for (let i = 0; i < classKeys.length; i++) {
+      const x = startX + i * (cardW + gap);
+      const y = startY;
+      if (tx >= x && tx <= x + cardW && ty >= y && ty <= y + cardH) {
+        selectClass(classKeys[i]);
+        touchStart = null;
+        return;
+      }
+    }
+    touchStart = null;
+    return;
+  }
+
+  // 技能选择状态
   if (isSelectingSkill && skillChoices.length > 0) {
     // 检查是否点击了技能卡片
     for (let i = 0; i < skillChoices.length; i++) {
