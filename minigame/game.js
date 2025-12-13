@@ -1571,6 +1571,7 @@ function drawSkillEffects(groundQuad) {
 
 // ==================== 数据持久化 ====================
 const SAVE_KEY = 'bagua_game_save';
+const SAVE_VERSION = 2;  // 版本2: 新经验曲线
 
 // 保存游戏数据
 function saveGameData() {
@@ -1581,7 +1582,7 @@ function saveGameData() {
       playerExp,
       expToNext,
       currentPalace,
-      version: 1
+      version: SAVE_VERSION
     };
     wx.setStorageSync(SAVE_KEY, JSON.stringify(saveData));
     console.log('游戏数据已保存');
@@ -1596,6 +1597,12 @@ function loadGameData() {
     const saved = wx.getStorageSync(SAVE_KEY);
     if (saved) {
       const data = JSON.parse(saved);
+      // 检查版本，旧版本数据自动重置
+      if (!data.version || data.version < SAVE_VERSION) {
+        console.log('检测到旧版本存档，自动重置');
+        wx.removeStorageSync(SAVE_KEY);
+        return false;  // 使用默认值
+      }
       // 先加载等级
       if (typeof data.playerLevel === 'number' && data.playerLevel >= 1) {
         playerLevel = data.playerLevel;
