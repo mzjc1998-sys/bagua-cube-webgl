@@ -15,6 +15,80 @@ const DPR = sysInfo.pixelRatio;
 canvas.width = W * DPR;
 canvas.height = H * DPR;
 
+// ==================== 工具函数 ====================
+
+// 绘制按钮（通用）
+function drawButton(x, y, w, h, text, options = {}) {
+  const {
+    bgColor = 'rgba(80, 80, 80, 0.9)',
+    borderColor = '#888888',
+    textColor = '#FFFFFF',
+    fontSize = 14,
+    fontWeight = 'bold',
+    disabled = false,
+    gradient = null
+  } = options;
+
+  // 背景
+  if (gradient) {
+    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+    grad.addColorStop(0, gradient[0]);
+    grad.addColorStop(1, gradient[1]);
+    ctx.fillStyle = disabled ? 'rgba(80,80,80,0.5)' : grad;
+  } else {
+    ctx.fillStyle = disabled ? 'rgba(80,80,80,0.5)' : bgColor;
+  }
+  ctx.fillRect(x, y, w, h);
+
+  // 边框
+  ctx.strokeStyle = disabled ? '#666666' : borderColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+
+  // 文字
+  ctx.fillStyle = disabled ? '#888888' : textColor;
+  ctx.font = `${fontWeight} ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2, y + h / 2);
+
+  return { x, y, w, h };
+}
+
+// 绘制文本（通用）
+function drawText(text, x, y, options = {}) {
+  const {
+    color = '#FFFFFF',
+    fontSize = 14,
+    fontWeight = '',
+    align = 'center',
+    baseline = 'middle',
+    shadow = false
+  } = options;
+
+  ctx.font = `${fontWeight} ${fontSize}px sans-serif`.trim();
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+
+  if (shadow) {
+    ctx.fillStyle = '#000000';
+    ctx.fillText(text, x + 1, y + 1);
+  }
+
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+// 检查游戏状态
+function isInGame() {
+  return gameState === 'adventure' || gameState === 'dungeon' || gameState === 'boss_intro';
+}
+
+// 检查是否可以交互
+function canInteract() {
+  return !isPaused && !isSelectingSkill && !isSelectingClass && !isWeaponCreating;
+}
+
 // ==================== 颜色配置 ====================
 const COLOR_BG = '#eef2f7';
 
@@ -5382,8 +5456,7 @@ function showFloatingText(text, color) {
 
 // 更新冒险逻辑
 function updateAdventure(dt) {
-  // 支持冒险模式、地牢模式和剧情Boss战
-  if (gameState !== 'adventure' && gameState !== 'dungeon' && gameState !== 'boss_intro') return;
+  if (!isInGame()) return;
 
   adventureTime += dt;
 
@@ -7028,7 +7101,7 @@ const MAX_AMBIENT_PARTICLES = 30;
 // 后处理效果
 function drawPostProcessing() {
   // 暗角效果 (Vignette) - 增加氛围
-  if (gameState === 'adventure' || gameState === 'dungeon' || gameState === 'boss_intro') {
+  if (isInGame()) {
     const vignetteGradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.85);
     vignetteGradient.addColorStop(0, 'rgba(0,0,0,0)');
     vignetteGradient.addColorStop(0.7, 'rgba(0,0,0,0.15)');
@@ -7047,7 +7120,7 @@ function drawPostProcessing() {
   }
 
   // 环境粒子（漂浮的光点）
-  if (gameState === 'adventure' || gameState === 'idle' || gameState === 'dungeon') {
+  if (isInGame() || gameState === 'idle') {
     updateAndDrawAmbientParticles();
   }
 }
@@ -8884,21 +8957,11 @@ function drawWeaponCreateUI() {
   }
 
   // 返回按钮
-  const backBtnW = 60;
-  const backBtnH = 30;
-  const backBtnX = 15;
-  const backBtnY = 15;
-
-  ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
-  ctx.fillRect(backBtnX, backBtnY, backBtnW, backBtnH);
-  ctx.strokeStyle = '#888888';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(backBtnX, backBtnY, backBtnW, backBtnH);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '12px sans-serif';
-  ctx.fillText('← 返回', backBtnX + backBtnW / 2, backBtnY + backBtnH / 2);
-
-  weaponCreateButtons.back = { x: backBtnX, y: backBtnY, w: backBtnW, h: backBtnH };
+  weaponCreateButtons.back = drawButton(15, 15, 60, 30, '← 返回', {
+    bgColor: 'rgba(100, 100, 100, 0.8)',
+    fontSize: 12,
+    fontWeight: ''
+  });
 }
 
 // 绘制绘画画布
@@ -8966,39 +9029,21 @@ function drawWeaponDrawingCanvas() {
 
   // 按钮区域
   const btnY = canvasY + canvasH + 20;
-  const btnW = 100;
-  const btnH = 40;
-  const gap = 20;
-
-  // 清除按钮
-  const clearBtnX = W / 2 - btnW - gap / 2;
-  ctx.fillStyle = 'rgba(150, 80, 80, 0.9)';
-  ctx.fillRect(clearBtnX, btnY, btnW, btnH);
-  ctx.strokeStyle = '#FF6666';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(clearBtnX, btnY, btnW, btnH);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 14px sans-serif';
-  ctx.fillText('🗑️ 清除', clearBtnX + btnW / 2, btnY + btnH / 2);
-
-  // 下一步按钮
-  const nextBtnX = W / 2 + gap / 2;
+  const btnW = 100, btnH = 40, gap = 20;
   const canProceed = weaponDrawingPoints.length >= 10;
-  ctx.fillStyle = canProceed ? 'rgba(80, 150, 80, 0.9)' : 'rgba(80, 80, 80, 0.5)';
-  ctx.fillRect(nextBtnX, btnY, btnW, btnH);
-  ctx.strokeStyle = canProceed ? '#66FF66' : '#666666';
-  ctx.strokeRect(nextBtnX, btnY, btnW, btnH);
-  ctx.fillStyle = canProceed ? '#FFFFFF' : '#888888';
-  ctx.fillText('下一步 →', nextBtnX + btnW / 2, btnY + btnH / 2);
+
+  // 清除和下一步按钮
+  weaponCreateButtons.clear = drawButton(W / 2 - btnW - gap / 2, btnY, btnW, btnH, '🗑️ 清除', {
+    bgColor: 'rgba(150, 80, 80, 0.9)', borderColor: '#FF6666'
+  });
+  weaponCreateButtons.next = drawButton(W / 2 + gap / 2, btnY, btnW, btnH, '下一步 →', {
+    bgColor: 'rgba(80, 150, 80, 0.9)', borderColor: '#66FF66', disabled: !canProceed
+  });
 
   // 绘制点数统计
-  ctx.fillStyle = '#888888';
-  ctx.font = '11px sans-serif';
-  ctx.fillText(`笔画点数: ${weaponDrawingPoints.length}`, W / 2, btnY + btnH + 25);
+  drawText(`笔画点数: ${weaponDrawingPoints.length}`, W / 2, btnY + btnH + 25, { color: '#888888', fontSize: 11 });
 
   weaponCreateButtons.canvas = { x: canvasX, y: canvasY, w: canvasW, h: canvasH };
-  weaponCreateButtons.clear = { x: clearBtnX, y: btnY, w: btnW, h: btnH };
-  weaponCreateButtons.next = { x: nextBtnX, y: btnY, w: btnW, h: btnH };
 }
 
 // 绘制描述输入UI
