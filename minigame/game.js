@@ -1625,6 +1625,23 @@ function loadGameData() {
   return false;
 }
 
+// 重置游戏数据（新游戏）
+function resetGameData() {
+  try {
+    wx.removeStorageSync(SAVE_KEY);
+    playerLevel = 1;
+    playerExp = 0;
+    expToNext = 100;
+    currentClass = 'none';
+    currentPalace = '艮';
+    console.log('游戏数据已重置');
+    return true;
+  } catch (e) {
+    console.error('重置游戏数据失败:', e);
+    return false;
+  }
+}
+
 // 游戏启动时加载数据
 loadGameData();
 
@@ -3753,6 +3770,24 @@ function draw() {
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.font = '10px sans-serif';
     ctx.fillText('点击顶点可切换八卦视角', W / 2, btnY - 15);
+
+    // 重置数据按钮（右上角小按钮）
+    const resetBtnW = 60;
+    const resetBtnH = 24;
+    const resetBtnX = W - resetBtnW - 10;
+    const resetBtnY = 10;
+
+    ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
+    ctx.fillRect(resetBtnX, resetBtnY, resetBtnW, resetBtnH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(resetBtnX, resetBtnY, resetBtnW, resetBtnH);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('重置', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2);
   }
 
   // 冒险模式UI
@@ -4593,6 +4628,19 @@ wx.onTouchEnd((e) => {
 
   // 待机模式的交互
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+    // 检查是否点击了"重置"按钮（右上角）
+    if (gameState === 'idle') {
+      const resetBtnW = 60;
+      const resetBtnH = 24;
+      const resetBtnX = W - resetBtnW - 10;
+      const resetBtnY = 10;
+      if (tx >= resetBtnX && tx <= resetBtnX + resetBtnW && ty >= resetBtnY && ty <= resetBtnY + resetBtnH) {
+        resetGameData();
+        touchStart = null;
+        return;
+      }
+    }
+
     // 检查是否点击了"开始冒险"按钮（居中）
     const advBtnW = 140;
     const advBtnH = 50;
