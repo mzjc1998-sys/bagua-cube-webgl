@@ -2329,6 +2329,8 @@ function startAdventure() {
   skillChoices = [];
   playerInvincible = 0;
   console.log('冒险开始！');
+  // 开始时立即选择第一个技能
+  startSkillSelection();
 }
 
 // 结束冒险
