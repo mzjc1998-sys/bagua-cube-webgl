@@ -473,7 +473,6 @@ function startAdventure() {
   collectibles = [];
   collectibleSpawnTimer = 0;
   goldCollected = 0;
-  autoMoveTimer = 0;
   console.log('冒险开始！');
 }
 
@@ -612,16 +611,55 @@ function calculateMoveDirection() {
   let dirX = 0;
   let dirY = 0;
 
-  // 远离怪物
+  // 找出最近的怪物距离和危险怪物数量
+  let nearestMonster = null;
+  let nearestMonsterDist = Infinity;
+  let dangerCount = 0; // 危险范围内的怪物数量
+  const dangerZone = 0.18; // 危险距离
+  const attackRange = 0.15; // 攻击范围
+
   for (const m of monsters) {
     const dx = playerX - m.x;
     const dy = playerY - m.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 0.3 && dist > 0.001) {
-      // 距离越近，逃离力度越大
-      const force = (0.3 - dist) / 0.3;
-      dirX += (dx / dist) * force * 2;
-      dirY += (dy / dist) * force * 2;
+
+    if (dist < nearestMonsterDist) {
+      nearestMonsterDist = dist;
+      nearestMonster = m;
+    }
+
+    if (dist < dangerZone) {
+      dangerCount++;
+    }
+  }
+
+  // 判断是否安全（可以主动攻击）
+  // 安全条件：最近的怪物距离 > 攻击范围，且危险范围内怪物 <= 1
+  const isSafeToAttack = nearestMonsterDist > attackRange && dangerCount <= 1;
+
+  if (isSafeToAttack && nearestMonster && nearestMonsterDist < 0.5) {
+    // 安全时主动接近怪物攻击
+    const dx = nearestMonster.x - playerX;
+    const dy = nearestMonster.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 0.01) {
+      // 移动到攻击距离
+      const approachForce = 1.5;
+      dirX += (dx / dist) * approachForce;
+      dirY += (dy / dist) * approachForce;
+    }
+  } else {
+    // 危险时远离怪物
+    for (const m of monsters) {
+      const dx = playerX - m.x;
+      const dy = playerY - m.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 0.3 && dist > 0.001) {
+        // 距离越近，逃离力度越大
+        const force = (0.3 - dist) / 0.3;
+        dirX += (dx / dist) * force * 2;
+        dirY += (dy / dist) * force * 2;
+      }
     }
   }
 
@@ -665,7 +703,7 @@ function calculateMoveDirection() {
     }
   }
 
-  // 如果没有威胁，轻微随机移动
+  // 如果没有怪物，轻微随机移动
   if (monsters.length === 0) {
     dirX += Math.sin(walkTime * 0.5) * 0.3;
     dirY += Math.cos(walkTime * 0.7) * 0.3;
