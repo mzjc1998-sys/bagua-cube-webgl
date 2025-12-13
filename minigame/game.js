@@ -320,6 +320,9 @@ let playerTargetY = 0.5;
 let isMoving = false;
 let lastAttackTime = 0;
 let attackCooldown = 0.5; // 攻击冷却时间(秒)
+// 平滑移动方向
+let smoothDirX = 0;
+let smoothDirY = 0;
 let comboCount = 0;
 
 // 怪物数组
@@ -473,6 +476,9 @@ function startAdventure() {
   collectibles = [];
   collectibleSpawnTimer = 0;
   goldCollected = 0;
+  // 重置平滑方向
+  smoothDirX = 0;
+  smoothDirY = 0;
   console.log('冒险开始！');
 }
 
@@ -552,15 +558,20 @@ function updateAdventure(dt) {
     spawnMonster();
   }
 
-  // 自动移动AI - 每帧计算移动方向（平滑移动）
+  // 自动移动AI - 每帧计算移动方向
   const moveDir = calculateMoveDirection();
 
-  // 玩家持续移动
-  const playerSpeed = 0.012 * dt * 60; // 基于帧率的速度
-  if (moveDir.dx !== 0 || moveDir.dy !== 0) {
-    const len = Math.sqrt(moveDir.dx * moveDir.dx + moveDir.dy * moveDir.dy);
-    playerX += (moveDir.dx / len) * playerSpeed;
-    playerY += (moveDir.dy / len) * playerSpeed;
+  // 平滑方向过渡（关键：避免抖动）
+  const smoothFactor = 0.08; // 平滑系数，越小越平滑
+  smoothDirX += (moveDir.dx - smoothDirX) * smoothFactor;
+  smoothDirY += (moveDir.dy - smoothDirY) * smoothFactor;
+
+  // 玩家持续移动（使用平滑后的方向）
+  const playerSpeed = 0.012 * dt * 60;
+  const dirLen = Math.sqrt(smoothDirX * smoothDirX + smoothDirY * smoothDirY);
+  if (dirLen > 0.05) { // 只有方向足够明确时才移动
+    playerX += (smoothDirX / dirLen) * playerSpeed;
+    playerY += (smoothDirY / dirLen) * playerSpeed;
   }
 
   // 更新怪物（相对于玩家位置生成和移动）
