@@ -181,54 +181,99 @@ function lerpAngle(a, b, t) {
 }
 
 // ==================== 职阶系统 ====================
+// 参考以撒的结合设计：HP、移速、伤害、攻速、射程、幸运
 const CLASS_TYPES = {
   warrior: {
     name: '战士',
     color: '#C62828',
-    stats: { str: 10, agi: 5, int: 3, vit: 8 },
+    stats: {
+      hp: 100,      // 生命值
+      spd: 0.8,     // 移速 (1.0为基准)
+      dmg: 12,      // 伤害
+      atkSpd: 0.6,  // 攻速 (秒/次，越小越快)
+      range: 0.15,  // 攻击范围
+      luck: 5       // 幸运(暴击率%)
+    },
     weapon: 'sword',
     armor: 'heavy',
-    description: '近战物理输出，高生命值'
+    description: '均衡近战，高生命'
   },
   mage: {
     name: '法师',
     color: '#5E35B1',
-    stats: { str: 2, agi: 4, int: 12, vit: 4 },
+    stats: {
+      hp: 60,
+      spd: 0.7,
+      dmg: 18,      // 高伤害
+      atkSpd: 0.8,  // 攻击慢
+      range: 0.25,  // 远程
+      luck: 3
+    },
     weapon: 'staff',
     armor: 'robe',
-    description: '远程魔法输出，高智力'
+    description: '脆皮高伤，远程攻击'
   },
   archer: {
     name: '弓箭手',
     color: '#2E7D32',
-    stats: { str: 5, agi: 12, int: 4, vit: 5 },
+    stats: {
+      hp: 70,
+      spd: 1.0,     // 标准速度
+      dmg: 10,
+      atkSpd: 0.4,  // 攻击快
+      range: 0.22,  // 远程
+      luck: 8
+    },
     weapon: 'bow',
     armor: 'light',
-    description: '远程物理输出，高敏捷'
+    description: '灵活远程，高攻速'
   },
   assassin: {
     name: '刺客',
     color: '#37474F',
-    stats: { str: 7, agi: 10, int: 3, vit: 4 },
+    stats: {
+      hp: 50,       // 最脆
+      spd: 1.3,     // 最快
+      dmg: 15,      // 高伤害
+      atkSpd: 0.35, // 最快攻速
+      range: 0.12,  // 近战
+      luck: 20      // 高暴击
+    },
     weapon: 'dagger',
     armor: 'light',
-    description: '高爆发，高暴击'
+    description: '高速高暴击，极脆'
   },
   priest: {
     name: '牧师',
     color: '#FDD835',
-    stats: { str: 2, agi: 3, int: 10, vit: 7 },
+    stats: {
+      hp: 80,
+      spd: 0.85,
+      dmg: 6,       // 低伤害
+      atkSpd: 0.7,
+      range: 0.18,
+      luck: 10,
+      healRate: 2   // 每秒回血
+    },
     weapon: 'wand',
     armor: 'robe',
-    description: '治疗辅助，高恢复'
+    description: '持续回血，低伤害'
   },
   knight: {
     name: '骑士',
     color: '#1565C0',
-    stats: { str: 8, agi: 4, int: 4, vit: 12 },
+    stats: {
+      hp: 150,      // 最高血量
+      spd: 0.6,     // 最慢
+      dmg: 10,
+      atkSpd: 0.8,  // 攻击慢
+      range: 0.18,
+      luck: 3,
+      armor: 30     // 减伤%
+    },
     weapon: 'lance',
     armor: 'heavy',
-    description: '坦克职业，高防御'
+    description: '超高血量，移速极慢'
   }
 };
 
@@ -295,15 +340,17 @@ loadGameData();
 function getPlayerStats() {
   const base = CLASS_TYPES[currentClass].stats;
   const levelBonus = playerLevel - 1;
+  // 等级成长：每级+5%基础属性
+  const levelMult = 1 + levelBonus * 0.05;
   return {
-    str: base.str + levelBonus * 2,
-    agi: base.agi + levelBonus * 2,
-    int: base.int + levelBonus * 2,
-    vit: base.vit + levelBonus * 2,
-    hp: (base.vit + levelBonus * 2) * 10,
-    mp: (base.int + levelBonus * 2) * 5,
-    atk: base.str + levelBonus * 2 + Math.floor(base.agi / 2),
-    def: Math.floor(base.vit / 2) + levelBonus
+    hp: Math.floor(base.hp * levelMult),
+    spd: base.spd,  // 移速不随等级变化
+    dmg: Math.floor(base.dmg * levelMult),
+    atkSpd: Math.max(0.15, base.atkSpd - levelBonus * 0.02), // 攻速随等级略微提升
+    range: base.range + levelBonus * 0.005, // 范围略微增加
+    luck: base.luck + levelBonus * 0.5,
+    healRate: base.healRate || 0,
+    armor: base.armor || 0
   };
 }
 
@@ -319,7 +366,6 @@ let playerTargetX = 0.5;
 let playerTargetY = 0.5;
 let isMoving = false;
 let lastAttackTime = 0;
-let attackCooldown = 0.5; // 攻击冷却时间(秒)
 // 平滑移动方向
 let smoothDirX = 0;
 let smoothDirY = 0;
@@ -1034,10 +1080,11 @@ function returnToIdle() {
 
 // 攻击怪物
 function attackMonsters() {
-  if (walkTime - lastAttackTime < attackCooldown) return;
-
   const stats = getPlayerStats();
-  const attackRange = 0.15; // 攻击范围
+
+  // 使用职业攻速
+  if (walkTime - lastAttackTime < stats.atkSpd) return;
+
   let hitAny = false;
 
   for (let i = monsters.length - 1; i >= 0; i--) {
@@ -1046,9 +1093,17 @@ function attackMonsters() {
     const dy = m.y - playerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist < attackRange) {
-      m.hp -= stats.atk;
-      m.hitTimer = 0.15;
+    // 使用职业攻击范围
+    if (dist < stats.range) {
+      // 计算伤害（含暴击）
+      let damage = stats.dmg;
+      const isCrit = Math.random() * 100 < stats.luck;
+      if (isCrit) {
+        damage = Math.floor(damage * 2); // 暴击2倍伤害
+      }
+
+      m.hp -= damage;
+      m.hitTimer = isCrit ? 0.25 : 0.15; // 暴击闪烁更久
       hitAny = true;
 
       if (m.hp <= 0) {
@@ -1105,11 +1160,18 @@ function updateAdventure(dt) {
   smoothDirY += (moveDir.dy - smoothDirY) * smoothFactor;
 
   // 玩家持续移动（使用平滑后的方向）
-  const playerSpeed = 0.012 * dt * 60;
+  const stats = getPlayerStats();
+  const baseSpeed = 0.007; // 降低基础速度
+  const playerSpeed = baseSpeed * stats.spd * dt * 60;
   const dirLen = Math.sqrt(smoothDirX * smoothDirX + smoothDirY * smoothDirY);
   if (dirLen > 0.05) { // 只有方向足够明确时才移动
     playerX += (smoothDirX / dirLen) * playerSpeed;
     playerY += (smoothDirY / dirLen) * playerSpeed;
+  }
+
+  // 牧师被动回血
+  if (stats.healRate > 0 && playerHP < playerMaxHP) {
+    playerHP = Math.min(playerHP + stats.healRate * dt, playerMaxHP);
   }
 
   // 更新怪物（相对于玩家位置生成和移动）
@@ -1125,7 +1187,9 @@ function updateAdventure(dt) {
 
     // 攻击玩家
     if (dist < 0.08) {
-      playerHP -= m.damage * dt;
+      // 骑士护甲减伤
+      const armorReduction = 1 - (stats.armor / 100);
+      playerHP -= m.damage * dt * armorReduction;
       comboCount = 0;
     }
 
@@ -1160,13 +1224,15 @@ function calculateMoveDirection() {
   let dirX = 0;
   let dirY = 0;
 
+  const stats = getPlayerStats();
+
   // 找出最近的怪物距离和危险怪物数量
   let nearestMonster = null;
   let nearestMonsterDist = Infinity;
   let dangerCount = 0; // 危险范围内的怪物数量
   const dangerZone = 0.25; // 危险距离（多怪物时需要躲避）
-  const attackRange = 0.15; // 攻击范围
-  const comfortZone = 0.12; // 战斗舒适区（保持这个距离战斗）
+  const attackRange = stats.range; // 使用职业攻击范围
+  const comfortZone = stats.range * 0.8; // 战斗舒适区
 
   for (const m of monsters) {
     const dx = playerX - m.x;
@@ -2051,7 +2117,7 @@ function draw() {
 
   // 面板背景
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(panelX - 5, panelY, 125, 95);
+  ctx.fillRect(panelX - 5, panelY, 125, 105);
 
   // 职阶名称
   ctx.fillStyle = classInfo.color;
@@ -2059,19 +2125,29 @@ function draw() {
   ctx.textAlign = 'left';
   ctx.fillText(`${classInfo.name} Lv.${playerLevel}`, panelX, panelY + 15);
 
-  // 属性
+  // 属性（以撒风格）
   ctx.fillStyle = '#FFFFFF';
   ctx.font = '10px sans-serif';
-  ctx.fillText(`力量:${stats.str} 敏捷:${stats.agi}`, panelX, panelY + 32);
-  ctx.fillText(`智力:${stats.int} 体力:${stats.vit}`, panelX, panelY + 45);
-  ctx.fillText(`HP:${stats.hp} MP:${stats.mp}`, panelX, panelY + 58);
-  ctx.fillText(`攻击:${stats.atk} 防御:${stats.def}`, panelX, panelY + 71);
+  ctx.fillText(`HP:${stats.hp} 伤害:${stats.dmg}`, panelX, panelY + 32);
+  ctx.fillText(`移速:${stats.spd.toFixed(1)} 攻速:${stats.atkSpd.toFixed(2)}s`, panelX, panelY + 45);
+  ctx.fillText(`射程:${(stats.range * 100).toFixed(0)} 暴击:${stats.luck.toFixed(0)}%`, panelX, panelY + 58);
+  // 显示特殊属性
+  if (stats.healRate > 0) {
+    ctx.fillStyle = '#90EE90';
+    ctx.fillText(`回血:${stats.healRate}/s`, panelX, panelY + 71);
+  } else if (stats.armor > 0) {
+    ctx.fillStyle = '#87CEEB';
+    ctx.fillText(`护甲:${stats.armor}%减伤`, panelX, panelY + 71);
+  } else {
+    ctx.fillStyle = '#AAAAAA';
+    ctx.fillText(classInfo.description, panelX, panelY + 71);
+  }
 
   // 切换提示（只在待机模式显示）
   if (gameState === 'idle') {
     ctx.fillStyle = '#AAAAAA';
     ctx.font = '9px sans-serif';
-    ctx.fillText('点击此处切换职阶', panelX, panelY + 88);
+    ctx.fillText('点击此处切换职阶', panelX, panelY + 98);
   }
 
   // 底部 - 职阶图标（只在待机模式显示）
@@ -2372,7 +2448,7 @@ wx.onTouchEnd((e) => {
     // 检查是否点击了右上角面板（切换到下一职阶）
     const panelX = W - 130;
     const panelY = 10;
-    if (tx >= panelX - 5 && tx <= panelX + 120 && ty >= panelY && ty <= panelY + 95) {
+    if (tx >= panelX - 5 && tx <= panelX + 120 && ty >= panelY && ty <= panelY + 105) {
       const keys = Object.keys(CLASS_TYPES);
       const currentIdx = keys.indexOf(currentClass);
       currentClass = keys[(currentIdx + 1) % keys.length];
