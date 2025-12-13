@@ -180,7 +180,25 @@ function lerpAngle(a, b, t) {
   return a + diff * t;
 }
 
-// ==================== 职阶系统 ====================
+// ==================== 角色系统 ====================
+// 默认角色（100级前使用最低属性）
+const DEFAULT_CHARACTER = {
+  name: '火柴人',
+  color: '#666666',
+  stats: {
+    hp: 50,       // 最低生命
+    spd: 0.7,     // 较慢移速
+    dmg: 5,       // 最低伤害
+    atkSpd: 0.8,  // 较慢攻速
+    range: 0.12,  // 最短射程
+    luck: 1       // 最低暴击
+  },
+  weapon: 'none',
+  armor: 'none',
+  description: '普通的火柴人'
+};
+
+// 职阶系统（100级后解锁）
 // 参考以撒的结合设计：HP、移速、伤害、攻速、射程、幸运
 const CLASS_TYPES = {
   warrior: {
@@ -277,7 +295,7 @@ const CLASS_TYPES = {
   }
 };
 
-let currentClass = 'warrior';
+let currentClass = 'none'; // 100级前无职业
 let playerLevel = 1;
 let playerExp = 0;
 let expToNext = 100;
@@ -336,19 +354,29 @@ function loadGameData() {
 // 游戏启动时加载数据
 loadGameData();
 
+// 获取当前角色信息
+function getCurrentCharacter() {
+  // 100级后才能使用职业
+  if (playerLevel >= 100 && currentClass !== 'none' && CLASS_TYPES[currentClass]) {
+    return CLASS_TYPES[currentClass];
+  }
+  return DEFAULT_CHARACTER;
+}
+
 // 计算当前属性（基础 + 等级加成）
 function getPlayerStats() {
-  const base = CLASS_TYPES[currentClass].stats;
+  const character = getCurrentCharacter();
+  const base = character.stats;
   const levelBonus = playerLevel - 1;
-  // 等级成长：每级+5%基础属性
-  const levelMult = 1 + levelBonus * 0.05;
+  // 等级成长：每级+3%基础属性（降低成长速度）
+  const levelMult = 1 + levelBonus * 0.03;
   return {
     hp: Math.floor(base.hp * levelMult),
     spd: base.spd,  // 移速不随等级变化
     dmg: Math.floor(base.dmg * levelMult),
-    atkSpd: Math.max(0.15, base.atkSpd - levelBonus * 0.02), // 攻速随等级略微提升
-    range: base.range + levelBonus * 0.005, // 范围略微增加
-    luck: base.luck + levelBonus * 0.5,
+    atkSpd: Math.max(0.2, base.atkSpd - levelBonus * 0.01), // 攻速随等级略微提升
+    range: base.range + levelBonus * 0.002, // 范围略微增加
+    luck: base.luck + levelBonus * 0.3,
     healRate: base.healRate || 0,
     armor: base.armor || 0
   };
@@ -1889,18 +1917,22 @@ function drawStickMan(x, y, scale, time, groundQuad) {
     ctx.beginPath(); ctx.moveTo(rShoulderX, shoulderY); ctx.lineTo(rElbowX, rElbowY); ctx.lineTo(rHandX, rHandY); ctx.stroke();
   }
 
-  // 绘制装备和武器
-  const classInfo = CLASS_TYPES[currentClass];
+  // 绘制装备和武器（100级后有职业才显示）
+  const character = getCurrentCharacter();
 
-  // 绘制护甲
-  drawArmor(classInfo.armor, 0, shoulderY, bodyLen, bodyW, headR, scale, classInfo.color);
+  // 绘制护甲（只有有护甲时才绘制）
+  if (character.armor && character.armor !== 'none') {
+    drawArmor(character.armor, 0, shoulderY, bodyLen, bodyW, headR, scale, character.color);
+  }
 
-  // 绘制武器（在前手）
-  const weaponAngle = Math.sin(t) * 0.3; // 武器随走路摆动
-  if (drawRightFirst) {
-    drawWeapon(classInfo.weapon, lHandX, lHandY, scale, weaponAngle, facingRight);
-  } else {
-    drawWeapon(classInfo.weapon, rHandX, rHandY, scale, weaponAngle, facingRight);
+  // 绘制武器（只有有武器时才绘制）
+  if (character.weapon && character.weapon !== 'none') {
+    const weaponAngle = Math.sin(t) * 0.3; // 武器随走路摆动
+    if (drawRightFirst) {
+      drawWeapon(character.weapon, lHandX, lHandY, scale, weaponAngle, facingRight);
+    } else {
+      drawWeapon(character.weapon, rHandX, rHandY, scale, weaponAngle, facingRight);
+    }
   }
 
   ctx.restore();
@@ -2110,7 +2142,7 @@ function draw() {
   }
 
   // 右上角 - 角色信息面板
-  const classInfo = CLASS_TYPES[currentClass];
+  const character = getCurrentCharacter();
   const stats = getPlayerStats();
   const panelX = W - 125;
   const panelY = 10;
@@ -2120,10 +2152,10 @@ function draw() {
   ctx.fillRect(panelX - 5, panelY, 120, 85);
 
   // 角色名称
-  ctx.fillStyle = classInfo.color;
+  ctx.fillStyle = character.color;
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`${classInfo.name} Lv.${playerLevel}`, panelX, panelY + 15);
+  ctx.fillText(`${character.name} Lv.${playerLevel}`, panelX, panelY + 15);
 
   // 属性
   ctx.fillStyle = '#FFFFFF';
@@ -2131,10 +2163,10 @@ function draw() {
   ctx.fillText(`HP:${stats.hp} 伤害:${stats.dmg}`, panelX, panelY + 32);
   ctx.fillText(`移速:${stats.spd.toFixed(1)} 攻速:${stats.atkSpd.toFixed(2)}s`, panelX, panelY + 45);
   ctx.fillText(`射程:${(stats.range * 100).toFixed(0)} 暴击:${stats.luck.toFixed(0)}%`, panelX, panelY + 58);
-  // 显示特殊属性
+  // 显示描述
   ctx.fillStyle = '#AAAAAA';
   ctx.font = '9px sans-serif';
-  ctx.fillText(classInfo.description, panelX, panelY + 74);
+  ctx.fillText(character.description, panelX, panelY + 74);
 
   // 底部 - 开始冒险按钮（只在待机模式显示）
   if (gameState === 'idle') {
