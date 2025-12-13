@@ -1059,6 +1059,421 @@ let skillEnhancements = {}; // 技能强化等级 { skillId: level } (0-3)
 const MAX_ENHANCEMENT_LEVEL = 3; // 最大强化等级
 const ENHANCEMENT_MULTIPLIERS = [1.0, 1.3, 1.7, 2.2]; // 各等级伤害倍率
 
+// 强化连携效果定义（每个技能的独特强化效果）
+const ENHANCEMENT_EFFECTS = {
+  // ===== 乾卦 天 =====
+  tianwei: {
+    1: { name: '雷震', desc: '攻击附带眩晕', effect: 'stun', value: 0.5 },
+    2: { name: '连锁雷', desc: '雷电链式伤害', effect: 'chain', value: 3 },
+    3: { name: '天罚', desc: '触发全屏雷击', effect: 'sky_strike', value: 50 }
+  },
+  tiandao: {
+    1: { name: '天命', desc: '暴击额外+10%', effect: 'crit_bonus', value: 10 },
+    2: { name: '天威', desc: '暴击伤害+50%', effect: 'crit_dmg', value: 0.5 },
+    3: { name: '天帝', desc: '暴击恢复生命', effect: 'crit_heal', value: 10 }
+  },
+  // ===== 坤卦 地 =====
+  dizhao: {
+    1: { name: '地刺', desc: '护盾反弹伤害', effect: 'reflect', value: 0.3 },
+    2: { name: '地震', desc: '护盾破时震击', effect: 'shield_burst', value: 30 },
+    3: { name: '大地之力', desc: '护盾后增伤50%', effect: 'empower', value: 0.5 }
+  },
+  dimai: {
+    1: { name: '厚土', desc: '回血+50%', effect: 'heal_bonus', value: 0.5 },
+    2: { name: '地脉涌动', desc: '低血时回血翻倍', effect: 'emergency_heal', value: 2 },
+    3: { name: '大地庇护', desc: '受伤减免15%', effect: 'damage_reduce', value: 0.15 }
+  },
+  // ===== 震卦 雷 =====
+  leiting: {
+    1: { name: '麻痹', desc: '命中减速敌人', effect: 'slow', value: 0.5 },
+    2: { name: '雷链', desc: '弹射3个敌人', effect: 'bounce', value: 3 },
+    3: { name: '雷云', desc: '召唤持续落雷', effect: 'thunder_cloud', value: 3 }
+  },
+  leishen: {
+    1: { name: '疾雷', desc: '攻速额外+15%', effect: 'atk_spd', value: 0.15 },
+    2: { name: '雷霆一击', desc: '每5击必暴', effect: 'guaranteed_crit', value: 5 },
+    3: { name: '雷神降临', desc: '攻击附带雷伤', effect: 'lightning_dmg', value: 15 }
+  },
+  // ===== 巽卦 风 =====
+  fengren: {
+    1: { name: '锐风', desc: '穿透数+1', effect: 'pierce', value: 1 },
+    2: { name: '回旋刃', desc: '风刃返回', effect: 'boomerang', value: true },
+    3: { name: '风暴', desc: '形成追踪龙卷', effect: 'tornado', value: 3 }
+  },
+  fengxing: {
+    1: { name: '疾风', desc: '闪现距离+30%', effect: 'blink_range', value: 0.3 },
+    2: { name: '残影', desc: '留下伤害残影', effect: 'afterimage', value: 20 },
+    3: { name: '风遁', desc: '闪现后无敌1秒', effect: 'blink_invuln', value: 1 }
+  },
+  // ===== 坎卦 水 =====
+  shuibo: {
+    1: { name: '寒冰', desc: '减速效果+30%', effect: 'slow_bonus', value: 0.3 },
+    2: { name: '冰封', desc: '几率冻结敌人', effect: 'freeze', value: 0.2 },
+    3: { name: '海啸', desc: '击退并造成伤害', effect: 'tsunami', value: 40 }
+  },
+  shuiyuan: {
+    1: { name: '甘露', desc: '受伤回血+50%', effect: 'lifesteal_bonus', value: 0.5 },
+    2: { name: '治愈之泉', desc: '周围队友也回血', effect: 'aoe_heal', value: true },
+    3: { name: '生命涌泉', desc: '低血时大量回复', effect: 'emergency_burst', value: 30 }
+  },
+  // ===== 离卦 火 =====
+  lieyan: {
+    1: { name: '灼烧', desc: '附加持续伤害', effect: 'burn', value: 5 },
+    2: { name: '爆燃', desc: '低血敌人+50%伤', effect: 'execute', value: 0.5 },
+    3: { name: '烈焰风暴', desc: '火焰持续燃烧', effect: 'fire_storm', value: 3 }
+  },
+  huoling: {
+    1: { name: '炎附', desc: '灼烧伤害+50%', effect: 'burn_bonus', value: 0.5 },
+    2: { name: '引燃', desc: '灼烧可传播', effect: 'spread_burn', value: true },
+    3: { name: '浴火', desc: '击杀回复生命', effect: 'kill_heal', value: 20 }
+  },
+  // ===== 艮卦 山 =====
+  shanshi: {
+    1: { name: '震击', desc: '命中眩晕0.5秒', effect: 'stun', value: 0.5 },
+    2: { name: '落石', desc: '额外召唤2块石', effect: 'multi_rock', value: 2 },
+    3: { name: '山崩', desc: '大范围震荡', effect: 'earthquake', value: 60 }
+  },
+  shanzhen: {
+    1: { name: '坚壁', desc: '减伤额外+10%', effect: 'armor_bonus', value: 10 },
+    2: { name: '磐石', desc: '低血时减伤翻倍', effect: 'last_stand', value: 2 },
+    3: { name: '不动如山', desc: '免疫控制效果', effect: 'cc_immune', value: true }
+  },
+  // ===== 兑卦 泽 =====
+  zezhao: {
+    1: { name: '泥沼', desc: '陷阱范围+30%', effect: 'trap_size', value: 0.3 },
+    2: { name: '爆裂', desc: '陷阱结束时爆炸', effect: 'trap_explode', value: 25 },
+    3: { name: '连环阱', desc: '自动放置多陷阱', effect: 'multi_trap', value: 3 }
+  },
+  zelu: {
+    1: { name: '恩泽', desc: '击杀回血+50%', effect: 'kill_heal_bonus', value: 0.5 },
+    2: { name: '生机', desc: '击杀回蓝', effect: 'kill_mp', value: 10 },
+    3: { name: '泽被苍生', desc: '击杀全屏回血', effect: 'aoe_kill_heal', value: 10 }
+  }
+};
+
+// 获取技能强化效果描述
+function getEnhancementEffectDesc(skillId, level) {
+  const effects = ENHANCEMENT_EFFECTS[skillId];
+  if (!effects || !effects[level]) return null;
+  return effects[level];
+}
+
+// 获取技能所有已解锁的强化效果
+function getActiveEnhancementEffects(skillId) {
+  const level = getSkillEnhancement(skillId);
+  const effects = [];
+  for (let i = 1; i <= level; i++) {
+    const effect = getEnhancementEffectDesc(skillId, i);
+    if (effect) effects.push(effect);
+  }
+  return effects;
+}
+
+// 检查技能是否有特定强化效果
+function hasEnhancementEffect(skillId, effectName) {
+  const effects = getActiveEnhancementEffects(skillId);
+  return effects.some(e => e.effect === effectName);
+}
+
+// 获取强化效果的值
+function getEnhancementEffectValue(skillId, effectName) {
+  const effects = getActiveEnhancementEffects(skillId);
+  const effect = effects.find(e => e.effect === effectName);
+  return effect ? effect.value : 0;
+}
+
+// 应用强化效果 - 触发额外特效
+function applyEnhancementEffects(skill, targets) {
+  const skillId = skill.id;
+  const level = getSkillEnhancement(skillId);
+  if (level === 0) return;
+
+  const effects = getActiveEnhancementEffects(skillId);
+
+  for (const effect of effects) {
+    switch (effect.effect) {
+      case 'stun':
+        // 眩晕效果 - 减速敌人
+        for (const target of targets) {
+          target.stunTimer = (target.stunTimer || 0) + effect.value;
+        }
+        break;
+
+      case 'chain':
+        // 连锁伤害
+        createChainLightning(targets, effect.value, skill.damage * 0.5);
+        break;
+
+      case 'sky_strike':
+        // 全屏雷击
+        createSkyStrike(effect.value);
+        break;
+
+      case 'burn':
+        // 灼烧持续伤害
+        for (const target of targets) {
+          target.burnDamage = effect.value;
+          target.burnTimer = 3;
+        }
+        break;
+
+      case 'execute':
+        // 斩杀效果 - 低血敌人额外伤害
+        for (const target of targets) {
+          if (target.hp < target.maxHp * 0.3) {
+            const extraDmg = Math.floor(skill.damage * effect.value);
+            target.hp -= extraDmg;
+            createDamageNumber(target.x, target.y, extraDmg, '#FF6600');
+          }
+        }
+        break;
+
+      case 'fire_storm':
+        // 火焰风暴
+        createFireStorm(playerX, playerY, effect.value);
+        break;
+
+      case 'slow':
+        // 减速效果
+        for (const target of targets) {
+          target.slowTimer = (target.slowTimer || 0) + 2;
+          target.slowAmount = Math.max(target.slowAmount || 0, effect.value);
+        }
+        break;
+
+      case 'bounce':
+        // 弹射效果
+        createBounceDamage(targets[0], effect.value, skill.damage * 0.7);
+        break;
+
+      case 'thunder_cloud':
+        // 雷云
+        createThunderCloud(playerX, playerY, effect.value);
+        break;
+
+      case 'freeze':
+        // 冻结效果
+        for (const target of targets) {
+          if (Math.random() < effect.value) {
+            target.freezeTimer = 1.5;
+          }
+        }
+        break;
+
+      case 'tsunami':
+        // 海啸击退
+        createTsunami(effect.value);
+        break;
+
+      case 'multi_rock':
+        // 多重落石
+        for (let i = 0; i < effect.value; i++) {
+          setTimeout(() => createFallingRock(skill.damage * 0.6), i * 200);
+        }
+        break;
+
+      case 'earthquake':
+        // 地震
+        createEarthquake(effect.value);
+        break;
+
+      case 'trap_explode':
+        // 陷阱爆炸 - 标记陷阱
+        skill.explodeOnEnd = true;
+        skill.explodeDamage = effect.value;
+        break;
+
+      case 'tornado':
+        // 龙卷风
+        createTornado(playerX, playerY, effect.value);
+        break;
+
+      case 'afterimage':
+        // 残影伤害
+        dealAOEDamage(effect.value, 0.15);
+        break;
+    }
+  }
+}
+
+// ===== 强化特效实现 =====
+
+// 连锁闪电
+function createChainLightning(targets, bounces, damage) {
+  if (targets.length === 0) return;
+  let currentTarget = targets[0];
+  let remaining = bounces;
+
+  const hitTargets = new Set([currentTarget]);
+
+  while (remaining > 0 && currentTarget) {
+    // 找最近的未击中目标
+    let nearest = null;
+    let minDist = 0.3;
+    for (const m of monsters) {
+      if (hitTargets.has(m)) continue;
+      const dx = m.x - currentTarget.x;
+      const dy = m.y - currentTarget.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = m;
+      }
+    }
+
+    if (nearest) {
+      // 创建闪电特效
+      attackEffects.push({
+        type: 'chain_lightning',
+        x1: currentTarget.x,
+        y1: currentTarget.y,
+        x2: nearest.x,
+        y2: nearest.y,
+        timer: 0.3,
+        duration: 0.3
+      });
+      nearest.hp -= damage;
+      nearest.hitTimer = 0.1;
+      hitTargets.add(nearest);
+      currentTarget = nearest;
+    }
+    remaining--;
+  }
+}
+
+// 全屏雷击
+function createSkyStrike(damage) {
+  triggerScreenShake(1.0, 0.3);
+  playSound('skill');
+
+  for (const m of monsters) {
+    m.hp -= damage;
+    m.hitTimer = 0.2;
+    attackEffects.push({
+      type: 'sky_strike',
+      x: m.x,
+      y: m.y,
+      timer: 0.5,
+      duration: 0.5
+    });
+  }
+}
+
+// 火焰风暴
+function createFireStorm(x, y, duration) {
+  skillEffects.push({
+    type: 'fire_storm',
+    x, y,
+    timer: duration,
+    duration: duration,
+    damage: 10,
+    radius: 0.2
+  });
+}
+
+// 雷云
+function createThunderCloud(x, y, duration) {
+  skillEffects.push({
+    type: 'thunder_cloud',
+    x, y,
+    timer: duration,
+    duration: duration,
+    damage: 15,
+    strikeInterval: 0.5,
+    nextStrike: 0
+  });
+}
+
+// 海啸
+function createTsunami(damage) {
+  triggerScreenShake(0.8, 0.4);
+  // 击退所有敌人
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+    m.x += (dx / dist) * 0.15;
+    m.y += (dy / dist) * 0.15;
+    m.hp -= damage;
+    m.hitTimer = 0.2;
+  }
+}
+
+// 落石
+function createFallingRock(damage) {
+  // 随机位置
+  const angle = Math.random() * Math.PI * 2;
+  const dist = 0.1 + Math.random() * 0.2;
+  const x = playerX + Math.cos(angle) * dist;
+  const y = playerY + Math.sin(angle) * dist;
+
+  attackEffects.push({
+    type: 'falling_rock',
+    x, y,
+    timer: 0.5,
+    duration: 0.5,
+    damage: damage
+  });
+}
+
+// 地震
+function createEarthquake(damage) {
+  triggerScreenShake(1.2, 0.5);
+  playSound('skill');
+  dealAOEDamage(damage, 0.35);
+
+  // 所有敌人眩晕
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    if (Math.sqrt(dx * dx + dy * dy) < 0.35) {
+      m.stunTimer = 1.0;
+    }
+  }
+}
+
+// 龙卷风
+function createTornado(x, y, duration) {
+  skillEffects.push({
+    type: 'tornado',
+    x, y,
+    timer: duration,
+    duration: duration,
+    damage: 8,
+    radius: 0.1
+  });
+}
+
+// 弹射伤害
+function createBounceDamage(firstTarget, bounces, damage) {
+  if (!firstTarget) return;
+  let current = firstTarget;
+  let remaining = bounces;
+  const hit = new Set([current]);
+
+  while (remaining > 0) {
+    let nearest = null;
+    let minDist = 0.4;
+    for (const m of monsters) {
+      if (hit.has(m)) continue;
+      const dx = m.x - current.x;
+      const dy = m.y - current.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = m;
+      }
+    }
+    if (nearest) {
+      nearest.hp -= damage;
+      nearest.hitTimer = 0.1;
+      hit.add(nearest);
+      current = nearest;
+    }
+    remaining--;
+  }
+}
+
 // 技能选择状态
 let isSelectingSkill = false;
 let skillChoices = []; // 4个待选技能
@@ -1232,11 +1647,13 @@ function generateEnhancementChoices() {
   for (const skill of playerSkills) {
     const currentLevel = getSkillEnhancement(skill.id);
     if (currentLevel < MAX_ENHANCEMENT_LEVEL) {
+      const nextEffect = getEnhancementEffectDesc(skill.id, currentLevel + 1);
       enhanceableSkills.push({
         ...skill,
         isEnhancement: true,
         currentEnhanceLevel: currentLevel,
-        nextEnhanceLevel: currentLevel + 1
+        nextEnhanceLevel: currentLevel + 1,
+        enhanceEffect: nextEffect // 下一级的连携效果
       });
     }
   }
@@ -1245,11 +1662,13 @@ function generateEnhancementChoices() {
   if (playerPassive) {
     const currentLevel = getSkillEnhancement(playerPassive.id);
     if (currentLevel < MAX_ENHANCEMENT_LEVEL) {
+      const nextEffect = getEnhancementEffectDesc(playerPassive.id, currentLevel + 1);
       enhanceableSkills.push({
         ...playerPassive,
         isEnhancement: true,
         currentEnhanceLevel: currentLevel,
-        nextEnhanceLevel: currentLevel + 1
+        nextEnhanceLevel: currentLevel + 1,
+        enhanceEffect: nextEffect
       });
     }
   }
@@ -1392,31 +1811,34 @@ function useSkill(skill) {
   // 创建技能释放特效（使用强化后的技能）
   createSkillCastEffect(enhancedSkill, enhanceMult);
 
+  // 收集命中目标用于触发强化效果
+  let hitTargets = [];
+
   switch (skill.effect) {
     case 'dash_attack': // 亚索Q
-      createDashAttackEffect(enhancedSkill);
+      hitTargets = createDashAttackEffect(enhancedSkill);
       break;
     case 'invincible': // 亚索W
       createInvincibleEffect(enhancedSkill);
       break;
     case 'root_aoe': // 拉克丝Q
-      createRootAOEEffect(enhancedSkill);
+      hitTargets = createRootAOEEffect(enhancedSkill);
       break;
     case 'laser_beam': // 拉克丝R
-      createLaserBeamEffect(enhancedSkill);
+      hitTargets = createLaserBeamEffect(enhancedSkill);
       break;
     case 'spin_attack': // 德莱厄斯Q
     case 'spin_continuous': // 盖伦E
       createSpinAttackEffect(enhancedSkill);
       break;
     case 'cone_attack': // 阿卡丽Q
-      createConeAttackEffect(enhancedSkill);
+      hitTargets = createConeAttackEffect(enhancedSkill);
       break;
     case 'missile_swarm': // 卡莎Q
       createMissileSwarmEffect(enhancedSkill);
       break;
     case 'multi_strike': // 剑圣Q
-      createMultiStrikeEffect(enhancedSkill);
+      hitTargets = createMultiStrikeEffect(enhancedSkill);
       break;
     case 'blink': // EZ E
       createBlinkEffect(enhancedSkill);
@@ -1427,7 +1849,7 @@ function useSkill(skill) {
     case 'hook_pull': // 锤石Q
     case 'grab_pull': // 机器人Q
     case 'pull_harpoon': // 派克Q
-      createHookEffect(enhancedSkill);
+      hitTargets = createHookEffect(enhancedSkill);
       break;
     case 'place_trap': // 金克丝E
     case 'poison_trap': // 提莫R
@@ -1435,15 +1857,20 @@ function useSkill(skill) {
       break;
     case 'bounce_shot': // MF Q
     case 'bouncing_blade': // 卡特Q
-      createBounceEffect(enhancedSkill);
+      hitTargets = createBounceEffect(enhancedSkill);
       break;
     case 'aoe_silence': // 机器人R
-      createAOESilenceEffect(enhancedSkill);
+      hitTargets = createAOESilenceEffect(enhancedSkill);
       break;
     default:
       // 默认AOE伤害
-      dealAOEDamage(enhancedSkill.damage || 20, 0.2);
+      hitTargets = dealAOEDamage(enhancedSkill.damage || 20, 0.2);
       createGenericSkillEffect(enhancedSkill);
+  }
+
+  // 触发强化效果（如果有命中目标且技能已强化）
+  if (hitTargets && hitTargets.length > 0) {
+    applyEnhancementEffects(enhancedSkill, hitTargets);
   }
 }
 
@@ -1513,7 +1940,7 @@ function createDashAttackEffect(skill) {
     damage: skill.damage
   });
   // 对前方敌人造成伤害
-  dealDirectionalDamage(skill.damage, angle, 0.25);
+  return dealDirectionalDamage(skill.damage, angle, 0.25);
 }
 
 // 无敌效果（亚索W）
@@ -1542,13 +1969,16 @@ function createRootAOEEffect(skill) {
     timer: 0.5
   });
   // 定身周围敌人
+  const hitTargets = [];
   for (const m of monsters) {
     const dx = m.x - playerX;
     const dy = m.y - playerY;
     if (Math.sqrt(dx * dx + dy * dy) < 0.25) {
       m.rooted = skill.duration;
+      hitTargets.push(m);
     }
   }
+  return hitTargets;
 }
 
 // 激光（拉克丝R）
@@ -1564,7 +1994,7 @@ function createLaserBeamEffect(skill) {
     timer: 0.8,
     width: 0.08
   });
-  dealDirectionalDamage(skill.damage, angle, 0.8);
+  return dealDirectionalDamage(skill.damage, angle, 0.8);
 }
 
 // 旋转攻击（盖伦E/德莱厄斯Q）
@@ -1597,7 +2027,7 @@ function createConeAttackEffect(skill) {
     duration: 0.3,
     timer: 0.3
   });
-  dealConeDamage(skill.damage, angle, Math.PI / 3, 0.25);
+  return dealConeDamage(skill.damage, angle, Math.PI / 3, 0.25);
 }
 
 // 导弹群（卡莎Q）
@@ -1640,6 +2070,7 @@ function createMultiStrikeEffect(skill) {
   }
   // 短暂无敌
   playerInvincible = 0.6;
+  return targets;
 }
 
 // 闪现（EZ E）
@@ -1689,11 +2120,11 @@ function createProjectileEffect(skill) {
 // 钩子（锤石Q/机器人Q/派克Q）
 function createHookEffect(skill) {
   const nearest = findNearestMonster();
-  if (!nearest) return;
+  if (!nearest) return [];
   const dx = nearest.x - playerX;
   const dy = nearest.y - playerY;
   const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist > 0.4) return;
+  if (dist > 0.4) return [];
 
   skillEffects.push({
     type: 'hook',
@@ -1712,6 +2143,7 @@ function createHookEffect(skill) {
   nearest.y -= (dy / dist) * pullDist;
   nearest.hp -= skill.damage;
   nearest.hitTimer = 0.2;
+  return [nearest];
 }
 
 // 陷阱（金克丝E/提莫R）
@@ -1732,7 +2164,7 @@ function createTrapEffect(skill) {
 // 弹射攻击（MF Q/卡特Q）
 function createBounceEffect(skill) {
   const target = findNearestMonster();
-  if (!target) return;
+  if (!target) return [];
 
   let currentTarget = target;
   let bounceCount = skill.bounces || 2;
@@ -1771,6 +2203,7 @@ function createBounceEffect(skill) {
   };
 
   bounce(currentTarget, damage, bounceCount);
+  return [target];
 }
 
 // AOE沉默（机器人R）
@@ -1784,7 +2217,7 @@ function createAOESilenceEffect(skill) {
     duration: 0.5,
     timer: 0.5
   });
-  dealAOEDamage(skill.damage, 0.25);
+  return dealAOEDamage(skill.damage, 0.25);
 }
 
 // 通用技能特效
@@ -1802,20 +2235,24 @@ function createGenericSkillEffect(skill) {
 
 // ===== 伤害计算 =====
 
-// AOE伤害
+// AOE伤害 - 返回命中的目标
 function dealAOEDamage(damage, radius) {
+  const hitTargets = [];
   for (const m of monsters) {
     const dx = m.x - playerX;
     const dy = m.y - playerY;
     if (Math.sqrt(dx * dx + dy * dy) < radius) {
       m.hp -= damage;
       m.hitTimer = 0.15;
+      hitTargets.push(m);
     }
   }
+  return hitTargets;
 }
 
-// 方向性伤害
+// 方向性伤害 - 返回命中的目标
 function dealDirectionalDamage(damage, angle, range) {
+  const hitTargets = [];
   for (const m of monsters) {
     const dx = m.x - playerX;
     const dy = m.y - playerY;
@@ -1827,12 +2264,15 @@ function dealDirectionalDamage(damage, angle, range) {
     if (angleDiff < Math.PI / 4) {
       m.hp -= damage;
       m.hitTimer = 0.15;
+      hitTargets.push(m);
     }
   }
+  return hitTargets;
 }
 
-// 扇形伤害
+// 扇形伤害 - 返回命中的目标
 function dealConeDamage(damage, angle, spread, range) {
+  const hitTargets = [];
   for (const m of monsters) {
     const dx = m.x - playerX;
     const dy = m.y - playerY;
@@ -1844,8 +2284,10 @@ function dealConeDamage(damage, angle, spread, range) {
     if (angleDiff < spread / 2) {
       m.hp -= damage;
       m.hitTimer = 0.15;
+      hitTargets.push(m);
     }
   }
+  return hitTargets;
 }
 
 // 无敌时间
@@ -4835,17 +5277,41 @@ function updateAdventure(dt) {
 
   // 更新怪物（相对于玩家位置生成和移动）
   for (const m of monsters) {
-    // 朝玩家移动
+    // 更新控制效果计时器
+    if (m.stunTimer > 0) m.stunTimer -= dt;
+    if (m.freezeTimer > 0) m.freezeTimer -= dt;
+    if (m.slowTimer > 0) m.slowTimer -= dt;
+    if (m.burnTimer > 0) {
+      m.burnTimer -= dt;
+      // 灼烧持续伤害
+      if (m.burnDamage) {
+        m.hp -= m.burnDamage * dt;
+      }
+    }
+
+    // 朝玩家移动（受控制效果影响）
     const dx = playerX - m.x;
     const dy = playerY - m.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > 0.05) {
-      m.x += (dx / dist) * m.speed;
-      m.y += (dy / dist) * m.speed;
+      // 冻结或眩晕时无法移动
+      if (m.freezeTimer > 0 || m.stunTimer > 0) {
+        // 不移动
+      } else if (m.rooted > 0) {
+        // 定身时也不移动
+      } else {
+        // 减速效果
+        let speedMult = 1;
+        if (m.slowTimer > 0) {
+          speedMult = 1 - (m.slowAmount || 0.5);
+        }
+        m.x += (dx / dist) * m.speed * speedMult;
+        m.y += (dy / dist) * m.speed * speedMult;
+      }
     }
 
-    // 攻击玩家（无敌时不受伤）
-    if (dist < 0.08 && playerInvincible <= 0) {
+    // 攻击玩家（无敌时不受伤，冻结/眩晕时无法攻击）
+    if (dist < 0.08 && playerInvincible <= 0 && m.freezeTimer <= 0 && m.stunTimer <= 0) {
       // 骑士护甲减伤
       const armorReduction = 1 - (stats.armor / 100);
       playerHP -= m.damage * dt * armorReduction;
@@ -6716,14 +7182,32 @@ function drawSkillSelectionUI() {
     // 描述
     ctx.fillStyle = '#CCCCCC';
     ctx.font = '11px sans-serif';
-    // 强化选项显示特殊描述
-    const desc = isEnhancement
-      ? `强化后${skill.type === 'passive' ? '效果' : '伤害/持续'}提升${Math.floor((ENHANCEMENT_MULTIPLIERS[skill.nextEnhanceLevel] - ENHANCEMENT_MULTIPLIERS[skill.currentEnhanceLevel]) * 100)}%`
-      : (skill.description || '');
+    let desc = '';
+    let lineY = y + 115;
+
+    if (isEnhancement) {
+      // 强化选项显示连携效果
+      if (skill.enhanceEffect) {
+        // 显示新获得的连携效果
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(`✨ 新效果: ${skill.enhanceEffect.name}`, x + cardW / 2, lineY);
+        lineY += 16;
+        ctx.fillStyle = '#AAFFAA';
+        ctx.font = '10px sans-serif';
+        desc = skill.enhanceEffect.desc;
+      } else {
+        desc = `强化后${skill.type === 'passive' ? '效果' : '伤害/持续'}提升`;
+      }
+    } else {
+      desc = skill.description || '';
+    }
+
     // 自动换行
+    ctx.fillStyle = '#CCCCCC';
+    ctx.font = '11px sans-serif';
     const maxLineWidth = cardW - 20;
     let line = '';
-    let lineY = y + 115;
     for (const char of desc) {
       const testLine = line + char;
       const metrics = ctx.measureText(testLine);
@@ -6737,6 +7221,17 @@ function drawSkillSelectionUI() {
     }
     if (line) {
       ctx.fillText(line, x + cardW / 2, lineY);
+    }
+
+    // 强化时显示已有效果
+    if (isEnhancement && skill.currentEnhanceLevel > 0) {
+      lineY += 18;
+      ctx.fillStyle = '#888888';
+      ctx.font = '9px sans-serif';
+      const currentEffects = getActiveEnhancementEffects(skill.id);
+      if (currentEffects.length > 0) {
+        ctx.fillText(`已有: ${currentEffects.map(e => e.name).join('+')}`, x + cardW / 2, lineY);
+      }
     }
 
     // 不可选择提示
