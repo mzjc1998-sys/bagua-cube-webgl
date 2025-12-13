@@ -8429,6 +8429,78 @@ const QUALITY_ORDER = ['broken', 'normal', 'fine', 'perfect', 'legendary'];
 const DEEPSEEK_API_KEY = 'YOUR_API_KEY_HERE'; // 请替换为你的DeepSeek API Key
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
+// 分析武器绘制形状
+function analyzeWeaponShape() {
+  const points = weaponDrawingPoints;
+  if (points.length < 5) return { type: 'unknown', features: [] };
+
+  // 计算边界
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const pt of points) {
+    minX = Math.min(minX, pt.x);
+    maxX = Math.max(maxX, pt.x);
+    minY = Math.min(minY, pt.y);
+    maxY = Math.max(maxY, pt.y);
+  }
+
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const aspectRatio = width / Math.max(height, 1);
+  const totalPoints = points.length;
+
+  // 计算复杂度（笔画数和转折点）
+  let strokes = 1;
+  let turns = 0;
+  let lastAngle = 0;
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].newStroke) strokes++;
+    if (i > 1) {
+      const dx1 = points[i - 1].x - points[i - 2].x;
+      const dy1 = points[i - 1].y - points[i - 2].y;
+      const dx2 = points[i].x - points[i - 1].x;
+      const dy2 = points[i].y - points[i - 1].y;
+      const angle = Math.atan2(dy2, dx2) - Math.atan2(dy1, dx1);
+      if (Math.abs(angle) > 0.5) turns++;
+    }
+  }
+
+  const features = [];
+  let weaponType = 'sword'; // 默认
+
+  // 根据形状特征判断武器类型
+  if (aspectRatio > 3) {
+    weaponType = 'spear'; // 长矛/枪
+    features.push('细长');
+  } else if (aspectRatio > 1.5) {
+    weaponType = 'sword'; // 剑
+    features.push('修长');
+  } else if (aspectRatio < 0.5) {
+    weaponType = 'axe'; // 斧头
+    features.push('宽厚');
+  } else if (strokes > 3) {
+    weaponType = 'staff'; // 法杖（多笔画装饰）
+    features.push('复杂');
+  } else if (turns > 10) {
+    weaponType = 'dagger'; // 匕首（多转折）
+    features.push('锋利');
+  }
+
+  // 判断其他特征
+  if (height > width * 2) features.push('高耸');
+  if (totalPoints > 100) features.push('精细');
+  if (strokes === 1) features.push('流畅');
+  if (turns > 20) features.push('曲折');
+
+  return {
+    type: weaponType,
+    features,
+    aspectRatio: aspectRatio.toFixed(2),
+    strokes,
+    turns,
+    complexity: (strokes + turns / 5).toFixed(1)
+  };
+}
+
 // 开始武器创建
 function startWeaponCreate() {
   isWeaponCreating = true;
@@ -8488,27 +8560,59 @@ function showWeaponDescriptionInput() {
 
 // 使用DeepSeek生成武器
 function generateWeaponWithAI() {
-  const prompt = `你是一个游戏武器设计师。根据玩家的描述，生成一个平衡的武器数据。
+  // 分析绘制的武器形状
+  const shapeAnalysis = analyzeWeaponShape();
+  const shapeInfo = `武器形状分析:
+- 检测类型: ${shapeAnalysis.type} (${shapeAnalysis.type === 'sword' ? '剑类' : shapeAnalysis.type === 'spear' ? '长枪' : shapeAnalysis.type === 'axe' ? '斧类' : shapeAnalysis.type === 'staff' ? '法杖' : shapeAnalysis.type === 'dagger' ? '匕首' : '未知'})
+- 形状特征: ${shapeAnalysis.features.join('、') || '普通'}
+- 长宽比: ${shapeAnalysis.aspectRatio}
+- 复杂度: ${shapeAnalysis.complexity}
+- 笔画数: ${shapeAnalysis.strokes}`;
+
+  const prompt = `你是一个专业的游戏武器设计师和数值策划。请根据玩家绘制的武器形状和描述，设计一把平衡的武器。
+
+${shapeInfo}
 
 玩家描述: "${weaponDescription}"
 
-请生成一个JSON格式的武器数据，必须严格遵循以下格式（不要加任何其他文字）:
-{
-  "name": "武器名称（2-4个字）",
-  "description": "简短描述（10-20字）",
-  "damage": 数值(15-50之间，基础伤害),
-  "attackSpeed": 数值(0.3-1.5之间，攻击间隔秒数，越小越快),
-  "critChance": 数值(0-30之间，暴击率百分比),
-  "effect": "特殊效果类型(burn/freeze/stun/lifesteal/pierce/none)",
-  "effectValue": 数值(效果强度，0-20),
-  "effectDesc": "效果描述（5-15字）",
-  "rarity": "稀有度(common/rare/epic/legendary)"
-}
+【伤害类型判定规则】
+根据描述中的关键词判定伤害类型：
+- 物理系：剑、刀、斧、锤、矛、箭、拳等 → effect为"none"或"pierce"
+- 火系：火、炎、燃烧、灼热、岩浆等 → effect为"burn"
+- 冰系：冰、霜、冻、寒、雪等 → effect为"freeze"
+- 雷系：雷、电、闪电、麻痹等 → effect为"stun"
+- 暗系：暗、影、黑、诅咒、吸血等 → effect为"lifesteal"
+- 圣系：光、圣、神、净化等 → effect为"burn"(圣光灼烧)
+- 毒系：毒、腐蚀、瘟疫等 → effect为"burn"(持续伤害)
 
-平衡规则：
-- 伤害高则攻速慢，伤害低则攻速快
-- 特殊效果越强，基础属性越低
-- legendary武器总属性最高但有明显缺点`;
+【武器平衡公式】
+总强度分 = (damage/50)*30 + (1/attackSpeed)*20 + critChance + effectValue*1.5
+- common: 总强度 40-55分
+- rare: 总强度 55-70分
+- epic: 总强度 70-85分
+- legendary: 总强度 85-100分（但必须有明显缺陷）
+
+【武器类型与基础属性】
+- sword(剑): 均衡型，damage 25-35, attackSpeed 0.6-0.9
+- spear(枪): 高伤害低攻速，damage 35-50, attackSpeed 1.0-1.5
+- axe(斧): 高伤害高暴击，damage 30-45, attackSpeed 0.9-1.3, critChance+10
+- staff(杖): 低伤害强效果，damage 15-25, effectValue+5
+- dagger(匕首): 低伤害快攻速，damage 15-25, attackSpeed 0.3-0.5
+
+请严格输出以下JSON格式（不要加任何解释文字）:
+{
+  "name": "武器名称（2-4个字，体现元素属性）",
+  "description": "简短描述（10-20字，说明武器特点）",
+  "damage": 数值(15-50),
+  "attackSpeed": 数值(0.3-1.5，单位秒),
+  "critChance": 数值(0-30，百分比),
+  "effect": "burn/freeze/stun/lifesteal/pierce/none",
+  "effectValue": 数值(0-20),
+  "effectDesc": "效果描述（5-15字）",
+  "rarity": "common/rare/epic/legendary",
+  "damageType": "物理/火/冰/雷/暗/圣/毒",
+  "balanceNote": "平衡说明（说明该武器的优缺点）"
+}`;
 
   // 检查API Key
   if (DEEPSEEK_API_KEY === 'YOUR_API_KEY_HERE') {
@@ -8555,97 +8659,139 @@ function generateWeaponWithAI() {
   });
 }
 
-// 本地生成武器（备用方案）
+// 本地生成武器（备用方案）- 增强版
 function generateWeaponLocally() {
-  // 根据描述关键词生成
+  // 分析武器形状
+  const shape = analyzeWeaponShape();
   const desc = weaponDescription.toLowerCase();
+
+  // 根据形状设定基础属性
+  const baseStats = {
+    sword: { damage: 28, attackSpeed: 0.7, critChance: 10, name: '剑' },
+    spear: { damage: 40, attackSpeed: 1.2, critChance: 5, name: '枪' },
+    axe: { damage: 35, attackSpeed: 1.0, critChance: 20, name: '斧' },
+    staff: { damage: 18, attackSpeed: 0.8, critChance: 5, name: '杖' },
+    dagger: { damage: 18, attackSpeed: 0.35, critChance: 25, name: '匕首' },
+    unknown: { damage: 25, attackSpeed: 0.7, critChance: 10, name: '武器' }
+  };
+
+  const base = baseStats[shape.type] || baseStats.unknown;
+
   let weapon = {
-    name: '自制武器',
+    name: `自制${base.name}`,
     description: weaponDescription.slice(0, 20),
-    damage: 20 + Math.floor(Math.random() * 20),
-    attackSpeed: 0.5 + Math.random() * 0.8,
-    critChance: Math.floor(Math.random() * 20),
+    damage: base.damage + Math.floor(Math.random() * 8) - 4,
+    attackSpeed: base.attackSpeed + (Math.random() * 0.2 - 0.1),
+    critChance: base.critChance + Math.floor(Math.random() * 6) - 3,
     effect: 'none',
     effectValue: 0,
     effectDesc: '无特殊效果',
-    rarity: 'common'
+    rarity: 'common',
+    damageType: '物理',
+    balanceNote: '基础武器'
   };
 
-  // 根据关键词调整
-  if (desc.includes('火') || desc.includes('燃烧') || desc.includes('flame') || desc.includes('fire')) {
-    weapon.name = '炎魔之刃';
+  // 根据关键词判定伤害类型和效果
+  if (desc.includes('火') || desc.includes('燃烧') || desc.includes('炎') || desc.includes('flame') || desc.includes('fire')) {
+    weapon.name = `炎${base.name === '武器' ? '魔之刃' : base.name}`;
     weapon.effect = 'burn';
-    weapon.effectValue = 8;
+    weapon.effectValue = 8 + Math.floor(Math.random() * 5);
     weapon.effectDesc = '攻击附带灼烧';
     weapon.rarity = 'rare';
-    weapon.damage -= 5;
-  } else if (desc.includes('冰') || desc.includes('冻') || desc.includes('frost') || desc.includes('ice')) {
-    weapon.name = '霜寒之刃';
+    weapon.damageType = '火';
+    weapon.damage -= 5; // 平衡：有效果则降伤害
+    weapon.balanceNote = '火焰伤害，降低基础攻击';
+  } else if (desc.includes('冰') || desc.includes('冻') || desc.includes('霜') || desc.includes('寒') || desc.includes('frost') || desc.includes('ice')) {
+    weapon.name = `霜${base.name === '武器' ? '寒之刃' : base.name}`;
     weapon.effect = 'freeze';
-    weapon.effectValue = 15;
+    weapon.effectValue = 12 + Math.floor(Math.random() * 8);
     weapon.effectDesc = '几率冻结敌人';
     weapon.rarity = 'rare';
-    weapon.attackSpeed += 0.2;
-  } else if (desc.includes('雷') || desc.includes('电') || desc.includes('lightning') || desc.includes('thunder')) {
-    weapon.name = '雷霆之怒';
+    weapon.damageType = '冰';
+    weapon.attackSpeed += 0.15; // 平衡：攻速变慢
+    weapon.balanceNote = '控制效果，攻速降低';
+  } else if (desc.includes('雷') || desc.includes('电') || desc.includes('闪') || desc.includes('lightning') || desc.includes('thunder')) {
+    weapon.name = `雷${base.name === '武器' ? '霆之怒' : base.name}`;
     weapon.effect = 'stun';
-    weapon.effectValue = 10;
+    weapon.effectValue = 8 + Math.floor(Math.random() * 6);
     weapon.effectDesc = '几率眩晕敌人';
     weapon.rarity = 'epic';
-    weapon.critChance += 10;
+    weapon.damageType = '雷';
+    weapon.critChance += 8;
+    weapon.damage -= 3;
+    weapon.balanceNote = '高暴击眩晕，伤害降低';
   } else if (desc.includes('吸血') || desc.includes('生命') || desc.includes('vampir') || desc.includes('life')) {
-    weapon.name = '血饮之刃';
+    weapon.name = `血${base.name === '武器' ? '饮之刃' : base.name}`;
     weapon.effect = 'lifesteal';
-    weapon.effectValue = 12;
+    weapon.effectValue = 10 + Math.floor(Math.random() * 8);
     weapon.effectDesc = '攻击回复生命';
     weapon.rarity = 'epic';
+    weapon.damageType = '暗';
     weapon.damage -= 8;
+    weapon.balanceNote = '续航能力强，伤害较低';
   } else if (desc.includes('穿透') || desc.includes('刺穿') || desc.includes('pierce')) {
-    weapon.name = '破甲之矛';
+    weapon.name = `穿${base.name === '武器' ? '甲之矛' : base.name}`;
     weapon.effect = 'pierce';
-    weapon.effectValue = 15;
+    weapon.effectValue = 12 + Math.floor(Math.random() * 8);
     weapon.effectDesc = '穿透多个敌人';
     weapon.rarity = 'rare';
-    weapon.attackSpeed += 0.3;
-  } else if (desc.includes('神') || desc.includes('圣') || desc.includes('光') || desc.includes('divine')) {
-    weapon.name = '圣光裁决';
+    weapon.damageType = '物理';
+    weapon.attackSpeed += 0.2;
+    weapon.balanceNote = '群体伤害，单体伤害一般';
+  } else if (desc.includes('神') || desc.includes('圣') || desc.includes('光') || desc.includes('divine') || desc.includes('holy')) {
+    weapon.name = `圣${base.name === '武器' ? '光裁决' : base.name}`;
     weapon.effect = 'burn';
-    weapon.effectValue = 12;
+    weapon.effectValue = 12 + Math.floor(Math.random() * 6);
     weapon.effectDesc = '圣光灼烧邪恶';
     weapon.rarity = 'legendary';
-    weapon.damage += 10;
-    weapon.critChance += 15;
-    weapon.attackSpeed += 0.4; // legendary缺点：攻速慢
-  } else if (desc.includes('暗') || desc.includes('黑') || desc.includes('shadow') || desc.includes('dark')) {
-    weapon.name = '暗影之刃';
+    weapon.damageType = '圣';
+    weapon.damage += 8;
+    weapon.critChance += 12;
+    weapon.attackSpeed += 0.35; // legendary缺点：攻速慢
+    weapon.balanceNote = '高伤害高暴击，攻速较慢';
+  } else if (desc.includes('暗') || desc.includes('黑') || desc.includes('影') || desc.includes('shadow') || desc.includes('dark')) {
+    weapon.name = `暗${base.name === '武器' ? '影之刃' : base.name}`;
     weapon.effect = 'lifesteal';
-    weapon.effectValue = 18;
+    weapon.effectValue = 15 + Math.floor(Math.random() * 6);
     weapon.effectDesc = '汲取生命精华';
     weapon.rarity = 'legendary';
+    weapon.damageType = '暗';
     weapon.damage += 5;
-    weapon.attackSpeed -= 0.1;
-  } else if (desc.includes('快') || desc.includes('速') || desc.includes('swift') || desc.includes('fast')) {
-    weapon.name = '疾风匕首';
-    weapon.effect = 'none';
-    weapon.effectValue = 0;
-    weapon.effectDesc = '无特殊效果';
-    weapon.rarity = 'rare';
+    weapon.critChance -= 5; // legendary缺点：暴击低
+    weapon.balanceNote = '强力吸血，暴击率降低';
+  } else if (desc.includes('毒') || desc.includes('腐') || desc.includes('瘟') || desc.includes('poison') || desc.includes('toxic')) {
+    weapon.name = `毒${base.name === '武器' ? '蚀之刃' : base.name}`;
+    weapon.effect = 'burn';
+    weapon.effectValue = 15 + Math.floor(Math.random() * 5);
+    weapon.effectDesc = '剧毒持续伤害';
+    weapon.rarity = 'epic';
+    weapon.damageType = '毒';
     weapon.damage -= 10;
-    weapon.attackSpeed = 0.3;
-    weapon.critChance += 15;
+    weapon.balanceNote = '强持续伤害，基础伤害低';
+  } else if (desc.includes('快') || desc.includes('速') || desc.includes('swift') || desc.includes('fast')) {
+    weapon.name = `疾${base.name === '武器' ? '风匕首' : base.name}`;
+    weapon.effect = 'none';
+    weapon.rarity = 'rare';
+    weapon.damageType = '物理';
+    weapon.damage -= 8;
+    weapon.attackSpeed = Math.max(0.25, weapon.attackSpeed - 0.3);
+    weapon.critChance += 12;
+    weapon.balanceNote = '极快攻速，单次伤害低';
   } else if (desc.includes('重') || desc.includes('锤') || desc.includes('hammer') || desc.includes('heavy')) {
-    weapon.name = '毁灭巨锤';
+    weapon.name = `重${base.name === '武器' ? '击战锤' : base.name}`;
     weapon.effect = 'stun';
-    weapon.effectValue = 20;
+    weapon.effectValue = 18 + Math.floor(Math.random() * 5);
     weapon.effectDesc = '重击眩晕敌人';
     weapon.rarity = 'epic';
-    weapon.damage += 15;
-    weapon.attackSpeed = 1.2;
-    weapon.critChance += 5;
+    weapon.damageType = '物理';
+    weapon.damage += 12;
+    weapon.attackSpeed = Math.min(1.5, weapon.attackSpeed + 0.4);
+    weapon.balanceNote = '高伤害高眩晕，攻速很慢';
   }
 
-  // 根据绘制复杂度调整稀有度
-  if (weaponDrawingPoints.length > 200) {
+  // 根据绘制复杂度调整稀有度和属性
+  const complexity = parseFloat(shape.complexity) || 1;
+  if (complexity > 3 || weaponDrawingPoints.length > 200) {
     if (weapon.rarity === 'common') weapon.rarity = 'rare';
     else if (weapon.rarity === 'rare') weapon.rarity = 'epic';
     weapon.damage += 3;
@@ -9839,6 +9985,19 @@ function drawWeaponResultUI() {
   // 武器预览
   drawWeaponPreview(W / 2, cardY + 110, 0.5);
 
+  // 伤害类型标签
+  const damageTypeColors = {
+    '物理': '#BBBBBB', '火': '#FF6633', '冰': '#66CCFF', '雷': '#FFFF33',
+    '暗': '#AA66FF', '圣': '#FFDD77', '毒': '#66FF33'
+  };
+  const dmgType = weapon.damageType || '物理';
+  const dmgColor = damageTypeColors[dmgType] || '#FFFFFF';
+
+  ctx.fillStyle = dmgColor;
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`【${dmgType}系】`, W / 2, cardY + 72);
+
   // 属性面板
   const statsY = cardY + 160;
   ctx.textAlign = 'left';
@@ -9858,16 +10017,23 @@ function drawWeaponResultUI() {
 
   // 特效
   if (weapon.effect !== 'none') {
-    ctx.fillStyle = '#00FFFF';
+    ctx.fillStyle = dmgColor;
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`✨ ${weapon.effectDesc}`, W / 2, statsY + 25);
   }
 
+  // 平衡说明（如果有）
+  if (weapon.balanceNote) {
+    ctx.fillStyle = '#888888';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(`📊 ${weapon.balanceNote}`, W / 2, statsY + 43);
+  }
+
   // 描述
   ctx.fillStyle = '#CCCCCC';
   ctx.font = '11px sans-serif';
-  ctx.fillText(`"${weapon.description}"`, W / 2, statsY + 50);
+  ctx.fillText(`"${weapon.description}"`, W / 2, statsY + 60);
 
   // 装备按钮
   const equipBtnW = 140;
