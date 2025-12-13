@@ -785,6 +785,11 @@ let skillChoices = []; // 4个待选技能
 let skillEffects = []; // 当前活跃的技能特效
 let passiveStacks = {}; // 被动技能层数
 
+// 技能长按提示状态
+let skillTooltip = null; // { skill, x, y } 当前显示的技能提示
+let longPressTimer = null; // 长按计时器
+let skillHitBoxes = []; // 技能槽点击区域
+
 // 获取可用的技能列表（排除已拥有的）
 function getAvailableSkills() {
   const ownedSkillIds = playerSkills.map(s => s.id);
@@ -3544,17 +3549,40 @@ function draw() {
 
 // 绘制技能HUD
 function drawSkillHUD() {
-  const skillSlotSize = 35;
-  const skillSpacing = 8;
-  const startX = 10;
-  const startY = H - 130;
+  const skillSlotSize = 42;
+  const skillSpacing = 6;
+  const startX = 12;
+  const startY = H - 135;
 
-  // 背景
-  const totalWidth = playerSkills.length * (skillSlotSize + skillSpacing) + skillSpacing;
-  if (playerSkills.length > 0 || playerPassive) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(startX - 5, startY - 5, Math.max(totalWidth, 80), skillSlotSize + 35);
-  }
+  // 清空技能点击区域
+  skillHitBoxes = [];
+
+  const totalSkills = playerSkills.length;
+  const hasPassive = playerPassive !== null;
+
+  if (totalSkills === 0 && !hasPassive) return;
+
+  // 计算背景大小
+  const bgWidth = Math.max(totalSkills * (skillSlotSize + skillSpacing) + skillSpacing, hasPassive ? 90 : 50);
+  const bgHeight = skillSlotSize + (hasPassive ? 28 : 10);
+
+  // 背景面板（圆角效果）
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.beginPath();
+  const bgX = startX - 8;
+  const bgY = startY - 8;
+  const radius = 8;
+  ctx.moveTo(bgX + radius, bgY);
+  ctx.lineTo(bgX + bgWidth - radius, bgY);
+  ctx.quadraticCurveTo(bgX + bgWidth, bgY, bgX + bgWidth, bgY + radius);
+  ctx.lineTo(bgX + bgWidth, bgY + bgHeight - radius);
+  ctx.quadraticCurveTo(bgX + bgWidth, bgY + bgHeight, bgX + bgWidth - radius, bgY + bgHeight);
+  ctx.lineTo(bgX + radius, bgY + bgHeight);
+  ctx.quadraticCurveTo(bgX, bgY + bgHeight, bgX, bgY + bgHeight - radius);
+  ctx.lineTo(bgX, bgY + radius);
+  ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+  ctx.closePath();
+  ctx.fill();
 
   // 绘制主动技能
   for (let i = 0; i < playerSkills.length; i++) {
@@ -3562,52 +3590,200 @@ function drawSkillHUD() {
     const x = startX + i * (skillSlotSize + skillSpacing);
     const y = startY;
 
-    // 技能槽背景
-    ctx.fillStyle = skill.color || '#444444';
+    // 存储点击区域
+    skillHitBoxes.push({
+      skill: skill,
+      x: x,
+      y: y,
+      w: skillSlotSize,
+      h: skillSlotSize,
+      type: 'active'
+    });
+
+    const cd = skillCooldowns[skill.id] || 0;
+    const isReady = cd <= 0;
+
+    // 技能槽背景（渐变效果）
+    if (isReady) {
+      // 就绪状态 - 亮色
+      const gradient = ctx.createLinearGradient(x, y, x, y + skillSlotSize);
+      gradient.addColorStop(0, skill.color || '#555555');
+      gradient.addColorStop(1, shadeColor(skill.color || '#555555', -30));
+      ctx.fillStyle = gradient;
+    } else {
+      ctx.fillStyle = '#333333';
+    }
     ctx.fillRect(x, y, skillSlotSize, skillSlotSize);
 
-    // 冷却遮罩
-    const cd = skillCooldowns[skill.id] || 0;
+    // 冷却遮罩（扇形）
     if (cd > 0) {
       const cdRatio = cd / skill.cooldown;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(x, y, skillSlotSize, skillSlotSize * cdRatio);
+      ctx.beginPath();
+      ctx.moveTo(x + skillSlotSize / 2, y + skillSlotSize / 2);
+      ctx.arc(x + skillSlotSize / 2, y + skillSlotSize / 2, skillSlotSize / 2 + 2,
+        -Math.PI / 2, -Math.PI / 2 + cdRatio * Math.PI * 2);
+      ctx.closePath();
+      ctx.fill();
+
       // 冷却数字
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 14px sans-serif';
+      ctx.font = 'bold 16px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(Math.ceil(cd).toString(), x + skillSlotSize / 2, y + skillSlotSize / 2);
-    } else {
-      // 技能图标
-      ctx.font = `${skillSlotSize * 0.6}px sans-serif`;
+    }
+
+    // 技能图标
+    if (isReady || cd < skill.cooldown * 0.3) {
+      ctx.font = `${skillSlotSize * 0.55}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.globalAlpha = isReady ? 1 : 0.5;
       ctx.fillText(skill.icon, x + skillSlotSize / 2, y + skillSlotSize / 2);
+      ctx.globalAlpha = 1;
     }
 
     // 边框
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = isReady ? '#FFFFFF' : '#666666';
+    ctx.lineWidth = isReady ? 2 : 1;
     ctx.strokeRect(x, y, skillSlotSize, skillSlotSize);
+
+    // 就绪闪光效果
+    if (isReady) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 3, y + skillSlotSize - 3);
+      ctx.lineTo(x + 3, y + 3);
+      ctx.lineTo(x + skillSlotSize - 3, y + 3);
+      ctx.stroke();
+    }
   }
 
   // 绘制被动技能
   if (playerPassive) {
     const passiveX = startX;
-    const passiveY = startY + skillSlotSize + 5;
+    const passiveY = startY + skillSlotSize + 4;
+    const passiveW = 85;
+    const passiveH = 18;
 
-    ctx.fillStyle = playerPassive.color || '#666666';
-    ctx.fillRect(passiveX, passiveY, 70, 20);
+    // 存储点击区域
+    skillHitBoxes.push({
+      skill: playerPassive,
+      x: passiveX,
+      y: passiveY,
+      w: passiveW,
+      h: passiveH,
+      type: 'passive'
+    });
 
+    // 被动技能背景
+    const gradient = ctx.createLinearGradient(passiveX, passiveY, passiveX + passiveW, passiveY);
+    gradient.addColorStop(0, playerPassive.color || '#666666');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.3)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(passiveX, passiveY, passiveW, passiveH);
+
+    // 被动图标和名称
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = '10px sans-serif';
+    ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`${playerPassive.icon} ${playerPassive.name}`, passiveX + 3, passiveY + 14);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${playerPassive.icon} ${playerPassive.name}`, passiveX + 4, passiveY + passiveH / 2);
 
+    // 金色边框
     ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(passiveX, passiveY, 70, 20);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(passiveX, passiveY, passiveW, passiveH);
+  }
+
+  // 绘制技能提示
+  if (skillTooltip) {
+    drawSkillTooltip(skillTooltip.skill, skillTooltip.x, skillTooltip.y);
+  }
+}
+
+// 颜色加深/变亮辅助函数
+function shadeColor(color, percent) {
+  const num = parseInt(color.replace('#', ''), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+  const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
+  const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
+  return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+}
+
+// 绘制技能提示框
+function drawSkillTooltip(skill, tx, ty) {
+  const tooltipW = 160;
+  const tooltipH = 95;
+
+  // 确保提示框在屏幕内
+  let x = tx - tooltipW / 2;
+  let y = ty - tooltipH - 10;
+  if (x < 5) x = 5;
+  if (x + tooltipW > W - 5) x = W - tooltipW - 5;
+  if (y < 5) y = ty + 50;
+
+  // 背景
+  ctx.fillStyle = 'rgba(20, 20, 30, 0.95)';
+  ctx.fillRect(x, y, tooltipW, tooltipH);
+
+  // 边框
+  ctx.strokeStyle = skill.color || '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, tooltipW, tooltipH);
+
+  // 标题栏
+  ctx.fillStyle = skill.color || '#FFFFFF';
+  ctx.fillRect(x, y, tooltipW, 24);
+
+  // 技能名称
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${skill.icon} ${skill.name}`, x + 8, y + 12);
+
+  // 英雄名 + 类型
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(skill.champion, x + tooltipW - 8, y + 12);
+
+  // 类型标签
+  const isPassive = skill.type === 'passive';
+  ctx.fillStyle = isPassive ? '#FFD700' : '#00BFFF';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(isPassive ? '⭐ 被动技能' : `⚔️ 主动 | CD: ${skill.cooldown}s`, x + 8, y + 38);
+
+  // 描述（自动换行）
+  ctx.fillStyle = '#DDDDDD';
+  ctx.font = '10px sans-serif';
+  const desc = skill.description || '无描述';
+  const maxWidth = tooltipW - 16;
+  let line = '';
+  let lineY = y + 55;
+  for (const char of desc) {
+    const testLine = line + char;
+    if (ctx.measureText(testLine).width > maxWidth) {
+      ctx.fillText(line, x + 8, lineY);
+      line = char;
+      lineY += 13;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line) ctx.fillText(line, x + 8, lineY);
+
+  // 伤害信息（如果有）
+  if (skill.damage) {
+    ctx.fillStyle = '#FF6B6B';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`伤害: ${skill.damage}`, x + tooltipW - 8, y + tooltipH - 8);
   }
 }
 
@@ -3811,12 +3987,46 @@ function screenToGround(sx, sy) {
 
 wx.onTouchStart((e) => {
   if (e.touches.length > 0) {
-    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+    const tx = e.touches[0].clientX;
+    const ty = e.touches[0].clientY;
+    touchStart = { x: tx, y: ty, t: Date.now() };
     updateGroundQuadCache();
+
+    // 清除之前的长按计时器
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    skillTooltip = null;
+
+    // 检查是否点击了技能槽（冒险模式且非技能选择状态）
+    if (gameState === 'adventure' && !isSelectingSkill) {
+      for (const hb of skillHitBoxes) {
+        if (tx >= hb.x && tx <= hb.x + hb.w && ty >= hb.y && ty <= hb.y + hb.h) {
+          // 开始长按计时（300ms后显示提示）
+          longPressTimer = setTimeout(() => {
+            skillTooltip = {
+              skill: hb.skill,
+              x: hb.x + hb.w / 2,
+              y: hb.y
+            };
+          }, 300);
+          break;
+        }
+      }
+    }
   }
 });
 
 wx.onTouchEnd((e) => {
+  // 清除长按计时器和提示
+  if (longPressTimer) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+  const wasShowingTooltip = skillTooltip !== null;
+  skillTooltip = null;
+
   if (!touchStart || !e.changedTouches.length) return;
   const touch = e.changedTouches[0];
   const dx = touch.clientX - touchStart.x;
@@ -3824,6 +4034,12 @@ wx.onTouchEnd((e) => {
   const dt = Date.now() - touchStart.t;
   const tx = touch.clientX;
   const ty = touch.clientY;
+
+  // 如果正在显示技能提示，松开后不执行其他操作
+  if (wasShowingTooltip) {
+    touchStart = null;
+    return;
+  }
 
   // 技能选择状态 - 最高优先级
   if (isSelectingSkill && skillChoices.length > 0) {
