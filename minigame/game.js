@@ -437,6 +437,7 @@ const palacePairs = {
 };
 
 let currentPalace = '艮';
+let selectedPalace = '艮'; // 冒险时选择的宫位
 
 function getFrontBits() { return palacePairs[currentPalace][0]; }
 function getBackBits() { return palacePairs[currentPalace][1]; }
@@ -1180,8 +1181,22 @@ function getAvailableSkills() {
 
 // 生成4个随机技能选项
 function generateSkillChoices() {
-  const available = getAvailableSkills();
+  let available = getAvailableSkills();
   if (available.length === 0) return [];
+
+  // 已有被动技能时，降低被动技能出现概率（70%概率过滤掉被动）
+  if (playerPassive) {
+    const filtered = available.filter(s => {
+      if (s.type === 'passive') {
+        return Math.random() < 0.3; // 只有30%概率保留被动技能选项
+      }
+      return true;
+    });
+    // 确保至少有一些选项
+    if (filtered.length > 0) {
+      available = filtered;
+    }
+  }
 
   // 打乱顺序
   for (let i = available.length - 1; i > 0; i--) {
@@ -3575,6 +3590,10 @@ function startAdventure() {
   startMusic('combat');     // 确保音乐开始播放
   gameState = 'adventure';
   isPaused = false;
+  // 记录当前选择的宫位（普通冒险使用当前宫位）
+  if (!isDailyChallenge) {
+    selectedPalace = currentPalace;
+  }
   adventureTime = 0;
   killCount = 0;
   const stats = getPlayerStats();
@@ -7101,7 +7120,9 @@ wx.onTouchEnd((e) => {
         if (tx >= hb.x && tx <= hb.x + hb.w && ty >= hb.y && ty <= hb.y + hb.h) {
           // 检查是否可以选择
           const isPassive = skill.type === 'passive';
-          const canSelect = isPassive || playerSkills.length < 4;
+          const isEvolved = skill.type === 'evolved';
+          const isEnhancement = skill.isEnhancement === true;
+          const canSelect = isPassive || isEvolved || isEnhancement || playerSkills.length < 4;
           if (canSelect) {
             selectSkill(i);
             touchStart = null;
