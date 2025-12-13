@@ -879,6 +879,13 @@ function autoUseSkills() {
 function useSkill(skill) {
   const nearestMonster = findNearestMonster();
 
+  // 触发技能使用动画
+  skillAnimTimer = 0.5;
+  skillAnimName = skill.name;
+
+  // 创建技能释放特效
+  createSkillCastEffect(skill);
+
   switch (skill.effect) {
     case 'dash_attack': // 亚索Q
       createDashAttackEffect(skill);
@@ -932,6 +939,35 @@ function useSkill(skill) {
       dealAOEDamage(skill.damage || 20, 0.2);
       createGenericSkillEffect(skill);
   }
+}
+
+// 创建技能释放特效
+function createSkillCastEffect(skill) {
+  // 技能名称显示
+  attackEffects.push({
+    type: 'skill_name',
+    x: playerX,
+    y: playerY,
+    name: skill.name,
+    icon: skill.icon,
+    color: skill.color,
+    timer: 0.8,
+    duration: 0.8
+  });
+
+  // 技能光环
+  attackEffects.push({
+    type: 'skill_aura',
+    x: playerX,
+    y: playerY,
+    color: skill.color,
+    timer: 0.4,
+    duration: 0.4
+  });
+
+  // 触发攻击动画
+  isAttacking = true;
+  attackAnimTimer = 0.4;
 }
 
 // 找到最近的怪物
@@ -1631,6 +1667,18 @@ let lastAttackTime = 0;
 let smoothDirX = 0;
 let smoothDirY = 0;
 let comboCount = 0;
+
+// 攻击动画状态
+let attackAnimTimer = 0;      // 攻击动画计时器
+let attackAnimDuration = 0.3; // 攻击动画持续时间
+let attackTargetX = 0;        // 攻击目标方向
+let attackTargetY = 0;
+let isAttacking = false;      // 是否正在攻击动画中
+let attackEffects = [];       // 攻击特效列表
+
+// 技能使用动画
+let skillAnimTimer = 0;
+let skillAnimName = '';       // 当前技能动画名称
 
 // 怪物数组
 let monsters = [];
@@ -2333,6 +2381,12 @@ function startAdventure() {
   isSelectingSkill = false;
   skillChoices = [];
   playerInvincible = 0;
+  // 重置攻击动画
+  attackAnimTimer = 0;
+  isAttacking = false;
+  attackEffects = [];
+  skillAnimTimer = 0;
+  skillAnimName = '';
   console.log('冒险开始！');
   // 开始时立即选择第一个技能
   startSkillSelection();
@@ -2358,6 +2412,7 @@ function attackMonsters() {
   if (walkTime - lastAttackTime < stats.atkSpd) return;
 
   let hitAny = false;
+  let firstTarget = null;
 
   for (let i = monsters.length - 1; i >= 0; i--) {
     const m = monsters[i];
@@ -2367,6 +2422,13 @@ function attackMonsters() {
 
     // 使用职业攻击范围
     if (dist < stats.range) {
+      // 记录第一个攻击目标（用于动画方向）
+      if (!firstTarget) {
+        firstTarget = m;
+        attackTargetX = dx;
+        attackTargetY = dy;
+      }
+
       // 计算伤害（含暴击）
       let damage = stats.dmg;
       const isCrit = Math.random() * 100 < stats.luck;
@@ -2377,6 +2439,9 @@ function attackMonsters() {
       m.hp -= damage;
       m.hitTimer = isCrit ? 0.25 : 0.15; // 暴击闪烁更久
       hitAny = true;
+
+      // 创建攻击特效
+      createAttackEffect(m.x, m.y, damage, isCrit);
 
       if (m.hp <= 0) {
         // 怪物死亡
@@ -2406,6 +2471,221 @@ function attackMonsters() {
 
   if (hitAny) {
     lastAttackTime = walkTime;
+    // 触发攻击动画
+    isAttacking = true;
+    attackAnimTimer = attackAnimDuration;
+  }
+}
+
+// 创建攻击特效
+function createAttackEffect(targetX, targetY, damage, isCrit) {
+  const character = getCurrentCharacter();
+
+  // 斩击特效
+  attackEffects.push({
+    type: 'slash',
+    x: targetX,
+    y: targetY,
+    angle: Math.atan2(targetY - playerY, targetX - playerX),
+    timer: 0.25,
+    duration: 0.25,
+    color: character.color || '#FFFFFF',
+    size: isCrit ? 1.5 : 1.0
+  });
+
+  // 伤害数字
+  attackEffects.push({
+    type: 'damage_number',
+    x: targetX + (Math.random() - 0.5) * 0.05,
+    y: targetY,
+    damage: damage,
+    isCrit: isCrit,
+    timer: 0.8,
+    duration: 0.8,
+    vy: -0.15 // 上升速度
+  });
+
+  // 暴击特效
+  if (isCrit) {
+    attackEffects.push({
+      type: 'crit_burst',
+      x: targetX,
+      y: targetY,
+      timer: 0.4,
+      duration: 0.4
+    });
+  }
+}
+
+// 更新攻击特效
+function updateAttackEffects(dt) {
+  // 更新攻击动画
+  if (attackAnimTimer > 0) {
+    attackAnimTimer -= dt;
+    if (attackAnimTimer <= 0) {
+      isAttacking = false;
+    }
+  }
+
+  // 更新技能动画
+  if (skillAnimTimer > 0) {
+    skillAnimTimer -= dt;
+    if (skillAnimTimer <= 0) {
+      skillAnimName = '';
+    }
+  }
+
+  // 更新特效
+  for (let i = attackEffects.length - 1; i >= 0; i--) {
+    const effect = attackEffects[i];
+    effect.timer -= dt;
+
+    // 伤害数字上升
+    if (effect.type === 'damage_number') {
+      effect.y += effect.vy * dt;
+    }
+
+    // 移除过期特效
+    if (effect.timer <= 0) {
+      attackEffects.splice(i, 1);
+    }
+  }
+}
+
+// 绘制攻击特效
+function drawAttackEffects(groundQuad) {
+  for (const effect of attackEffects) {
+    // 转换到屏幕坐标
+    const screenX = effect.x - playerX + 0.5;
+    const screenY = effect.y - playerY + 0.5;
+
+    if (screenX < -0.2 || screenX > 1.2 || screenY < -0.2 || screenY > 1.2) continue;
+
+    const pt = getGroundPoint(groundQuad, Math.max(0, Math.min(1, screenX)), Math.max(0, Math.min(1, screenY)));
+    const progress = 1 - effect.timer / effect.duration;
+
+    ctx.save();
+
+    switch (effect.type) {
+      case 'slash':
+        // 斩击弧线
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 4 * effect.size * pt.scale;
+        ctx.globalAlpha = 1 - progress;
+        ctx.lineCap = 'round';
+
+        const slashLen = 25 * effect.size * pt.scale;
+        const slashAngle = effect.angle;
+        const spread = Math.PI * 0.6;
+
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - 10, slashLen,
+          slashAngle - spread / 2 + progress * 0.3,
+          slashAngle + spread / 2 + progress * 0.3);
+        ctx.stroke();
+
+        // 内层亮线
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2 * effect.size * pt.scale;
+        ctx.globalAlpha = (1 - progress) * 0.8;
+        ctx.stroke();
+        break;
+
+      case 'damage_number':
+        // 伤害数字
+        const fontSize = effect.isCrit ? 18 : 14;
+        ctx.font = `bold ${fontSize * pt.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.globalAlpha = Math.min(1, effect.timer / 0.3);
+
+        // 文字阴影
+        ctx.fillStyle = '#000000';
+        ctx.fillText(effect.damage.toString(), pt.x + 1, pt.y - 20 * pt.scale + 1);
+
+        // 伤害数字
+        ctx.fillStyle = effect.isCrit ? '#FF4444' : '#FFFFFF';
+        ctx.fillText(effect.damage.toString(), pt.x, pt.y - 20 * pt.scale);
+
+        // 暴击标签
+        if (effect.isCrit) {
+          ctx.font = `bold ${10 * pt.scale}px sans-serif`;
+          ctx.fillStyle = '#FFD700';
+          ctx.fillText('暴击!', pt.x, pt.y - 35 * pt.scale);
+        }
+        break;
+
+      case 'crit_burst':
+        // 暴击爆发效果
+        ctx.strokeStyle = '#FFD700';
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 1 - progress;
+
+        const burstRadius = 15 + progress * 25;
+        const rays = 8;
+        for (let i = 0; i < rays; i++) {
+          const angle = (i / rays) * Math.PI * 2 + progress * Math.PI;
+          const innerR = burstRadius * 0.3;
+          const outerR = burstRadius;
+          ctx.beginPath();
+          ctx.moveTo(pt.x + Math.cos(angle) * innerR, pt.y - 10 + Math.sin(angle) * innerR * 0.5);
+          ctx.lineTo(pt.x + Math.cos(angle) * outerR, pt.y - 10 + Math.sin(angle) * outerR * 0.5);
+          ctx.stroke();
+        }
+        break;
+
+      case 'skill_name':
+        // 技能名称显示
+        ctx.globalAlpha = progress < 0.2 ? progress * 5 : (1 - (progress - 0.2) / 0.8);
+        const nameY = pt.y - 60 * pt.scale - progress * 20;
+
+        // 背景条
+        ctx.fillStyle = effect.color || '#FFFFFF';
+        const nameWidth = ctx.measureText(effect.name).width + 30;
+        ctx.fillRect(pt.x - nameWidth / 2, nameY - 12, nameWidth, 24);
+
+        // 技能图标和名称
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `bold ${14 * pt.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${effect.icon} ${effect.name}`, pt.x, nameY);
+        break;
+
+      case 'skill_aura':
+        // 技能释放光环
+        ctx.strokeStyle = effect.color || '#FFFFFF';
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = (1 - progress) * 0.8;
+
+        const auraRadius = 20 + progress * 40;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - 20, auraRadius * pt.scale, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 内层光环
+        ctx.globalAlpha = (1 - progress) * 0.4;
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - 20, auraRadius * pt.scale * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 能量粒子
+        ctx.fillStyle = effect.color || '#FFFFFF';
+        ctx.globalAlpha = (1 - progress) * 0.6;
+        for (let i = 0; i < 6; i++) {
+          const pAngle = (i / 6) * Math.PI * 2 + progress * Math.PI * 3;
+          const pRadius = auraRadius * pt.scale * (0.8 + Math.sin(progress * Math.PI * 2) * 0.2);
+          const px = pt.x + Math.cos(pAngle) * pRadius;
+          const py = pt.y - 20 + Math.sin(pAngle) * pRadius * 0.5;
+          ctx.beginPath();
+          ctx.arc(px, py, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+    }
+
+    ctx.restore();
   }
 }
 
@@ -3099,10 +3379,32 @@ function drawStickMan(x, y, scale, time, groundQuad) {
   const rShin = Math.sin(t - 0.5) * swingAmp * 0.8 - 0.3;
   const lThigh = Math.sin(t + Math.PI) * swingAmp;
   const lShin = Math.sin(t + Math.PI - 0.5) * swingAmp * 0.8 - 0.3;
-  const rArm = Math.sin(t + Math.PI) * swingAmp * 0.6;
-  const rForearm = Math.sin(t + Math.PI - 0.3) * swingAmp * 0.4 + 0.5;
-  const lArm = Math.sin(t) * swingAmp * 0.6;
-  const lForearm = Math.sin(t - 0.3) * swingAmp * 0.4 + 0.5;
+
+  // 攻击动画进度 (0-1)
+  const attackProgress = isAttacking ? (1 - attackAnimTimer / attackAnimDuration) : 0;
+  const attackSwing = isAttacking ? Math.sin(attackProgress * Math.PI) * 1.5 : 0;
+
+  // 手臂角度（攻击时向前挥舞）
+  let rArm = Math.sin(t + Math.PI) * swingAmp * 0.6;
+  let rForearm = Math.sin(t + Math.PI - 0.3) * swingAmp * 0.4 + 0.5;
+  let lArm = Math.sin(t) * swingAmp * 0.6;
+  let lForearm = Math.sin(t - 0.3) * swingAmp * 0.4 + 0.5;
+
+  // 攻击时手臂动作
+  if (isAttacking) {
+    // 根据攻击目标方向决定用哪只手攻击
+    const attackDirX = attackTargetX;
+    const useRightArm = attackDirX * facingRight >= 0;
+
+    if (useRightArm) {
+      rArm = -0.5 - attackSwing; // 向前挥
+      rForearm = 0.3 + attackSwing * 0.5;
+    } else {
+      lArm = -0.5 - attackSwing;
+      lForearm = 0.3 + attackSwing * 0.5;
+    }
+  }
+
   const bounce = Math.abs(Math.sin(t * 2)) * 2 * scale * speed;
 
   ctx.save();
@@ -3267,6 +3569,9 @@ function drawGroundScene(groundQuad) {
 
     // 绘制技能特效
     drawSkillEffects(groundQuad);
+
+    // 绘制攻击特效
+    drawAttackEffects(groundQuad);
 
   } else {
     // 待机模式：使用固定的场景元素
@@ -3922,6 +4227,8 @@ function gameLoop() {
   // 冒险模式下自动攻击和技能
   if (gameState === 'adventure') {
     attackMonsters();
+    // 更新攻击特效
+    updateAttackEffects(dt);
     // 更新技能冷却和自动释放（技能选择时暂停）
     if (!isSelectingSkill) {
       updateSkillCooldowns(dt);
