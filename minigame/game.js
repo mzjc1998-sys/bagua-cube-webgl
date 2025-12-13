@@ -301,474 +301,221 @@ let playerExp = 0;
 let expToNext = 60;  // 第一级只需60经验（3只僵尸）
 
 // ==================== 技能系统 ====================
-// 基于英雄联盟20位人气英雄的技能设计
+// 基于八卦设计的技能系统
+// 八卦：乾(天)、坤(地)、震(雷)、巽(风)、坎(水)、离(火)、艮(山)、兑(泽)
+
+// 宫位属性加成
+const PALACE_BONUS = {
+  '乾': { dmg: 1.2, luck: 5, description: '天之力：伤害+20%，暴击+5%' },
+  '坤': { hp: 1.3, armor: 10, description: '地之护：生命+30%，护甲+10' },
+  '震': { atkSpd: 0.8, spd: 1.15, description: '雷之速：攻速+20%，移速+15%' },
+  '巽': { range: 1.2, spd: 1.1, description: '风之翼：射程+20%，移速+10%' },
+  '坎': { healRate: 3, hp: 1.1, description: '水之愈：回血+3/秒，生命+10%' },
+  '离': { dmg: 1.15, atkSpd: 0.9, description: '火之怒：伤害+15%，攻速+10%' },
+  '艮': { armor: 20, hp: 1.2, description: '山之固：护甲+20，生命+20%' },
+  '兑': { luck: 10, dmg: 1.1, description: '泽之泽：暴击+10%，伤害+10%' }
+};
+
 const SKILL_POOL = {
-  // ===== 亚索 Yasuo =====
-  steelTempest: {
-    name: '斩钢闪',
-    champion: '亚索',
+  // ===== 乾卦 ☰ 天 =====
+  tianwei: {
+    name: '天威',
+    trigram: '乾',
+    trigramName: '天',
     type: 'active',
-    icon: '⚔️',
-    color: '#7CB9E8',
-    description: '快速突刺，对前方敌人造成伤害',
-    cooldown: 2,
-    damage: 25,
-    effect: 'dash_attack'
-  },
-  windWall: {
-    name: '风之障壁',
-    champion: '亚索',
-    type: 'active',
-    icon: '🌬️',
-    color: '#87CEEB',
-    description: '生成风墙，短暂无敌',
-    cooldown: 15,
-    duration: 1.5,
-    effect: 'invincible'
-  },
-  // ===== 拉克丝 Lux =====
-  lightBinding: {
-    name: '光之束缚',
-    champion: '拉克丝',
-    type: 'active',
-    icon: '✨',
+    icon: '☰',
     color: '#FFD700',
-    description: '发射光球，定身周围敌人',
+    description: '天降神威，对周围敌人造成大量伤害',
     cooldown: 8,
-    duration: 1.5,
-    effect: 'root_aoe'
-  },
-  finalSpark: {
-    name: '终极闪光',
-    champion: '拉克丝',
-    type: 'active',
-    icon: '🔆',
-    color: '#FFFFFF',
-    description: '发射巨型激光，造成大量伤害',
-    cooldown: 20,
-    damage: 100,
-    effect: 'laser_beam'
-  },
-  // ===== 金克丝 Jinx =====
-  flameChompers: {
-    name: '火焰咆哮',
-    champion: '金克丝',
-    type: 'active',
-    icon: '💣',
-    color: '#FF6B6B',
-    description: '放置陷阱，敌人踩中会爆炸',
-    cooldown: 12,
-    damage: 40,
-    effect: 'place_trap'
-  },
-  getMoved: {
-    name: '嗨翻全场',
-    champion: '金克丝',
-    type: 'passive',
-    icon: '🎯',
-    color: '#FF1493',
-    description: '击杀敌人后移速大幅提升',
-    speedBoost: 0.5,
-    duration: 3,
-    effect: 'kill_speed_boost'
-  },
-  // ===== 李青 Lee Sin =====
-  sonicWave: {
-    name: '天音波',
-    champion: '李青',
-    type: 'active',
-    icon: '👊',
-    color: '#FFD93D',
-    description: '发射音波，命中后可再次施放冲向敌人',
-    cooldown: 6,
-    damage: 35,
-    effect: 'sonic_dash'
-  },
-  dragonsRage: {
-    name: '神龙摆尾',
-    champion: '李青',
-    type: 'active',
-    icon: '🐉',
-    color: '#FF8C00',
-    description: '强力踢击，击退并伤害敌人',
-    cooldown: 25,
-    damage: 80,
-    effect: 'knockback_kick'
-  },
-  // ===== 伊泽瑞尔 Ezreal =====
-  mysticShot: {
-    name: '秘术射击',
-    champion: '伊泽瑞尔',
-    type: 'active',
-    icon: '💫',
-    color: '#00BFFF',
-    description: '发射能量弹，命中减少技能冷却',
-    cooldown: 3,
-    damage: 20,
-    effect: 'projectile_cdr'
-  },
-  arcaneShift: {
-    name: '奥术跃迁',
-    champion: '伊泽瑞尔',
-    type: 'active',
-    icon: '⚡',
-    color: '#9370DB',
-    description: '瞬间传送一小段距离',
-    cooldown: 10,
-    effect: 'blink'
-  },
-  // ===== 阿狸 Ahri =====
-  charm: {
-    name: '魅惑',
-    champion: '阿狸',
-    type: 'active',
-    icon: '💋',
-    color: '#FF69B4',
-    description: '魅惑敌人，使其向你走来',
-    cooldown: 8,
-    duration: 1.5,
-    effect: 'charm_enemy'
-  },
-  spiritRush: {
-    name: '灵魂疾走',
-    champion: '阿狸',
-    type: 'active',
-    icon: '🦊',
-    color: '#DA70D6',
-    description: '快速冲刺三次，每次造成伤害',
-    cooldown: 18,
-    damage: 25,
-    charges: 3,
-    effect: 'triple_dash'
-  },
-  // ===== 劫 Zed =====
-  livingShadow: {
-    name: '影分身',
-    champion: '劫',
-    type: 'active',
-    icon: '👤',
-    color: '#2F4F4F',
-    description: '创造分身，可与分身交换位置',
-    cooldown: 12,
-    effect: 'shadow_clone'
-  },
-  deathMark: {
-    name: '禁奥义·瞬狱影杀阵',
-    champion: '劫',
-    type: 'active',
-    icon: '💀',
-    color: '#8B0000',
-    description: '标记敌人，数秒后引爆造成巨额伤害',
-    cooldown: 30,
-    damage: 150,
-    effect: 'death_mark'
-  },
-  // ===== 薇恩 Vayne =====
-  tumble: {
-    name: '翻滚突袭',
-    champion: '薇恩',
-    type: 'active',
-    icon: '🎯',
-    color: '#DC143C',
-    description: '翻滚闪避，下次攻击伤害提升',
-    cooldown: 4,
-    damageBoost: 1.5,
-    effect: 'tumble_boost'
-  },
-  silverBolts: {
-    name: '圣银弩箭',
-    champion: '薇恩',
-    type: 'passive',
-    icon: '🏹',
-    color: '#C0C0C0',
-    description: '每第三次攻击造成额外真实伤害',
-    trueDamage: 20,
-    effect: 'third_hit_bonus'
-  },
-  // ===== 锤石 Thresh =====
-  deathSentence: {
-    name: '死亡判决',
-    champion: '锤石',
-    type: 'active',
-    icon: '⛓️',
-    color: '#32CD32',
-    description: '投掷锁链，拉近敌人',
-    cooldown: 10,
-    damage: 30,
-    effect: 'hook_pull'
-  },
-  theBox: {
-    name: '幽冥监牢',
-    champion: '锤石',
-    type: 'active',
-    icon: '🔲',
-    color: '#00FF7F',
-    description: '创造牢笼，敌人触碰受伤减速',
-    cooldown: 20,
     damage: 50,
-    duration: 4,
-    effect: 'cage_trap'
-  },
-  // ===== 德莱厄斯 Darius =====
-  decimate: {
-    name: '大杀四方',
-    champion: '德莱厄斯',
-    type: 'active',
-    icon: '🪓',
-    color: '#8B0000',
-    description: '挥舞斧头，对周围敌人造成伤害',
-    cooldown: 5,
-    damage: 35,
     effect: 'spin_attack'
   },
-  noxianMight: {
-    name: '诺克萨斯之力',
-    champion: '德莱厄斯',
-    type: 'passive',
-    icon: '💪',
-    color: '#B22222',
-    description: '攻击叠加流血，满层大幅提升攻击力',
-    stackDamage: 5,
-    maxStacks: 5,
-    effect: 'bleed_stacks'
-  },
-  // ===== 盖伦 Garen =====
-  judgment: {
-    name: '审判',
-    champion: '盖伦',
-    type: 'active',
-    icon: '🌀',
-    color: '#4169E1',
-    description: '旋转大剑，持续伤害周围敌人',
-    cooldown: 8,
-    damage: 15,
-    duration: 3,
-    effect: 'spin_continuous'
-  },
-  courage: {
-    name: '勇气',
-    champion: '盖伦',
-    type: 'passive',
-    icon: '🛡️',
-    color: '#DAA520',
-    description: '击杀敌人永久提升护甲',
-    armorPerKill: 0.5,
-    maxArmor: 30,
-    effect: 'armor_stacking'
-  },
-  // ===== 赏金猎人 Miss Fortune =====
-  doubleUp: {
-    name: '双重射击',
-    champion: '赏金猎人',
-    type: 'active',
-    icon: '🔫',
-    color: '#FF4500',
-    description: '射击弹跳到后方敌人，造成双倍伤害',
-    cooldown: 4,
-    damage: 20,
-    bounceMultiplier: 2,
-    effect: 'bounce_shot'
-  },
-  bulletTime: {
-    name: '弹幕时间',
-    champion: '赏金猎人',
-    type: 'active',
-    icon: '🎆',
-    color: '#FF6347',
-    description: '向前方扫射弹幕，造成大量伤害',
-    cooldown: 25,
-    damage: 80,
-    duration: 2,
-    effect: 'bullet_barrage'
-  },
-  // ===== 卡莎 Kai'Sa =====
-  icathianRain: {
-    name: '伊卡西亚之雨',
-    champion: '卡莎',
-    type: 'active',
-    icon: '🌧️',
-    color: '#9400D3',
-    description: '发射导弹群攻击周围敌人',
-    cooldown: 6,
-    damage: 30,
-    missiles: 6,
-    effect: 'missile_swarm'
-  },
-  superchargedVoid: {
-    name: '虚空充能',
-    champion: '卡莎',
-    type: 'passive',
-    icon: '🔮',
-    color: '#8A2BE2',
-    description: '攻击叠加等离子层，满层造成爆发伤害',
-    stackDamage: 10,
-    maxStacks: 4,
-    effect: 'plasma_stacks'
-  },
-  // ===== 阿卡丽 Akali =====
-  fivePointStrike: {
-    name: '五连镖',
-    champion: '阿卡丽',
-    type: 'active',
-    icon: '🌟',
-    color: '#00CED1',
-    description: '投掷飞镖扇形攻击',
-    cooldown: 3,
-    damage: 25,
-    effect: 'cone_attack'
-  },
-  twilightShroud: {
-    name: '烟雾弹',
-    champion: '阿卡丽',
-    type: 'active',
-    icon: '💨',
-    color: '#708090',
-    description: '释放烟雾，获得隐身和移速',
-    cooldown: 15,
-    duration: 3,
-    speedBoost: 0.3,
-    effect: 'stealth_speed'
-  },
-  // ===== 剑圣 Master Yi =====
-  alphaStrike: {
-    name: '阿尔法突袭',
-    champion: '剑圣',
-    type: 'active',
-    icon: '⚔️',
-    color: '#FFFF00',
-    description: '瞬移攻击多个敌人，期间无敌',
-    cooldown: 12,
-    damage: 30,
-    targets: 4,
-    effect: 'multi_strike'
-  },
-  wujuStyle: {
-    name: '无极剑道',
-    champion: '剑圣',
-    type: 'passive',
-    icon: '🗡️',
-    color: '#00FF00',
-    description: '普攻造成额外真实伤害',
-    trueDamage: 15,
-    effect: 'bonus_true_damage'
-  },
-  // ===== 提莫 Teemo =====
-  blindingDart: {
-    name: '致盲吹箭',
-    champion: '提莫',
-    type: 'active',
-    icon: '🎯',
-    color: '#FF8C00',
-    description: '使敌人致盲，无法攻击',
-    cooldown: 6,
-    damage: 20,
-    duration: 1.5,
-    effect: 'blind_enemy'
-  },
-  noxiousTrap: {
-    name: '种蘑菇',
-    champion: '提莫',
-    type: 'active',
-    icon: '🍄',
-    color: '#9ACD32',
-    description: '放置毒蘑菇陷阱',
-    cooldown: 8,
-    damage: 35,
-    duration: 60,
-    effect: 'poison_trap'
-  },
-  // ===== 派克 Pyke =====
-  boneSkewer: {
-    name: '骨刺',
-    champion: '派克',
-    type: 'active',
-    icon: '🔱',
-    color: '#2E8B57',
-    description: '投掷鱼叉，拉近敌人',
-    cooldown: 8,
-    damage: 30,
-    effect: 'pull_harpoon'
-  },
-  deathFromBelow: {
-    name: '海妖之噬',
-    champion: '派克',
-    type: 'active',
-    icon: '❌',
-    color: '#FF0000',
-    description: '斩杀低血量敌人，可重置',
-    cooldown: 20,
-    executeThreshold: 0.25,
-    damage: 100,
-    effect: 'execute_reset'
-  },
-  // ===== 卡特琳娜 Katarina =====
-  bouncingBlade: {
-    name: '弹射之刃',
-    champion: '卡特琳娜',
-    type: 'active',
-    icon: '🗡️',
-    color: '#DC143C',
-    description: '投掷匕首弹跳多个敌人',
-    cooldown: 5,
-    damage: 20,
-    bounces: 3,
-    effect: 'bouncing_blade'
-  },
-  voracity: {
-    name: '贪婪',
-    champion: '卡特琳娜',
-    type: 'passive',
-    icon: '💀',
-    color: '#8B0000',
-    description: '击杀或助攻重置所有技能冷却',
-    effect: 'reset_on_kill'
-  },
-  // ===== 德莱文 Draven =====
-  spinningAxe: {
-    name: '旋转飞斧',
-    champion: '德莱文',
-    type: 'active',
-    icon: '🪓',
-    color: '#B8860B',
-    description: '投掷旋转飞斧，造成额外伤害',
-    cooldown: 3,
-    damageMultiplier: 1.8,
-    effect: 'spinning_axe'
-  },
-  leagueOfDraven: {
-    name: '德莱联盟',
-    champion: '德莱文',
+  tiandao: {
+    name: '天道',
+    trigram: '乾',
+    trigramName: '天',
     type: 'passive',
     icon: '👑',
     color: '#FFD700',
-    description: '击杀获得额外金币和经验',
-    bonusGold: 2,
-    bonusExp: 1.5,
-    effect: 'bonus_rewards'
+    description: '天命所归，每次攻击有概率造成双倍伤害',
+    critBonus: 15,
+    effect: 'crit_boost'
   },
-  // ===== 机器人 Blitzcrank =====
-  rocketGrab: {
-    name: '机械飞爪',
-    champion: '机器人',
+
+  // ===== 坤卦 ☷ 地 =====
+  dizhao: {
+    name: '地召',
+    trigram: '坤',
+    trigramName: '地',
     type: 'active',
-    icon: '🤖',
-    color: '#FFD700',
-    description: '发射机械手臂抓取敌人',
+    icon: '☷',
+    color: '#8B4513',
+    description: '召唤大地之力，获得护盾抵挡伤害',
     cooldown: 12,
-    damage: 30,
-    effect: 'grab_pull'
+    duration: 3,
+    effect: 'invincible'
   },
-  staticField: {
-    name: '静电力场',
-    champion: '机器人',
+  dimai: {
+    name: '地脉',
+    trigram: '坤',
+    trigramName: '地',
+    type: 'passive',
+    icon: '🏔️',
+    color: '#8B4513',
+    description: '大地滋养，持续恢复生命值',
+    healRate: 2,
+    effect: 'passive_heal'
+  },
+
+  // ===== 震卦 ☳ 雷 =====
+  leiting: {
+    name: '雷霆',
+    trigram: '震',
+    trigramName: '雷',
     type: 'active',
+    icon: '☳',
+    color: '#9400D3',
+    description: '召唤雷霆，对前方敌人造成连锁伤害',
+    cooldown: 5,
+    damage: 35,
+    effect: 'laser_beam'
+  },
+  leishen: {
+    name: '雷神',
+    trigram: '震',
+    trigramName: '雷',
+    type: 'passive',
     icon: '⚡',
-    color: '#00FFFF',
-    description: '释放电击，沉默并伤害周围敌人',
-    cooldown: 20,
-    damage: 60,
-    silenceDuration: 1,
-    effect: 'aoe_silence'
+    color: '#9400D3',
+    description: '雷神庇佑，攻击速度大幅提升',
+    atkSpdBoost: 0.3,
+    effect: 'attack_speed_boost'
+  },
+
+  // ===== 巽卦 ☴ 风 =====
+  fengren: {
+    name: '风刃',
+    trigram: '巽',
+    trigramName: '风',
+    type: 'active',
+    icon: '☴',
+    color: '#00CED1',
+    description: '发射风刃，穿透多个敌人',
+    cooldown: 3,
+    damage: 25,
+    effect: 'projectile_cdr'
+  },
+  fengxing: {
+    name: '风行',
+    trigram: '巽',
+    trigramName: '风',
+    type: 'active',
+    icon: '🌬️',
+    color: '#00CED1',
+    description: '化身为风，瞬间移动一段距离',
+    cooldown: 8,
+    effect: 'blink'
+  },
+
+  // ===== 坎卦 ☵ 水 =====
+  shuibo: {
+    name: '水波',
+    trigram: '坎',
+    trigramName: '水',
+    type: 'active',
+    icon: '☵',
+    color: '#1E90FF',
+    description: '释放水波，减缓周围敌人速度',
+    cooldown: 10,
+    duration: 2,
+    effect: 'root_aoe'
+  },
+  shuiyuan: {
+    name: '水源',
+    trigram: '坎',
+    trigramName: '水',
+    type: 'passive',
+    icon: '💧',
+    color: '#1E90FF',
+    description: '水之治愈，受伤时恢复生命',
+    healOnHit: 5,
+    effect: 'lifesteal'
+  },
+
+  // ===== 离卦 ☲ 火 =====
+  lieyan: {
+    name: '烈焰',
+    trigram: '离',
+    trigramName: '火',
+    type: 'active',
+    icon: '☲',
+    color: '#FF4500',
+    description: '释放烈焰，灼烧周围所有敌人',
+    cooldown: 6,
+    damage: 40,
+    effect: 'spin_attack'
+  },
+  huoling: {
+    name: '火灵',
+    trigram: '离',
+    trigramName: '火',
+    type: 'passive',
+    icon: '🔥',
+    color: '#FF4500',
+    description: '火焰附体，攻击附带灼烧效果',
+    burnDamage: 5,
+    effect: 'burn_attack'
+  },
+
+  // ===== 艮卦 ☶ 山 =====
+  shanshi: {
+    name: '山石',
+    trigram: '艮',
+    trigramName: '山',
+    type: 'active',
+    icon: '☶',
+    color: '#A0522D',
+    description: '召唤巨石，砸向最近的敌人',
+    cooldown: 7,
+    damage: 45,
+    effect: 'hook_pull'
+  },
+  shanzhen: {
+    name: '山镇',
+    trigram: '艮',
+    trigramName: '山',
+    type: 'passive',
+    icon: '🛡️',
+    color: '#A0522D',
+    description: '山之坚固，减少受到的伤害',
+    damageReduction: 15,
+    effect: 'armor_stacking'
+  },
+
+  // ===== 兑卦 ☱ 泽 =====
+  zezhao: {
+    name: '泽沼',
+    trigram: '兑',
+    trigramName: '泽',
+    type: 'active',
+    icon: '☱',
+    color: '#32CD32',
+    description: '创造沼泽，困住踏入的敌人',
+    cooldown: 10,
+    damage: 30,
+    duration: 5,
+    effect: 'place_trap'
+  },
+  zelu: {
+    name: '泽露',
+    trigram: '兑',
+    trigramName: '泽',
+    type: 'passive',
+    icon: '✨',
+    color: '#32CD32',
+    description: '泽之恩惠，击杀敌人恢复生命',
+    healOnKill: 15,
+    effect: 'kill_heal'
   }
 };
 
@@ -1771,16 +1518,31 @@ function getPlayerStats() {
   const levelBonus = playerLevel - 1;
   // 等级成长：每级+3%基础属性（降低成长速度）
   const levelMult = 1 + levelBonus * 0.03;
-  return {
-    hp: Math.floor(base.hp * levelMult),
-    spd: base.spd,  // 移速不随等级变化
-    dmg: Math.floor(base.dmg * levelMult),
-    atkSpd: Math.max(0.2, base.atkSpd - levelBonus * 0.01), // 攻速随等级略微提升
-    range: base.range + levelBonus * 0.002, // 范围略微增加
-    luck: base.luck + levelBonus * 0.3,
-    healRate: base.healRate || 0,
-    armor: base.armor || 0
-  };
+
+  // 获取宫位加成
+  const palace = PALACE_BONUS[currentPalace] || {};
+
+  // 计算基础属性
+  let hp = Math.floor(base.hp * levelMult);
+  let spd = base.spd;
+  let dmg = Math.floor(base.dmg * levelMult);
+  let atkSpd = Math.max(0.2, base.atkSpd - levelBonus * 0.01);
+  let range = base.range + levelBonus * 0.002;
+  let luck = base.luck + levelBonus * 0.3;
+  let healRate = base.healRate || 0;
+  let armor = base.armor || 0;
+
+  // 应用宫位加成
+  if (palace.hp) hp = Math.floor(hp * palace.hp);
+  if (palace.spd) spd *= palace.spd;
+  if (palace.dmg) dmg = Math.floor(dmg * palace.dmg);
+  if (palace.atkSpd) atkSpd = Math.max(0.15, atkSpd * palace.atkSpd);
+  if (palace.range) range *= palace.range;
+  if (palace.luck) luck += palace.luck;
+  if (palace.healRate) healRate += palace.healRate;
+  if (palace.armor) armor += palace.armor;
+
+  return { hp, spd, dmg, atkSpd, range, luck, healRate, armor };
 }
 
 // ==================== 冒险系统 ====================
@@ -3948,13 +3710,22 @@ function draw() {
   }
 
   // UI - 左上角宫位信息
+  const trigramIcons = { '乾': '☰', '坤': '☷', '震': '☳', '巽': '☴', '坎': '☵', '离': '☲', '艮': '☶', '兑': '☱' };
   ctx.fillStyle = 'rgba(0,0,0,0.8)';
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(`宫视角: ${currentPalace}宫`, 15, 25);
+  ctx.fillText(`${trigramIcons[currentPalace] || ''} ${currentPalace}宫`, 15, 25);
+  // 显示宫位加成
+  const palaceBonus = PALACE_BONUS[currentPalace];
+  if (palaceBonus) {
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText(palaceBonus.description, 15, 42);
+  }
   if (gameState === 'idle') {
     ctx.font = '11px sans-serif';
-    ctx.fillText('点击顶点切换视角', 15, 42);
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillText('点击顶点切换视角', 15, palaceBonus ? 56 : 42);
   }
 
   // 左下角 - 角色状态面板
@@ -4487,11 +4258,12 @@ function drawSkillTooltip(skill, tx, ty) {
   ctx.textBaseline = 'middle';
   ctx.fillText(`${skill.icon} ${skill.name}`, x + 8, y + 12);
 
-  // 英雄名 + 类型
+  // 卦象
   ctx.fillStyle = '#AAAAAA';
   ctx.font = '10px sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(skill.champion, x + tooltipW - 8, y + 12);
+  const triSymbols = { '乾': '☰', '坤': '☷', '震': '☳', '巽': '☴', '坎': '☵', '离': '☲', '艮': '☶', '兑': '☱' };
+  ctx.fillText(skill.trigram ? `${triSymbols[skill.trigram]} ${skill.trigram}` : '', x + tooltipW - 8, y + 12);
 
   // 类型标签
   const isPassive = skill.type === 'passive';
@@ -4582,10 +4354,12 @@ function drawSkillSelectionUI() {
     ctx.font = 'bold 14px sans-serif';
     ctx.fillText(skill.name, x + cardW / 2, y + 60);
 
-    // 英雄名
+    // 卦象
     ctx.fillStyle = '#888888';
     ctx.font = '11px sans-serif';
-    ctx.fillText(skill.champion, x + cardW / 2, y + 78);
+    const trigramSymbols = { '乾': '☰', '坤': '☷', '震': '☳', '巽': '☴', '坎': '☵', '离': '☲', '艮': '☶', '兑': '☱' };
+    const trigramText = skill.trigram ? `${trigramSymbols[skill.trigram] || ''} ${skill.trigram}卦` : '';
+    ctx.fillText(trigramText, x + cardW / 2, y + 78);
 
     // 类型标签
     ctx.fillStyle = isPassive ? '#FFD700' : '#00BFFF';
