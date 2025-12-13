@@ -300,6 +300,1234 @@ let playerLevel = 1;
 let playerExp = 0;
 let expToNext = 100;
 
+// ==================== 技能系统 ====================
+// 基于英雄联盟20位人气英雄的技能设计
+const SKILL_POOL = {
+  // ===== 亚索 Yasuo =====
+  steelTempest: {
+    name: '斩钢闪',
+    champion: '亚索',
+    type: 'active',
+    icon: '⚔️',
+    color: '#7CB9E8',
+    description: '快速突刺，对前方敌人造成伤害',
+    cooldown: 2,
+    damage: 25,
+    effect: 'dash_attack'
+  },
+  windWall: {
+    name: '风之障壁',
+    champion: '亚索',
+    type: 'active',
+    icon: '🌬️',
+    color: '#87CEEB',
+    description: '生成风墙，短暂无敌',
+    cooldown: 15,
+    duration: 1.5,
+    effect: 'invincible'
+  },
+  // ===== 拉克丝 Lux =====
+  lightBinding: {
+    name: '光之束缚',
+    champion: '拉克丝',
+    type: 'active',
+    icon: '✨',
+    color: '#FFD700',
+    description: '发射光球，定身周围敌人',
+    cooldown: 8,
+    duration: 1.5,
+    effect: 'root_aoe'
+  },
+  finalSpark: {
+    name: '终极闪光',
+    champion: '拉克丝',
+    type: 'active',
+    icon: '🔆',
+    color: '#FFFFFF',
+    description: '发射巨型激光，造成大量伤害',
+    cooldown: 20,
+    damage: 100,
+    effect: 'laser_beam'
+  },
+  // ===== 金克丝 Jinx =====
+  flameChompers: {
+    name: '火焰咆哮',
+    champion: '金克丝',
+    type: 'active',
+    icon: '💣',
+    color: '#FF6B6B',
+    description: '放置陷阱，敌人踩中会爆炸',
+    cooldown: 12,
+    damage: 40,
+    effect: 'place_trap'
+  },
+  getMoved: {
+    name: '嗨翻全场',
+    champion: '金克丝',
+    type: 'passive',
+    icon: '🎯',
+    color: '#FF1493',
+    description: '击杀敌人后移速大幅提升',
+    speedBoost: 0.5,
+    duration: 3,
+    effect: 'kill_speed_boost'
+  },
+  // ===== 李青 Lee Sin =====
+  sonicWave: {
+    name: '天音波',
+    champion: '李青',
+    type: 'active',
+    icon: '👊',
+    color: '#FFD93D',
+    description: '发射音波，命中后可再次施放冲向敌人',
+    cooldown: 6,
+    damage: 35,
+    effect: 'sonic_dash'
+  },
+  dragonsRage: {
+    name: '神龙摆尾',
+    champion: '李青',
+    type: 'active',
+    icon: '🐉',
+    color: '#FF8C00',
+    description: '强力踢击，击退并伤害敌人',
+    cooldown: 25,
+    damage: 80,
+    effect: 'knockback_kick'
+  },
+  // ===== 伊泽瑞尔 Ezreal =====
+  mysticShot: {
+    name: '秘术射击',
+    champion: '伊泽瑞尔',
+    type: 'active',
+    icon: '💫',
+    color: '#00BFFF',
+    description: '发射能量弹，命中减少技能冷却',
+    cooldown: 3,
+    damage: 20,
+    effect: 'projectile_cdr'
+  },
+  arcaneShift: {
+    name: '奥术跃迁',
+    champion: '伊泽瑞尔',
+    type: 'active',
+    icon: '⚡',
+    color: '#9370DB',
+    description: '瞬间传送一小段距离',
+    cooldown: 10,
+    effect: 'blink'
+  },
+  // ===== 阿狸 Ahri =====
+  charm: {
+    name: '魅惑',
+    champion: '阿狸',
+    type: 'active',
+    icon: '💋',
+    color: '#FF69B4',
+    description: '魅惑敌人，使其向你走来',
+    cooldown: 8,
+    duration: 1.5,
+    effect: 'charm_enemy'
+  },
+  spiritRush: {
+    name: '灵魂疾走',
+    champion: '阿狸',
+    type: 'active',
+    icon: '🦊',
+    color: '#DA70D6',
+    description: '快速冲刺三次，每次造成伤害',
+    cooldown: 18,
+    damage: 25,
+    charges: 3,
+    effect: 'triple_dash'
+  },
+  // ===== 劫 Zed =====
+  livingShadow: {
+    name: '影分身',
+    champion: '劫',
+    type: 'active',
+    icon: '👤',
+    color: '#2F4F4F',
+    description: '创造分身，可与分身交换位置',
+    cooldown: 12,
+    effect: 'shadow_clone'
+  },
+  deathMark: {
+    name: '禁奥义·瞬狱影杀阵',
+    champion: '劫',
+    type: 'active',
+    icon: '💀',
+    color: '#8B0000',
+    description: '标记敌人，数秒后引爆造成巨额伤害',
+    cooldown: 30,
+    damage: 150,
+    effect: 'death_mark'
+  },
+  // ===== 薇恩 Vayne =====
+  tumble: {
+    name: '翻滚突袭',
+    champion: '薇恩',
+    type: 'active',
+    icon: '🎯',
+    color: '#DC143C',
+    description: '翻滚闪避，下次攻击伤害提升',
+    cooldown: 4,
+    damageBoost: 1.5,
+    effect: 'tumble_boost'
+  },
+  silverBolts: {
+    name: '圣银弩箭',
+    champion: '薇恩',
+    type: 'passive',
+    icon: '🏹',
+    color: '#C0C0C0',
+    description: '每第三次攻击造成额外真实伤害',
+    trueDamage: 20,
+    effect: 'third_hit_bonus'
+  },
+  // ===== 锤石 Thresh =====
+  deathSentence: {
+    name: '死亡判决',
+    champion: '锤石',
+    type: 'active',
+    icon: '⛓️',
+    color: '#32CD32',
+    description: '投掷锁链，拉近敌人',
+    cooldown: 10,
+    damage: 30,
+    effect: 'hook_pull'
+  },
+  theBox: {
+    name: '幽冥监牢',
+    champion: '锤石',
+    type: 'active',
+    icon: '🔲',
+    color: '#00FF7F',
+    description: '创造牢笼，敌人触碰受伤减速',
+    cooldown: 20,
+    damage: 50,
+    duration: 4,
+    effect: 'cage_trap'
+  },
+  // ===== 德莱厄斯 Darius =====
+  decimate: {
+    name: '大杀四方',
+    champion: '德莱厄斯',
+    type: 'active',
+    icon: '🪓',
+    color: '#8B0000',
+    description: '挥舞斧头，对周围敌人造成伤害',
+    cooldown: 5,
+    damage: 35,
+    effect: 'spin_attack'
+  },
+  noxianMight: {
+    name: '诺克萨斯之力',
+    champion: '德莱厄斯',
+    type: 'passive',
+    icon: '💪',
+    color: '#B22222',
+    description: '攻击叠加流血，满层大幅提升攻击力',
+    stackDamage: 5,
+    maxStacks: 5,
+    effect: 'bleed_stacks'
+  },
+  // ===== 盖伦 Garen =====
+  judgment: {
+    name: '审判',
+    champion: '盖伦',
+    type: 'active',
+    icon: '🌀',
+    color: '#4169E1',
+    description: '旋转大剑，持续伤害周围敌人',
+    cooldown: 8,
+    damage: 15,
+    duration: 3,
+    effect: 'spin_continuous'
+  },
+  courage: {
+    name: '勇气',
+    champion: '盖伦',
+    type: 'passive',
+    icon: '🛡️',
+    color: '#DAA520',
+    description: '击杀敌人永久提升护甲',
+    armorPerKill: 0.5,
+    maxArmor: 30,
+    effect: 'armor_stacking'
+  },
+  // ===== 赏金猎人 Miss Fortune =====
+  doubleUp: {
+    name: '双重射击',
+    champion: '赏金猎人',
+    type: 'active',
+    icon: '🔫',
+    color: '#FF4500',
+    description: '射击弹跳到后方敌人，造成双倍伤害',
+    cooldown: 4,
+    damage: 20,
+    bounceMultiplier: 2,
+    effect: 'bounce_shot'
+  },
+  bulletTime: {
+    name: '弹幕时间',
+    champion: '赏金猎人',
+    type: 'active',
+    icon: '🎆',
+    color: '#FF6347',
+    description: '向前方扫射弹幕，造成大量伤害',
+    cooldown: 25,
+    damage: 80,
+    duration: 2,
+    effect: 'bullet_barrage'
+  },
+  // ===== 卡莎 Kai'Sa =====
+  icathianRain: {
+    name: '伊卡西亚之雨',
+    champion: '卡莎',
+    type: 'active',
+    icon: '🌧️',
+    color: '#9400D3',
+    description: '发射导弹群攻击周围敌人',
+    cooldown: 6,
+    damage: 30,
+    missiles: 6,
+    effect: 'missile_swarm'
+  },
+  superchargedVoid: {
+    name: '虚空充能',
+    champion: '卡莎',
+    type: 'passive',
+    icon: '🔮',
+    color: '#8A2BE2',
+    description: '攻击叠加等离子层，满层造成爆发伤害',
+    stackDamage: 10,
+    maxStacks: 4,
+    effect: 'plasma_stacks'
+  },
+  // ===== 阿卡丽 Akali =====
+  fivePointStrike: {
+    name: '五连镖',
+    champion: '阿卡丽',
+    type: 'active',
+    icon: '🌟',
+    color: '#00CED1',
+    description: '投掷飞镖扇形攻击',
+    cooldown: 3,
+    damage: 25,
+    effect: 'cone_attack'
+  },
+  twilightShroud: {
+    name: '烟雾弹',
+    champion: '阿卡丽',
+    type: 'active',
+    icon: '💨',
+    color: '#708090',
+    description: '释放烟雾，获得隐身和移速',
+    cooldown: 15,
+    duration: 3,
+    speedBoost: 0.3,
+    effect: 'stealth_speed'
+  },
+  // ===== 剑圣 Master Yi =====
+  alphaStrike: {
+    name: '阿尔法突袭',
+    champion: '剑圣',
+    type: 'active',
+    icon: '⚔️',
+    color: '#FFFF00',
+    description: '瞬移攻击多个敌人，期间无敌',
+    cooldown: 12,
+    damage: 30,
+    targets: 4,
+    effect: 'multi_strike'
+  },
+  wujuStyle: {
+    name: '无极剑道',
+    champion: '剑圣',
+    type: 'passive',
+    icon: '🗡️',
+    color: '#00FF00',
+    description: '普攻造成额外真实伤害',
+    trueDamage: 15,
+    effect: 'bonus_true_damage'
+  },
+  // ===== 提莫 Teemo =====
+  blindingDart: {
+    name: '致盲吹箭',
+    champion: '提莫',
+    type: 'active',
+    icon: '🎯',
+    color: '#FF8C00',
+    description: '使敌人致盲，无法攻击',
+    cooldown: 6,
+    damage: 20,
+    duration: 1.5,
+    effect: 'blind_enemy'
+  },
+  noxiousTrap: {
+    name: '种蘑菇',
+    champion: '提莫',
+    type: 'active',
+    icon: '🍄',
+    color: '#9ACD32',
+    description: '放置毒蘑菇陷阱',
+    cooldown: 8,
+    damage: 35,
+    duration: 60,
+    effect: 'poison_trap'
+  },
+  // ===== 派克 Pyke =====
+  boneSkewer: {
+    name: '骨刺',
+    champion: '派克',
+    type: 'active',
+    icon: '🔱',
+    color: '#2E8B57',
+    description: '投掷鱼叉，拉近敌人',
+    cooldown: 8,
+    damage: 30,
+    effect: 'pull_harpoon'
+  },
+  deathFromBelow: {
+    name: '海妖之噬',
+    champion: '派克',
+    type: 'active',
+    icon: '❌',
+    color: '#FF0000',
+    description: '斩杀低血量敌人，可重置',
+    cooldown: 20,
+    executeThreshold: 0.25,
+    damage: 100,
+    effect: 'execute_reset'
+  },
+  // ===== 卡特琳娜 Katarina =====
+  bouncingBlade: {
+    name: '弹射之刃',
+    champion: '卡特琳娜',
+    type: 'active',
+    icon: '🗡️',
+    color: '#DC143C',
+    description: '投掷匕首弹跳多个敌人',
+    cooldown: 5,
+    damage: 20,
+    bounces: 3,
+    effect: 'bouncing_blade'
+  },
+  voracity: {
+    name: '贪婪',
+    champion: '卡特琳娜',
+    type: 'passive',
+    icon: '💀',
+    color: '#8B0000',
+    description: '击杀或助攻重置所有技能冷却',
+    effect: 'reset_on_kill'
+  },
+  // ===== 德莱文 Draven =====
+  spinningAxe: {
+    name: '旋转飞斧',
+    champion: '德莱文',
+    type: 'active',
+    icon: '🪓',
+    color: '#B8860B',
+    description: '投掷旋转飞斧，造成额外伤害',
+    cooldown: 3,
+    damageMultiplier: 1.8,
+    effect: 'spinning_axe'
+  },
+  leagueOfDraven: {
+    name: '德莱联盟',
+    champion: '德莱文',
+    type: 'passive',
+    icon: '👑',
+    color: '#FFD700',
+    description: '击杀获得额外金币和经验',
+    bonusGold: 2,
+    bonusExp: 1.5,
+    effect: 'bonus_rewards'
+  },
+  // ===== 机器人 Blitzcrank =====
+  rocketGrab: {
+    name: '机械飞爪',
+    champion: '机器人',
+    type: 'active',
+    icon: '🤖',
+    color: '#FFD700',
+    description: '发射机械手臂抓取敌人',
+    cooldown: 12,
+    damage: 30,
+    effect: 'grab_pull'
+  },
+  staticField: {
+    name: '静电力场',
+    champion: '机器人',
+    type: 'active',
+    icon: '⚡',
+    color: '#00FFFF',
+    description: '释放电击，沉默并伤害周围敌人',
+    cooldown: 20,
+    damage: 60,
+    silenceDuration: 1,
+    effect: 'aoe_silence'
+  }
+};
+
+// 玩家技能槽
+let playerSkills = []; // 最多4个主动技能
+let playerPassive = null; // 1个被动技能
+let skillCooldowns = {}; // 技能冷却计时器
+
+// 技能选择状态
+let isSelectingSkill = false;
+let skillChoices = []; // 4个待选技能
+
+// 技能特效状态
+let skillEffects = []; // 当前活跃的技能特效
+let passiveStacks = {}; // 被动技能层数
+
+// 获取可用的技能列表（排除已拥有的）
+function getAvailableSkills() {
+  const ownedSkillIds = playerSkills.map(s => s.id);
+  if (playerPassive) ownedSkillIds.push(playerPassive.id);
+
+  const available = [];
+  for (const [id, skill] of Object.entries(SKILL_POOL)) {
+    if (!ownedSkillIds.includes(id)) {
+      available.push({ id, ...skill });
+    }
+  }
+  return available;
+}
+
+// 生成4个随机技能选项
+function generateSkillChoices() {
+  const available = getAvailableSkills();
+  if (available.length === 0) return [];
+
+  // 打乱顺序
+  for (let i = available.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [available[i], available[j]] = [available[j], available[i]];
+  }
+
+  // 取前4个（或更少）
+  return available.slice(0, Math.min(4, available.length));
+}
+
+// 开始技能选择
+function startSkillSelection() {
+  skillChoices = generateSkillChoices();
+  if (skillChoices.length > 0) {
+    isSelectingSkill = true;
+  }
+}
+
+// 选择技能
+function selectSkill(index) {
+  if (index < 0 || index >= skillChoices.length) return;
+
+  const skill = skillChoices[index];
+  if (skill.type === 'passive') {
+    // 被动技能（只能有一个）
+    if (playerPassive) {
+      // 替换旧被动
+      playerPassive = skill;
+    } else {
+      playerPassive = skill;
+    }
+    console.log(`获得被动技能: ${skill.name}`);
+  } else {
+    // 主动技能（最多4个）
+    if (playerSkills.length < 4) {
+      playerSkills.push(skill);
+      skillCooldowns[skill.id] = 0;
+      console.log(`获得技能: ${skill.name}`);
+    } else {
+      console.log('技能槽已满！');
+    }
+  }
+
+  isSelectingSkill = false;
+  skillChoices = [];
+}
+
+// 更新技能冷却
+function updateSkillCooldowns(dt) {
+  for (const skillId in skillCooldowns) {
+    if (skillCooldowns[skillId] > 0) {
+      skillCooldowns[skillId] -= dt;
+    }
+  }
+}
+
+// 自动释放技能
+function autoUseSkills() {
+  for (const skill of playerSkills) {
+    if (skillCooldowns[skill.id] <= 0 && monsters.length > 0) {
+      useSkill(skill);
+      skillCooldowns[skill.id] = skill.cooldown;
+    }
+  }
+}
+
+// 使用技能
+function useSkill(skill) {
+  const nearestMonster = findNearestMonster();
+
+  switch (skill.effect) {
+    case 'dash_attack': // 亚索Q
+      createDashAttackEffect(skill);
+      break;
+    case 'invincible': // 亚索W
+      createInvincibleEffect(skill);
+      break;
+    case 'root_aoe': // 拉克丝Q
+      createRootAOEEffect(skill);
+      break;
+    case 'laser_beam': // 拉克丝R
+      createLaserBeamEffect(skill);
+      break;
+    case 'spin_attack': // 德莱厄斯Q
+    case 'spin_continuous': // 盖伦E
+      createSpinAttackEffect(skill);
+      break;
+    case 'cone_attack': // 阿卡丽Q
+      createConeAttackEffect(skill);
+      break;
+    case 'missile_swarm': // 卡莎Q
+      createMissileSwarmEffect(skill);
+      break;
+    case 'multi_strike': // 剑圣Q
+      createMultiStrikeEffect(skill);
+      break;
+    case 'blink': // EZ E
+      createBlinkEffect(skill);
+      break;
+    case 'projectile_cdr': // EZ Q
+      createProjectileEffect(skill);
+      break;
+    case 'hook_pull': // 锤石Q
+    case 'grab_pull': // 机器人Q
+    case 'pull_harpoon': // 派克Q
+      createHookEffect(skill);
+      break;
+    case 'place_trap': // 金克丝E
+    case 'poison_trap': // 提莫R
+      createTrapEffect(skill);
+      break;
+    case 'bounce_shot': // MF Q
+    case 'bouncing_blade': // 卡特Q
+      createBounceEffect(skill);
+      break;
+    case 'aoe_silence': // 机器人R
+      createAOESilenceEffect(skill);
+      break;
+    default:
+      // 默认AOE伤害
+      dealAOEDamage(skill.damage || 20, 0.2);
+      createGenericSkillEffect(skill);
+  }
+}
+
+// 找到最近的怪物
+function findNearestMonster() {
+  let nearest = null;
+  let minDist = Infinity;
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = m;
+    }
+  }
+  return nearest;
+}
+
+// ===== 技能特效实现 =====
+
+// 突刺攻击（亚索Q）
+function createDashAttackEffect(skill) {
+  const angle = Math.atan2(smoothDirY, smoothDirX);
+  skillEffects.push({
+    type: 'dash',
+    x: playerX,
+    y: playerY,
+    angle: angle,
+    color: skill.color,
+    duration: 0.3,
+    timer: 0.3,
+    damage: skill.damage
+  });
+  // 对前方敌人造成伤害
+  dealDirectionalDamage(skill.damage, angle, 0.25);
+}
+
+// 无敌效果（亚索W）
+function createInvincibleEffect(skill) {
+  skillEffects.push({
+    type: 'shield',
+    x: playerX,
+    y: playerY,
+    color: skill.color,
+    duration: skill.duration,
+    timer: skill.duration
+  });
+  // 设置无敌状态
+  playerInvincible = skill.duration;
+}
+
+// AOE定身（拉克丝Q）
+function createRootAOEEffect(skill) {
+  skillEffects.push({
+    type: 'light_burst',
+    x: playerX,
+    y: playerY,
+    radius: 0.25,
+    color: skill.color,
+    duration: 0.5,
+    timer: 0.5
+  });
+  // 定身周围敌人
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    if (Math.sqrt(dx * dx + dy * dy) < 0.25) {
+      m.rooted = skill.duration;
+    }
+  }
+}
+
+// 激光（拉克丝R）
+function createLaserBeamEffect(skill) {
+  const angle = Math.atan2(smoothDirY || 0.1, smoothDirX || 0.1);
+  skillEffects.push({
+    type: 'laser',
+    x: playerX,
+    y: playerY,
+    angle: angle,
+    color: skill.color,
+    duration: 0.8,
+    timer: 0.8,
+    width: 0.08
+  });
+  dealDirectionalDamage(skill.damage, angle, 0.8);
+}
+
+// 旋转攻击（盖伦E/德莱厄斯Q）
+function createSpinAttackEffect(skill) {
+  skillEffects.push({
+    type: 'spin',
+    x: playerX,
+    y: playerY,
+    radius: 0.2,
+    color: skill.color,
+    duration: skill.duration || 0.5,
+    timer: skill.duration || 0.5,
+    damage: skill.damage,
+    tickRate: 0.2,
+    lastTick: 0
+  });
+}
+
+// 扇形攻击（阿卡丽Q）
+function createConeAttackEffect(skill) {
+  const angle = Math.atan2(smoothDirY || 0.1, smoothDirX || 0.1);
+  skillEffects.push({
+    type: 'cone',
+    x: playerX,
+    y: playerY,
+    angle: angle,
+    spread: Math.PI / 3,
+    range: 0.25,
+    color: skill.color,
+    duration: 0.3,
+    timer: 0.3
+  });
+  dealConeDamage(skill.damage, angle, Math.PI / 3, 0.25);
+}
+
+// 导弹群（卡莎Q）
+function createMissileSwarmEffect(skill) {
+  const count = skill.missiles || 6;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    skillEffects.push({
+      type: 'missile',
+      x: playerX,
+      y: playerY,
+      vx: Math.cos(angle) * 0.02,
+      vy: Math.sin(angle) * 0.02,
+      color: skill.color,
+      duration: 1,
+      timer: 1,
+      damage: skill.damage / count
+    });
+  }
+}
+
+// 多重打击（剑圣Q）
+function createMultiStrikeEffect(skill) {
+  const targets = monsters.slice(0, skill.targets || 4);
+  let delay = 0;
+  for (const target of targets) {
+    setTimeout(() => {
+      skillEffects.push({
+        type: 'strike',
+        x: target.x,
+        y: target.y,
+        color: skill.color,
+        duration: 0.2,
+        timer: 0.2
+      });
+      target.hp -= skill.damage;
+      target.hitTimer = 0.15;
+    }, delay);
+    delay += 150;
+  }
+  // 短暂无敌
+  playerInvincible = 0.6;
+}
+
+// 闪现（EZ E）
+function createBlinkEffect(skill) {
+  const blinkDist = 0.2;
+  const angle = Math.atan2(smoothDirY || 0.1, smoothDirX || 0.1);
+  // 起点特效
+  skillEffects.push({
+    type: 'blink_start',
+    x: playerX,
+    y: playerY,
+    color: skill.color,
+    duration: 0.3,
+    timer: 0.3
+  });
+  // 移动玩家
+  playerX += Math.cos(angle) * blinkDist;
+  playerY += Math.sin(angle) * blinkDist;
+  // 终点特效
+  skillEffects.push({
+    type: 'blink_end',
+    x: playerX,
+    y: playerY,
+    color: skill.color,
+    duration: 0.3,
+    timer: 0.3
+  });
+}
+
+// 投射物（EZ Q）
+function createProjectileEffect(skill) {
+  const angle = Math.atan2(smoothDirY || 0.1, smoothDirX || 0.1);
+  skillEffects.push({
+    type: 'projectile',
+    x: playerX,
+    y: playerY,
+    vx: Math.cos(angle) * 0.025,
+    vy: Math.sin(angle) * 0.025,
+    color: skill.color,
+    duration: 1.5,
+    timer: 1.5,
+    damage: skill.damage,
+    hit: false
+  });
+}
+
+// 钩子（锤石Q/机器人Q/派克Q）
+function createHookEffect(skill) {
+  const nearest = findNearestMonster();
+  if (!nearest) return;
+  const dx = nearest.x - playerX;
+  const dy = nearest.y - playerY;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > 0.4) return;
+
+  skillEffects.push({
+    type: 'hook',
+    startX: playerX,
+    startY: playerY,
+    endX: nearest.x,
+    endY: nearest.y,
+    color: skill.color,
+    duration: 0.4,
+    timer: 0.4,
+    target: nearest
+  });
+  // 拉近敌人
+  const pullDist = dist * 0.6;
+  nearest.x -= (dx / dist) * pullDist;
+  nearest.y -= (dy / dist) * pullDist;
+  nearest.hp -= skill.damage;
+  nearest.hitTimer = 0.2;
+}
+
+// 陷阱（金克丝E/提莫R）
+function createTrapEffect(skill) {
+  skillEffects.push({
+    type: 'trap',
+    x: playerX + (Math.random() - 0.5) * 0.2,
+    y: playerY + (Math.random() - 0.5) * 0.2,
+    color: skill.color,
+    duration: skill.duration || 10,
+    timer: skill.duration || 10,
+    damage: skill.damage,
+    triggered: false,
+    icon: skill.icon
+  });
+}
+
+// 弹射攻击（MF Q/卡特Q）
+function createBounceEffect(skill) {
+  const target = findNearestMonster();
+  if (!target) return;
+
+  let currentTarget = target;
+  let bounceCount = skill.bounces || 2;
+  let damage = skill.damage;
+
+  const bounce = (t, dmg, count) => {
+    if (count <= 0 || !t) return;
+    skillEffects.push({
+      type: 'bounce_hit',
+      x: t.x,
+      y: t.y,
+      color: skill.color,
+      duration: 0.2,
+      timer: 0.2
+    });
+    t.hp -= dmg;
+    t.hitTimer = 0.15;
+
+    // 找下一个目标
+    setTimeout(() => {
+      let nextTarget = null;
+      let minDist = Infinity;
+      for (const m of monsters) {
+        if (m !== t && m.hp > 0) {
+          const dx = m.x - t.x;
+          const dy = m.y - t.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 0.3 && dist < minDist) {
+            minDist = dist;
+            nextTarget = m;
+          }
+        }
+      }
+      bounce(nextTarget, dmg * (skill.bounceMultiplier || 1), count - 1);
+    }, 100);
+  };
+
+  bounce(currentTarget, damage, bounceCount);
+}
+
+// AOE沉默（机器人R）
+function createAOESilenceEffect(skill) {
+  skillEffects.push({
+    type: 'electric_burst',
+    x: playerX,
+    y: playerY,
+    radius: 0.25,
+    color: skill.color,
+    duration: 0.5,
+    timer: 0.5
+  });
+  dealAOEDamage(skill.damage, 0.25);
+}
+
+// 通用技能特效
+function createGenericSkillEffect(skill) {
+  skillEffects.push({
+    type: 'generic',
+    x: playerX,
+    y: playerY,
+    color: skill.color,
+    duration: 0.5,
+    timer: 0.5,
+    icon: skill.icon
+  });
+}
+
+// ===== 伤害计算 =====
+
+// AOE伤害
+function dealAOEDamage(damage, radius) {
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    if (Math.sqrt(dx * dx + dy * dy) < radius) {
+      m.hp -= damage;
+      m.hitTimer = 0.15;
+    }
+  }
+}
+
+// 方向性伤害
+function dealDirectionalDamage(damage, angle, range) {
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > range) continue;
+    const mAngle = Math.atan2(dy, dx);
+    let angleDiff = Math.abs(mAngle - angle);
+    if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+    if (angleDiff < Math.PI / 4) {
+      m.hp -= damage;
+      m.hitTimer = 0.15;
+    }
+  }
+}
+
+// 扇形伤害
+function dealConeDamage(damage, angle, spread, range) {
+  for (const m of monsters) {
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > range) continue;
+    const mAngle = Math.atan2(dy, dx);
+    let angleDiff = Math.abs(mAngle - angle);
+    if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+    if (angleDiff < spread / 2) {
+      m.hp -= damage;
+      m.hitTimer = 0.15;
+    }
+  }
+}
+
+// 无敌时间
+let playerInvincible = 0;
+
+// 更新技能特效
+function updateSkillEffects(dt) {
+  // 更新无敌时间
+  if (playerInvincible > 0) {
+    playerInvincible -= dt;
+  }
+
+  // 更新怪物定身
+  for (const m of monsters) {
+    if (m.rooted && m.rooted > 0) {
+      m.rooted -= dt;
+    }
+  }
+
+  // 更新特效
+  for (let i = skillEffects.length - 1; i >= 0; i--) {
+    const effect = skillEffects[i];
+    effect.timer -= dt;
+
+    // 特效专属更新
+    if (effect.type === 'spin' && effect.timer > 0) {
+      effect.lastTick += dt;
+      if (effect.lastTick >= effect.tickRate) {
+        effect.lastTick = 0;
+        dealAOEDamage(effect.damage / 3, effect.radius);
+      }
+      effect.x = playerX;
+      effect.y = playerY;
+    }
+
+    if (effect.type === 'missile' || effect.type === 'projectile') {
+      effect.x += effect.vx;
+      effect.y += effect.vy;
+      // 检测碰撞
+      for (const m of monsters) {
+        const dx = m.x - effect.x;
+        const dy = m.y - effect.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 0.05 && !effect.hit) {
+          m.hp -= effect.damage;
+          m.hitTimer = 0.15;
+          effect.hit = true;
+          effect.timer = 0;
+        }
+      }
+    }
+
+    if (effect.type === 'trap' && !effect.triggered) {
+      for (const m of monsters) {
+        const dx = m.x - effect.x;
+        const dy = m.y - effect.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 0.08) {
+          m.hp -= effect.damage;
+          m.hitTimer = 0.2;
+          effect.triggered = true;
+          effect.timer = 0.3; // 爆炸动画时间
+          skillEffects.push({
+            type: 'explosion',
+            x: effect.x,
+            y: effect.y,
+            color: effect.color,
+            duration: 0.3,
+            timer: 0.3
+          });
+        }
+      }
+    }
+
+    // 移除过期特效
+    if (effect.timer <= 0) {
+      skillEffects.splice(i, 1);
+    }
+  }
+}
+
+// 绘制技能特效
+function drawSkillEffects(groundQuad) {
+  for (const effect of skillEffects) {
+    // 转换到屏幕坐标
+    const screenX = effect.x - playerX + 0.5;
+    const screenY = effect.y - playerY + 0.5;
+
+    if (screenX < 0 || screenX > 1 || screenY < 0 || screenY > 1) continue;
+
+    const pt = getGroundPoint(groundQuad, screenX, screenY);
+
+    ctx.save();
+
+    switch (effect.type) {
+      case 'dash':
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 4;
+        ctx.globalAlpha = effect.timer / effect.duration;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x + Math.cos(effect.angle) * 30, pt.y + Math.sin(effect.angle) * 30);
+        ctx.stroke();
+        break;
+
+      case 'shield':
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.6;
+        const shieldR = 25 * pt.scale;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - 20, shieldR, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+
+      case 'light_burst':
+      case 'electric_burst':
+        ctx.fillStyle = effect.color;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.5;
+        const burstR = effect.radius * 200 * pt.scale;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, burstR, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'laser':
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = effect.width * 200 * pt.scale;
+        ctx.globalAlpha = effect.timer / effect.duration;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        const laserLen = 150;
+        ctx.lineTo(pt.x + Math.cos(effect.angle) * laserLen, pt.y + Math.sin(effect.angle) * laserLen);
+        ctx.stroke();
+        // 光晕
+        ctx.lineWidth = effect.width * 300 * pt.scale;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.3;
+        ctx.stroke();
+        break;
+
+      case 'spin':
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.7;
+        const spinR = effect.radius * 200 * pt.scale;
+        const spinAngle = walkTime * 10;
+        for (let i = 0; i < 4; i++) {
+          const a = spinAngle + (i * Math.PI / 2);
+          ctx.beginPath();
+          ctx.moveTo(pt.x, pt.y - 15);
+          ctx.lineTo(pt.x + Math.cos(a) * spinR, pt.y - 15 + Math.sin(a) * spinR * 0.5);
+          ctx.stroke();
+        }
+        break;
+
+      case 'cone':
+        ctx.fillStyle = effect.color;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.6;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        const coneR = effect.range * 200 * pt.scale;
+        ctx.arc(pt.x, pt.y, coneR, effect.angle - effect.spread / 2, effect.angle + effect.spread / 2);
+        ctx.closePath();
+        ctx.fill();
+        break;
+
+      case 'missile':
+      case 'projectile':
+        ctx.fillStyle = effect.color;
+        ctx.globalAlpha = effect.timer / effect.duration;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'strike':
+      case 'bounce_hit':
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = effect.timer / effect.duration;
+        const strikeR = 15 * (1 - effect.timer / effect.duration);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, strikeR, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+
+      case 'blink_start':
+      case 'blink_end':
+        ctx.fillStyle = effect.color;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.7;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 20 * (1 - effect.timer / effect.duration), 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'hook':
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = effect.timer / effect.duration;
+        const startPt = getGroundPoint(groundQuad, effect.startX - playerX + 0.5, effect.startY - playerY + 0.5);
+        const endPt = getGroundPoint(groundQuad, effect.endX - playerX + 0.5, effect.endY - playerY + 0.5);
+        ctx.beginPath();
+        ctx.moveTo(startPt.x, startPt.y);
+        ctx.lineTo(endPt.x, endPt.y);
+        ctx.stroke();
+        break;
+
+      case 'trap':
+        if (!effect.triggered) {
+          ctx.font = `${20 * pt.scale}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillText(effect.icon || '💣', pt.x, pt.y);
+        }
+        break;
+
+      case 'explosion':
+        ctx.fillStyle = effect.color;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.8;
+        const expR = 30 * (1 - effect.timer / effect.duration) * pt.scale;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, expR, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'generic':
+        ctx.font = `${30 * pt.scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.globalAlpha = effect.timer / effect.duration;
+        ctx.fillText(effect.icon || '✨', pt.x, pt.y - 20);
+        break;
+    }
+
+    ctx.restore();
+  }
+}
+
 // ==================== 数据持久化 ====================
 const SAVE_KEY = 'bagua_game_save';
 
@@ -1091,6 +2319,15 @@ function startAdventure() {
   // 重置平滑方向
   smoothDirX = 0;
   smoothDirY = 0;
+  // 重置技能
+  playerSkills = [];
+  playerPassive = null;
+  skillCooldowns = {};
+  skillEffects = [];
+  passiveStacks = {};
+  isSelectingSkill = false;
+  skillChoices = [];
+  playerInvincible = 0;
   console.log('冒险开始！');
 }
 
@@ -1151,6 +2388,10 @@ function attackMonsters() {
           playerHP = Math.min(playerHP + 20, playerMaxHP);
           console.log(`升级! Lv.${playerLevel}`);
           saveGameData(); // 保存升级数据
+          // 触发技能选择
+          if (!isSelectingSkill) {
+            startSkillSelection();
+          }
         }
       }
     }
@@ -1213,8 +2454,8 @@ function updateAdventure(dt) {
       m.y += (dy / dist) * m.speed;
     }
 
-    // 攻击玩家
-    if (dist < 0.08) {
+    // 攻击玩家（无敌时不受伤）
+    if (dist < 0.08 && playerInvincible <= 0) {
       // 骑士护甲减伤
       const armorReduction = 1 - (stats.armor / 100);
       playerHP -= m.damage * dt * armorReduction;
@@ -1442,6 +2683,10 @@ function updateCollectibles(dt) {
           playerMaxHP = newStats.hp;
           playerHP = Math.min(playerHP + 20, playerMaxHP);
           saveGameData();
+          // 触发技能选择
+          if (!isSelectingSkill) {
+            startSkillSelection();
+          }
         }
       }
       collectibles.splice(i, 1);
@@ -2013,6 +3258,9 @@ function drawGroundScene(groundQuad) {
     const centerPt = getGroundPoint(groundQuad, 0.5, 0.5);
     drawStickMan(centerPt.x, centerPt.y, centerPt.scale, walkTime, groundQuad);
 
+    // 绘制技能特效
+    drawSkillEffects(groundQuad);
+
   } else {
     // 待机模式：使用固定的场景元素
     for (const elem of idleGroundElements) {
@@ -2280,6 +3528,202 @@ function draw() {
     ctx.font = 'bold 16px sans-serif';
     ctx.fillText('返回', btnX + btnW / 2, btnY + btnH / 2);
   }
+
+  // 技能HUD - 显示已获得的技能和冷却
+  if (gameState === 'adventure' && !isSelectingSkill) {
+    drawSkillHUD();
+  }
+
+  // 技能选择UI（全屏覆盖）
+  if (isSelectingSkill && skillChoices.length > 0) {
+    drawSkillSelectionUI();
+  }
+}
+
+// 绘制技能HUD
+function drawSkillHUD() {
+  const skillSlotSize = 35;
+  const skillSpacing = 8;
+  const startX = 10;
+  const startY = H - 130;
+
+  // 背景
+  const totalWidth = playerSkills.length * (skillSlotSize + skillSpacing) + skillSpacing;
+  if (playerSkills.length > 0 || playerPassive) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(startX - 5, startY - 5, Math.max(totalWidth, 80), skillSlotSize + 35);
+  }
+
+  // 绘制主动技能
+  for (let i = 0; i < playerSkills.length; i++) {
+    const skill = playerSkills[i];
+    const x = startX + i * (skillSlotSize + skillSpacing);
+    const y = startY;
+
+    // 技能槽背景
+    ctx.fillStyle = skill.color || '#444444';
+    ctx.fillRect(x, y, skillSlotSize, skillSlotSize);
+
+    // 冷却遮罩
+    const cd = skillCooldowns[skill.id] || 0;
+    if (cd > 0) {
+      const cdRatio = cd / skill.cooldown;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(x, y, skillSlotSize, skillSlotSize * cdRatio);
+      // 冷却数字
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(Math.ceil(cd).toString(), x + skillSlotSize / 2, y + skillSlotSize / 2);
+    } else {
+      // 技能图标
+      ctx.font = `${skillSlotSize * 0.6}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(skill.icon, x + skillSlotSize / 2, y + skillSlotSize / 2);
+    }
+
+    // 边框
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, skillSlotSize, skillSlotSize);
+  }
+
+  // 绘制被动技能
+  if (playerPassive) {
+    const passiveX = startX;
+    const passiveY = startY + skillSlotSize + 5;
+
+    ctx.fillStyle = playerPassive.color || '#666666';
+    ctx.fillRect(passiveX, passiveY, 70, 20);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${playerPassive.icon} ${playerPassive.name}`, passiveX + 3, passiveY + 14);
+
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(passiveX, passiveY, 70, 20);
+  }
+}
+
+// 绘制技能选择UI
+function drawSkillSelectionUI() {
+  // 半透明背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 标题
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🎁 选择技能', W / 2, 50);
+
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`已拥有: ${playerSkills.length}/4 主动技能${playerPassive ? ' + 1被动' : ''}`, W / 2, 75);
+
+  // 技能选项（2x2布局）
+  const cardW = W * 0.42;
+  const cardH = H * 0.28;
+  const gapX = W * 0.04;
+  const gapY = H * 0.03;
+  const startX = (W - cardW * 2 - gapX) / 2;
+  const startY = 95;
+
+  for (let i = 0; i < skillChoices.length; i++) {
+    const skill = skillChoices[i];
+    const row = Math.floor(i / 2);
+    const col = i % 2;
+    const x = startX + col * (cardW + gapX);
+    const y = startY + row * (cardH + gapY);
+
+    // 卡片背景
+    const isPassive = skill.type === 'passive';
+    const canSelect = isPassive || playerSkills.length < 4;
+
+    ctx.fillStyle = canSelect ? 'rgba(40, 40, 60, 0.95)' : 'rgba(40, 40, 40, 0.7)';
+    ctx.fillRect(x, y, cardW, cardH);
+
+    // 边框颜色
+    ctx.strokeStyle = isPassive ? '#FFD700' : skill.color || '#FFFFFF';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, cardW, cardH);
+
+    // 技能图标
+    ctx.font = '36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(skill.icon, x + cardW / 2, y + 35);
+
+    // 技能名称
+    ctx.fillStyle = skill.color || '#FFFFFF';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(skill.name, x + cardW / 2, y + 60);
+
+    // 英雄名
+    ctx.fillStyle = '#888888';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(skill.champion, x + cardW / 2, y + 78);
+
+    // 类型标签
+    ctx.fillStyle = isPassive ? '#FFD700' : '#00BFFF';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(isPassive ? '⭐ 被动' : `⚔️ 主动 CD:${skill.cooldown}s`, x + cardW / 2, y + 95);
+
+    // 描述
+    ctx.fillStyle = '#CCCCCC';
+    ctx.font = '11px sans-serif';
+    const desc = skill.description || '';
+    // 自动换行
+    const maxLineWidth = cardW - 20;
+    let line = '';
+    let lineY = y + 115;
+    for (const char of desc) {
+      const testLine = line + char;
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > maxLineWidth) {
+        ctx.fillText(line, x + cardW / 2, lineY);
+        line = char;
+        lineY += 14;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) {
+      ctx.fillText(line, x + cardW / 2, lineY);
+    }
+
+    // 不可选择提示
+    if (!canSelect) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(x, y, cardW, cardH);
+      ctx.fillStyle = '#FF4444';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('技能槽已满', x + cardW / 2, y + cardH / 2);
+    }
+
+    // 存储点击区域（用于触摸检测）
+    skillChoices[i].hitBox = { x, y, w: cardW, h: cardH };
+  }
+
+  // 跳过按钮
+  const skipBtnW = 100;
+  const skipBtnH = 35;
+  const skipBtnX = (W - skipBtnW) / 2;
+  const skipBtnY = H - 60;
+
+  ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
+  ctx.fillRect(skipBtnX, skipBtnY, skipBtnW, skipBtnH);
+  ctx.strokeStyle = '#AAAAAA';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(skipBtnX, skipBtnY, skipBtnW, skipBtnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '14px sans-serif';
+  ctx.fillText('跳过', skipBtnX + skipBtnW / 2, skipBtnY + skipBtnH / 2);
 }
 
 // ==================== 游戏循环 ====================
@@ -2297,9 +3741,15 @@ function gameLoop() {
   // 更新冒险逻辑
   updateAdventure(dt);
 
-  // 冒险模式下自动攻击
+  // 冒险模式下自动攻击和技能
   if (gameState === 'adventure') {
     attackMonsters();
+    // 更新技能冷却和自动释放（技能选择时暂停）
+    if (!isSelectingSkill) {
+      updateSkillCooldowns(dt);
+      autoUseSkills();
+    }
+    updateSkillEffects(dt);
   }
 
   draw();
@@ -2372,6 +3822,42 @@ wx.onTouchEnd((e) => {
   const dt = Date.now() - touchStart.t;
   const tx = touch.clientX;
   const ty = touch.clientY;
+
+  // 技能选择状态 - 最高优先级
+  if (isSelectingSkill && skillChoices.length > 0) {
+    // 检查是否点击了技能卡片
+    for (let i = 0; i < skillChoices.length; i++) {
+      const skill = skillChoices[i];
+      if (skill.hitBox) {
+        const hb = skill.hitBox;
+        if (tx >= hb.x && tx <= hb.x + hb.w && ty >= hb.y && ty <= hb.y + hb.h) {
+          // 检查是否可以选择
+          const isPassive = skill.type === 'passive';
+          const canSelect = isPassive || playerSkills.length < 4;
+          if (canSelect) {
+            selectSkill(i);
+            touchStart = null;
+            return;
+          }
+        }
+      }
+    }
+
+    // 检查是否点击了跳过按钮
+    const skipBtnW = 100;
+    const skipBtnH = 35;
+    const skipBtnX = (W - skipBtnW) / 2;
+    const skipBtnY = H - 60;
+    if (tx >= skipBtnX && tx <= skipBtnX + skipBtnW && ty >= skipBtnY && ty <= skipBtnY + skipBtnH) {
+      isSelectingSkill = false;
+      skillChoices = [];
+      touchStart = null;
+      return;
+    }
+
+    touchStart = null;
+    return;
+  }
 
   // 游戏结束状态 - 检查返回按钮
   if (gameState === 'gameover') {
