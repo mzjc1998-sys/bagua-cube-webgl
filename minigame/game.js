@@ -323,17 +323,18 @@ function lerpAngle(a, b, t) {
 }
 
 // ==================== 角色系统 ====================
-// 默认角色（10级前使用最低属性）
+// 默认角色（10级前使用较强基础属性，便于新手生存）
 const DEFAULT_CHARACTER = {
   name: '火柴人',
   color: '#666666',
   stats: {
-    hp: 50,       // 最低生命
-    spd: 0.7,     // 较慢移速
-    dmg: 5,       // 最低伤害
-    atkSpd: 0.8,  // 较慢攻速
-    range: 0.12,  // 最短射程
-    luck: 1       // 最低暴击
+    hp: 120,      // 提高初始生命
+    spd: 0.8,     // 移速
+    dmg: 8,       // 基础伤害
+    atkSpd: 0.6,  // 较快攻速
+    range: 0.15,  // 攻击范围
+    luck: 3,      // 基础暴击
+    healRate: 1   // 基础回血
   },
   weapon: 'none',
   armor: 'none',
@@ -1725,74 +1726,74 @@ let skillAnimName = '';       // 当前技能动画名称
 // 怪物数组
 let monsters = [];
 let monsterSpawnTimer = 0;
-let monsterSpawnInterval = 2.0; // 初始生成间隔
+let monsterSpawnInterval = 3.0; // 初始生成间隔（更宽松）
 
-// 怪物类型定义
+// 怪物类型定义（降低早期怪物伤害，提高生存能力）
 const MONSTER_TYPES = {
   zombie: {
     name: '僵尸',
     color: '#4A7C59',
-    hp: 30,
-    damage: 10,
-    speed: 0.003,
-    exp: 20,
+    hp: 25,
+    damage: 4,      // 大幅降低伤害
+    speed: 0.0025,  // 稍慢移速
+    exp: 25,        // 提高经验
     size: 0.8,
-    unlockTime: 0,  // 0秒后出现
+    unlockTime: 0,
     drawType: 'zombie'
   },
   skeleton: {
     name: '骷髅',
     color: '#E0E0E0',
-    hp: 25,
-    damage: 15,
-    speed: 0.004,
-    exp: 25,
+    hp: 20,
+    damage: 6,      // 降低伤害
+    speed: 0.003,
+    exp: 30,        // 提高经验
     size: 0.75,
-    unlockTime: 20, // 20秒后出现
+    unlockTime: 30, // 延后出现时间
     drawType: 'skeleton'
   },
   ghost: {
     name: '幽灵',
     color: '#B0BEC5',
-    hp: 20,
-    damage: 12,
-    speed: 0.005,
-    exp: 30,
+    hp: 18,
+    damage: 8,      // 降低伤害
+    speed: 0.004,
+    exp: 35,
     size: 0.7,
-    unlockTime: 40, // 40秒后出现
+    unlockTime: 45, // 延后出现
     drawType: 'ghost'
   },
   demon: {
     name: '恶魔',
     color: '#C62828',
-    hp: 60,
-    damage: 20,
-    speed: 0.0025,
-    exp: 50,
+    hp: 50,
+    damage: 12,     // 降低伤害
+    speed: 0.002,
+    exp: 60,
     size: 1.0,
-    unlockTime: 60, // 60秒后出现
+    unlockTime: 75, // 延后出现
     drawType: 'demon'
   },
   darkKnight: {
     name: '黑骑士',
     color: '#37474F',
-    hp: 80,
-    damage: 25,
-    speed: 0.002,
-    exp: 70,
+    hp: 70,
+    damage: 15,     // 降低伤害
+    speed: 0.0018,
+    exp: 80,
     size: 1.1,
-    unlockTime: 90, // 90秒后出现
+    unlockTime: 100, // 延后出现
     drawType: 'knight'
   },
   boss: {
     name: '魔王',
     color: '#4A148C',
-    hp: 200,
-    damage: 35,
-    speed: 0.0015,
-    exp: 150,
+    hp: 180,
+    damage: 20,     // 降低伤害
+    speed: 0.0012,
+    exp: 200,
     size: 1.4,
-    unlockTime: 120, // 120秒后出现
+    unlockTime: 150, // 延后出现
     drawType: 'boss'
   }
 };
@@ -2882,10 +2883,11 @@ function updateAdventure(dt) {
 
   adventureTime += dt;
 
-  // 难度随时间增加
-  if (adventureTime > 30) monsterSpawnInterval = 1.5;
-  if (adventureTime > 60) monsterSpawnInterval = 1.0;
-  if (adventureTime > 120) monsterSpawnInterval = 0.7;
+  // 难度随时间增加（更缓慢的递进）
+  if (adventureTime > 45) monsterSpawnInterval = 2.5;
+  if (adventureTime > 90) monsterSpawnInterval = 2.0;
+  if (adventureTime > 150) monsterSpawnInterval = 1.5;
+  if (adventureTime > 200) monsterSpawnInterval = 1.2;
 
   // 生成怪物（在玩家周围生成）
   monsterSpawnTimer += dt;
