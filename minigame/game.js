@@ -7880,6 +7880,9 @@ function drawWeaponCreateUI() {
   ctx.font = '12px sans-serif';
   ctx.fillText(`步骤 ${weaponCreateStep + 1}/4: ${stepNames[weaponCreateStep]}`, W / 2, 58);
 
+  // 初始化按钮缓存对象
+  weaponCreateButtons = {};
+
   if (weaponCreateStep === 0) {
     drawWeaponDrawingCanvas();
   } else if (weaponCreateStep === 1) {
@@ -7905,9 +7908,7 @@ function drawWeaponCreateUI() {
   ctx.font = '12px sans-serif';
   ctx.fillText('← 返回', backBtnX + backBtnW / 2, backBtnY + backBtnH / 2);
 
-  weaponCreateButtons = {
-    back: { x: backBtnX, y: backBtnY, w: backBtnW, h: backBtnH }
-  };
+  weaponCreateButtons.back = { x: backBtnX, y: backBtnY, w: backBtnW, h: backBtnH };
 }
 
 // 绘制绘画画布
