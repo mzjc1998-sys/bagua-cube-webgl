@@ -2109,106 +2109,69 @@ function draw() {
     ctx.fillText('点击顶点切换视角', 15, 42);
   }
 
-  // 右上角 - 职阶信息面板
+  // 右上角 - 角色信息面板
   const classInfo = CLASS_TYPES[currentClass];
   const stats = getPlayerStats();
-  const panelX = W - 130;
+  const panelX = W - 125;
   const panelY = 10;
 
   // 面板背景
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(panelX - 5, panelY, 125, 105);
+  ctx.fillRect(panelX - 5, panelY, 120, 85);
 
-  // 职阶名称
+  // 角色名称
   ctx.fillStyle = classInfo.color;
   ctx.font = 'bold 14px sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(`${classInfo.name} Lv.${playerLevel}`, panelX, panelY + 15);
 
-  // 属性（以撒风格）
+  // 属性
   ctx.fillStyle = '#FFFFFF';
   ctx.font = '10px sans-serif';
   ctx.fillText(`HP:${stats.hp} 伤害:${stats.dmg}`, panelX, panelY + 32);
   ctx.fillText(`移速:${stats.spd.toFixed(1)} 攻速:${stats.atkSpd.toFixed(2)}s`, panelX, panelY + 45);
   ctx.fillText(`射程:${(stats.range * 100).toFixed(0)} 暴击:${stats.luck.toFixed(0)}%`, panelX, panelY + 58);
   // 显示特殊属性
-  if (stats.healRate > 0) {
-    ctx.fillStyle = '#90EE90';
-    ctx.fillText(`回血:${stats.healRate}/s`, panelX, panelY + 71);
-  } else if (stats.armor > 0) {
-    ctx.fillStyle = '#87CEEB';
-    ctx.fillText(`护甲:${stats.armor}%减伤`, panelX, panelY + 71);
-  } else {
-    ctx.fillStyle = '#AAAAAA';
-    ctx.fillText(classInfo.description, panelX, panelY + 71);
-  }
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '9px sans-serif';
+  ctx.fillText(classInfo.description, panelX, panelY + 74);
 
-  // 切换提示（只在待机模式显示）
+  // 底部 - 开始冒险按钮（只在待机模式显示）
   if (gameState === 'idle') {
-    ctx.fillStyle = '#AAAAAA';
-    ctx.font = '9px sans-serif';
-    ctx.fillText('点击此处切换职阶', panelX, panelY + 98);
-  }
+    // 居中的大按钮
+    const btnW = 140;
+    const btnH = 50;
+    const btnX = (W - btnW) / 2;
+    const btnY = H - btnH - 30;
 
-  // 底部 - 职阶图标（只在待机模式显示）
-  if (gameState === 'idle') {
-    const iconSize = 35;
-    const iconY = H - iconSize - 15;
-    const iconSpacing = 45;
-    const classKeys = Object.keys(CLASS_TYPES);
-    const totalWidth = classKeys.length * iconSpacing - (iconSpacing - iconSize);
-    const startX = (W - totalWidth) / 2;
+    // 按钮阴影
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(btnX + 3, btnY + 3, btnW, btnH);
 
-    for (let i = 0; i < classKeys.length; i++) {
-      const key = classKeys[i];
-      const info = CLASS_TYPES[key];
-      const ix = startX + i * iconSpacing;
-
-      // 图标背景
-      ctx.fillStyle = key === currentClass ? info.color : 'rgba(100,100,100,0.6)';
-      ctx.fillRect(ix, iconY, iconSize, iconSize);
-
-      // 边框
-      if (key === currentClass) {
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(ix, iconY, iconSize, iconSize);
-      }
-
-      // 职阶首字
-      ctx.fillStyle = key === currentClass ? '#FFFFFF' : '#CCCCCC';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(info.name[0], ix + iconSize / 2, iconY + iconSize / 2 + 5);
-    }
-
-    // 底部提示
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('点击下方图标切换职阶', W / 2, iconY - 5);
-
-    // 开始冒险按钮 - 左下角
-    const btnW = 90;
-    const btnH = 35;
-    const btnX = 15;
-    const btnY = H - btnH - 20;
-
-    // 按钮背景
-    ctx.fillStyle = 'rgba(200, 50, 50, 0.9)';
+    // 按钮背景渐变效果
+    ctx.fillStyle = 'rgba(180, 40, 40, 0.95)';
     ctx.fillRect(btnX, btnY, btnW, btnH);
+
+    // 按钮高光
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(btnX, btnY, btnW, btnH / 2);
 
     // 按钮边框
     ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeRect(btnX, btnY, btnW, btnH);
 
     // 按钮文字
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 14px sans-serif';
+    ctx.font = 'bold 18px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('开始冒险', btnX + btnW / 2, btnY + btnH / 2);
+
+    // 小提示
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('点击顶点可切换八卦视角', W / 2, btnY - 15);
   }
 
   // 冒险模式UI
@@ -2413,47 +2376,13 @@ wx.onTouchEnd((e) => {
 
   // 待机模式的交互
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    // 检查是否点击了"开始冒险"按钮（左下角）
-    const advBtnW = 90;
-    const advBtnH = 35;
-    const advBtnX = 15;
-    const advBtnY = H - advBtnH - 20;
+    // 检查是否点击了"开始冒险"按钮（居中）
+    const advBtnW = 140;
+    const advBtnH = 50;
+    const advBtnX = (W - advBtnW) / 2;
+    const advBtnY = H - advBtnH - 30;
     if (tx >= advBtnX && tx <= advBtnX + advBtnW && ty >= advBtnY && ty <= advBtnY + advBtnH) {
       startAdventure();
-      touchStart = null;
-      return;
-    }
-
-    // 检查是否点击了底部职阶图标
-    const iconSize = 35;
-    const iconY = H - iconSize - 15;
-    const iconSpacing = 45;
-    const classKeys = Object.keys(CLASS_TYPES);
-    const totalWidth = classKeys.length * iconSpacing - (iconSpacing - iconSize);
-    const startX = (W - totalWidth) / 2;
-
-    if (ty >= iconY && ty <= iconY + iconSize) {
-      for (let i = 0; i < classKeys.length; i++) {
-        const ix = startX + i * iconSpacing;
-        if (tx >= ix && tx <= ix + iconSize) {
-          currentClass = classKeys[i];
-          console.log(`切换职阶: ${CLASS_TYPES[currentClass].name}`);
-          saveGameData(); // 保存职阶选择
-          touchStart = null;
-          return;
-        }
-      }
-    }
-
-    // 检查是否点击了右上角面板（切换到下一职阶）
-    const panelX = W - 130;
-    const panelY = 10;
-    if (tx >= panelX - 5 && tx <= panelX + 120 && ty >= panelY && ty <= panelY + 105) {
-      const keys = Object.keys(CLASS_TYPES);
-      const currentIdx = keys.indexOf(currentClass);
-      currentClass = keys[(currentIdx + 1) % keys.length];
-      console.log(`切换职阶: ${CLASS_TYPES[currentClass].name}`);
-      saveGameData(); // 保存职阶选择
       touchStart = null;
       return;
     }
