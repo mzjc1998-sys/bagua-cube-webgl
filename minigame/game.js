@@ -330,7 +330,7 @@ let monsters = [];
 let monsterSpawnTimer = 0;
 let monsterSpawnInterval = 2.0; // 初始生成间隔
 
-// 僵尸怪物定义
+// 怪物类型定义
 const MONSTER_TYPES = {
   zombie: {
     name: '僵尸',
@@ -339,9 +339,84 @@ const MONSTER_TYPES = {
     damage: 10,
     speed: 0.003,
     exp: 20,
-    size: 0.8
+    size: 0.8,
+    unlockTime: 0,  // 0秒后出现
+    drawType: 'zombie'
+  },
+  skeleton: {
+    name: '骷髅',
+    color: '#E0E0E0',
+    hp: 25,
+    damage: 15,
+    speed: 0.004,
+    exp: 25,
+    size: 0.75,
+    unlockTime: 20, // 20秒后出现
+    drawType: 'skeleton'
+  },
+  ghost: {
+    name: '幽灵',
+    color: '#B0BEC5',
+    hp: 20,
+    damage: 12,
+    speed: 0.005,
+    exp: 30,
+    size: 0.7,
+    unlockTime: 40, // 40秒后出现
+    drawType: 'ghost'
+  },
+  demon: {
+    name: '恶魔',
+    color: '#C62828',
+    hp: 60,
+    damage: 20,
+    speed: 0.0025,
+    exp: 50,
+    size: 1.0,
+    unlockTime: 60, // 60秒后出现
+    drawType: 'demon'
+  },
+  darkKnight: {
+    name: '黑骑士',
+    color: '#37474F',
+    hp: 80,
+    damage: 25,
+    speed: 0.002,
+    exp: 70,
+    size: 1.1,
+    unlockTime: 90, // 90秒后出现
+    drawType: 'knight'
+  },
+  boss: {
+    name: '魔王',
+    color: '#4A148C',
+    hp: 200,
+    damage: 35,
+    speed: 0.0015,
+    exp: 150,
+    size: 1.4,
+    unlockTime: 120, // 120秒后出现
+    drawType: 'boss'
   }
 };
+
+// 获取可用的怪物类型（根据冒险时间）
+function getAvailableMonsterTypes() {
+  const available = [];
+  for (const [key, info] of Object.entries(MONSTER_TYPES)) {
+    if (adventureTime >= info.unlockTime) {
+      available.push(key);
+    }
+  }
+  return available;
+}
+
+// 计算怪物强化倍率（随时间增加）
+function getMonsterScaling() {
+  // 每30秒增加10%的属性
+  const scaleFactor = 1 + Math.floor(adventureTime / 30) * 0.1;
+  return Math.min(scaleFactor, 3.0); // 最多3倍
+}
 
 // 创建怪物（在玩家周围的世界坐标生成）
 function spawnMonster() {
@@ -351,26 +426,69 @@ function spawnMonster() {
   const x = playerX + Math.cos(angle) * distance;
   const y = playerY + Math.sin(angle) * distance;
 
-  const type = 'zombie';
+  // 根据时间选择怪物类型
+  const available = getAvailableMonsterTypes();
+  // 新解锁的怪物有更高概率出现
+  let type;
+  const rand = Math.random();
+  if (rand < 0.3 && available.length > 1) {
+    // 30%概率生成最新解锁的怪物
+    type = available[available.length - 1];
+  } else {
+    // 70%概率随机选择
+    type = available[Math.floor(Math.random() * available.length)];
+  }
+
   const info = MONSTER_TYPES[type];
+  const scaling = getMonsterScaling();
+
   monsters.push({
     type,
     x,
     y,
-    hp: info.hp,
-    maxHp: info.hp,
-    damage: info.damage,
-    speed: info.speed * (0.8 + Math.random() * 0.4), // 速度有些随机
-    exp: info.exp,
+    hp: Math.floor(info.hp * scaling),
+    maxHp: Math.floor(info.hp * scaling),
+    damage: Math.floor(info.damage * scaling),
+    speed: info.speed * (0.8 + Math.random() * 0.4) * (1 + scaling * 0.1), // 速度也略微增加
+    exp: Math.floor(info.exp * scaling),
     size: info.size,
     hitTimer: 0, // 被击中闪烁
-    walkPhase: Math.random() * Math.PI * 2 // 走路动画相位
+    walkPhase: Math.random() * Math.PI * 2, // 走路动画相位
+    floatPhase: Math.random() * Math.PI * 2 // 漂浮动画相位（幽灵用）
   });
 }
 
-// 绘制僵尸
-function drawZombie(x, y, scale, monster, time) {
+// 绘制怪物（统一入口）
+function drawMonster(x, y, scale, monster, time) {
   const info = MONSTER_TYPES[monster.type];
+  const drawType = info.drawType;
+
+  switch (drawType) {
+    case 'zombie':
+      drawZombieType(x, y, scale, monster, time, info);
+      break;
+    case 'skeleton':
+      drawSkeletonType(x, y, scale, monster, time, info);
+      break;
+    case 'ghost':
+      drawGhostType(x, y, scale, monster, time, info);
+      break;
+    case 'demon':
+      drawDemonType(x, y, scale, monster, time, info);
+      break;
+    case 'knight':
+      drawKnightType(x, y, scale, monster, time, info);
+      break;
+    case 'boss':
+      drawBossType(x, y, scale, monster, time, info);
+      break;
+    default:
+      drawZombieType(x, y, scale, monster, time, info);
+  }
+}
+
+// 绘制僵尸类型
+function drawZombieType(x, y, scale, monster, time, info) {
   const s = scale * info.size;
   const personH = BASE_UNIT * 1.5 * s;
   const len = personH / 3.5;
@@ -379,7 +497,6 @@ function drawZombie(x, y, scale, monster, time) {
   const legLen = len * 0.9;
   const armLen = len * 0.7;
 
-  // 走路动画
   const t = time * 3 + monster.walkPhase;
   const legSwing = Math.sin(t) * 0.4;
   const armSwing = Math.sin(t + Math.PI) * 0.3;
@@ -387,10 +504,7 @@ function drawZombie(x, y, scale, monster, time) {
   ctx.save();
   ctx.translate(x, y);
 
-  // 被击中时闪白
   const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
-  const darkColor = monster.hitTimer > 0 ? '#CCCCCC' : '#2D4A35';
-
   ctx.strokeStyle = baseColor;
   ctx.fillStyle = baseColor;
   ctx.lineWidth = Math.max(1, 2 * s);
@@ -400,7 +514,7 @@ function drawZombie(x, y, scale, monster, time) {
   const shoulderY = -bodyLen;
   const headY = shoulderY - headR;
 
-  // 腿（僵硬的走路姿势）
+  // 腿
   ctx.beginPath();
   ctx.moveTo(-len * 0.2, hipY);
   ctx.lineTo(-len * 0.2 + Math.sin(legSwing) * legLen * 0.3, hipY + legLen);
@@ -416,7 +530,7 @@ function drawZombie(x, y, scale, monster, time) {
   ctx.lineTo(0, shoulderY);
   ctx.stroke();
 
-  // 手臂（僵尸标志性的前伸手臂）
+  // 手臂（前伸）
   ctx.beginPath();
   ctx.moveTo(-len * 0.3, shoulderY);
   ctx.lineTo(-len * 0.3 + armLen * 0.8, shoulderY + Math.sin(armSwing) * armLen * 0.2);
@@ -426,13 +540,13 @@ function drawZombie(x, y, scale, monster, time) {
   ctx.lineTo(len * 0.3 + armLen * 0.8, shoulderY + Math.sin(-armSwing) * armLen * 0.2);
   ctx.stroke();
 
-  // 头（略大，歪斜）
+  // 头
   ctx.fillStyle = baseColor;
   ctx.beginPath();
   ctx.arc(len * 0.1, headY, headR, 0, Math.PI * 2);
   ctx.fill();
 
-  // 眼睛（红色发光）
+  // 红眼
   ctx.fillStyle = '#FF0000';
   ctx.beginPath();
   ctx.arc(len * 0.05, headY - headR * 0.2, headR * 0.15, 0, Math.PI * 2);
@@ -441,7 +555,433 @@ function drawZombie(x, y, scale, monster, time) {
   ctx.arc(len * 0.2, headY - headR * 0.2, headR * 0.15, 0, Math.PI * 2);
   ctx.fill();
 
-  // 血条
+  drawMonsterHPBar(len, headY, headR, monster);
+  ctx.restore();
+}
+
+// 绘制骷髅类型
+function drawSkeletonType(x, y, scale, monster, time, info) {
+  const s = scale * info.size;
+  const personH = BASE_UNIT * 1.5 * s;
+  const len = personH / 3.5;
+  const headR = len * 0.4;
+  const bodyLen = len * 1.1;
+  const legLen = len * 0.85;
+  const armLen = len * 0.65;
+
+  const t = time * 4 + monster.walkPhase;
+  const legSwing = Math.sin(t) * 0.5;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
+  ctx.strokeStyle = baseColor;
+  ctx.fillStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.lineCap = 'round';
+
+  const hipY = 0;
+  const shoulderY = -bodyLen;
+  const headY = shoulderY - headR;
+
+  // 骨腿
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.15, hipY);
+  ctx.lineTo(-len * 0.15 + Math.sin(legSwing) * legLen * 0.4, hipY + legLen);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.15, hipY);
+  ctx.lineTo(len * 0.15 + Math.sin(-legSwing) * legLen * 0.4, hipY + legLen);
+  ctx.stroke();
+
+  // 脊椎（分节）
+  for (let i = 0; i < 4; i++) {
+    const segY = hipY - (bodyLen / 4) * i;
+    ctx.beginPath();
+    ctx.arc(0, segY, len * 0.08, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 肋骨
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.25, shoulderY + bodyLen * 0.3);
+  ctx.lineTo(len * 0.25, shoulderY + bodyLen * 0.3);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.2, shoulderY + bodyLen * 0.5);
+  ctx.lineTo(len * 0.2, shoulderY + bodyLen * 0.5);
+  ctx.stroke();
+
+  // 手臂（骨头）
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.25, shoulderY);
+  ctx.lineTo(-len * 0.25 - armLen * 0.5, shoulderY + armLen * 0.3);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.25, shoulderY);
+  ctx.lineTo(len * 0.25 + armLen * 0.5, shoulderY + armLen * 0.3);
+  ctx.stroke();
+
+  // 头骨
+  ctx.beginPath();
+  ctx.arc(0, headY, headR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 眼眶（黑洞）
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(-len * 0.1, headY - headR * 0.1, headR * 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(len * 0.1, headY - headR * 0.1, headR * 0.25, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 牙齿
+  ctx.strokeStyle = baseColor;
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.12, headY + headR * 0.5);
+  ctx.lineTo(len * 0.12, headY + headR * 0.5);
+  ctx.stroke();
+
+  drawMonsterHPBar(len, headY, headR, monster);
+  ctx.restore();
+}
+
+// 绘制幽灵类型
+function drawGhostType(x, y, scale, monster, time, info) {
+  const s = scale * info.size;
+  const personH = BASE_UNIT * 1.5 * s;
+  const len = personH / 3.5;
+  const headR = len * 0.5;
+
+  // 漂浮动画
+  const floatY = Math.sin(time * 2 + monster.floatPhase) * 5;
+  const wobble = Math.sin(time * 3 + monster.floatPhase) * 0.1;
+
+  ctx.save();
+  ctx.translate(x, y + floatY);
+  ctx.globalAlpha = 0.7; // 半透明
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
+  ctx.fillStyle = baseColor;
+  ctx.strokeStyle = baseColor;
+
+  // 身体（飘逸的形状）
+  ctx.beginPath();
+  ctx.moveTo(0, -headR * 2);
+  ctx.quadraticCurveTo(-len * 0.6, -headR, -len * 0.5 + wobble * len, len * 0.5);
+  ctx.quadraticCurveTo(-len * 0.3, len * 0.3, 0, len * 0.6);
+  ctx.quadraticCurveTo(len * 0.3, len * 0.3, len * 0.5 - wobble * len, len * 0.5);
+  ctx.quadraticCurveTo(len * 0.6, -headR, 0, -headR * 2);
+  ctx.fill();
+
+  // 眼睛（发光）
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#00FFFF';
+  ctx.beginPath();
+  ctx.arc(-len * 0.15, -headR * 0.8, headR * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(len * 0.15, -headR * 0.8, headR * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.globalAlpha = 1;
+  drawMonsterHPBar(len, -headR * 2, headR, monster);
+  ctx.restore();
+}
+
+// 绘制恶魔类型
+function drawDemonType(x, y, scale, monster, time, info) {
+  const s = scale * info.size;
+  const personH = BASE_UNIT * 1.5 * s;
+  const len = personH / 3.5;
+  const headR = len * 0.45;
+  const bodyLen = len * 1.3;
+  const legLen = len * 0.9;
+  const armLen = len * 0.8;
+
+  const t = time * 2.5 + monster.walkPhase;
+  const legSwing = Math.sin(t) * 0.35;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
+  ctx.strokeStyle = baseColor;
+  ctx.fillStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 3 * s);
+  ctx.lineCap = 'round';
+
+  const hipY = 0;
+  const shoulderY = -bodyLen;
+  const headY = shoulderY - headR;
+
+  // 粗壮的腿
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.25, hipY);
+  ctx.lineTo(-len * 0.3 + Math.sin(legSwing) * legLen * 0.3, hipY + legLen);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.25, hipY);
+  ctx.lineTo(len * 0.3 + Math.sin(-legSwing) * legLen * 0.3, hipY + legLen);
+  ctx.stroke();
+
+  // 粗壮的身体
+  ctx.lineWidth = Math.max(1, 4 * s);
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(0, shoulderY);
+  ctx.stroke();
+
+  // 强壮的手臂
+  ctx.lineWidth = Math.max(1, 3 * s);
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.4, shoulderY);
+  ctx.lineTo(-len * 0.4 - armLen * 0.6, shoulderY + armLen * 0.4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.4, shoulderY);
+  ctx.lineTo(len * 0.4 + armLen * 0.6, shoulderY + armLen * 0.4);
+  ctx.stroke();
+
+  // 头
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(0, headY, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 角
+  ctx.strokeStyle = '#8B0000';
+  ctx.lineWidth = Math.max(1, 2 * s);
+  ctx.beginPath();
+  ctx.moveTo(-headR * 0.6, headY - headR * 0.5);
+  ctx.lineTo(-headR * 0.8, headY - headR * 1.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(headR * 0.6, headY - headR * 0.5);
+  ctx.lineTo(headR * 0.8, headY - headR * 1.5);
+  ctx.stroke();
+
+  // 发光的眼睛
+  ctx.fillStyle = '#FFFF00';
+  ctx.beginPath();
+  ctx.arc(-len * 0.1, headY - headR * 0.1, headR * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(len * 0.1, headY - headR * 0.1, headR * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawMonsterHPBar(len, headY, headR * 1.5, monster);
+  ctx.restore();
+}
+
+// 绘制黑骑士类型
+function drawKnightType(x, y, scale, monster, time, info) {
+  const s = scale * info.size;
+  const personH = BASE_UNIT * 1.5 * s;
+  const len = personH / 3.5;
+  const headR = len * 0.4;
+  const bodyLen = len * 1.4;
+  const legLen = len * 1.0;
+  const armLen = len * 0.8;
+
+  const t = time * 2 + monster.walkPhase;
+  const legSwing = Math.sin(t) * 0.3;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
+  ctx.strokeStyle = baseColor;
+  ctx.fillStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 3.5 * s);
+  ctx.lineCap = 'round';
+
+  const hipY = 0;
+  const shoulderY = -bodyLen;
+  const headY = shoulderY - headR;
+
+  // 铠甲腿
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.25, hipY);
+  ctx.lineTo(-len * 0.25 + Math.sin(legSwing) * legLen * 0.25, hipY + legLen);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.25, hipY);
+  ctx.lineTo(len * 0.25 + Math.sin(-legSwing) * legLen * 0.25, hipY + legLen);
+  ctx.stroke();
+
+  // 铠甲身体
+  ctx.lineWidth = Math.max(1, 5 * s);
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(0, shoulderY);
+  ctx.stroke();
+
+  // 肩甲
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(-len * 0.4, shoulderY, len * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(len * 0.4, shoulderY, len * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 手臂持剑
+  ctx.lineWidth = Math.max(1, 3 * s);
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.4, shoulderY);
+  ctx.lineTo(-len * 0.5, shoulderY + armLen * 0.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.4, shoulderY);
+  ctx.lineTo(len * 0.6, shoulderY + armLen * 0.3);
+  ctx.stroke();
+
+  // 剑
+  ctx.strokeStyle = '#78909C';
+  ctx.lineWidth = Math.max(1, 2 * s);
+  ctx.beginPath();
+  ctx.moveTo(len * 0.6, shoulderY + armLen * 0.3);
+  ctx.lineTo(len * 0.6, shoulderY - armLen * 0.8);
+  ctx.stroke();
+
+  // 头盔
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(0, headY, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 头盔面罩缝隙（眼睛）
+  ctx.strokeStyle = '#FF4444';
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.beginPath();
+  ctx.moveTo(-headR * 0.5, headY);
+  ctx.lineTo(headR * 0.5, headY);
+  ctx.stroke();
+
+  drawMonsterHPBar(len, headY, headR, monster);
+  ctx.restore();
+}
+
+// 绘制魔王类型
+function drawBossType(x, y, scale, monster, time, info) {
+  const s = scale * info.size;
+  const personH = BASE_UNIT * 1.5 * s;
+  const len = personH / 3.5;
+  const headR = len * 0.55;
+  const bodyLen = len * 1.5;
+  const legLen = len * 1.0;
+  const armLen = len * 0.9;
+
+  const t = time * 1.5 + monster.walkPhase;
+  const legSwing = Math.sin(t) * 0.25;
+  const breathe = Math.sin(time * 2) * 0.05; // 呼吸效果
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : info.color;
+  ctx.strokeStyle = baseColor;
+  ctx.fillStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 4 * s);
+  ctx.lineCap = 'round';
+
+  const hipY = 0;
+  const shoulderY = -bodyLen * (1 + breathe);
+  const headY = shoulderY - headR;
+
+  // 粗壮的腿
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.3, hipY);
+  ctx.lineTo(-len * 0.35 + Math.sin(legSwing) * legLen * 0.2, hipY + legLen);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.3, hipY);
+  ctx.lineTo(len * 0.35 + Math.sin(-legSwing) * legLen * 0.2, hipY + legLen);
+  ctx.stroke();
+
+  // 巨大的身体
+  ctx.lineWidth = Math.max(1, 6 * s);
+  ctx.beginPath();
+  ctx.moveTo(0, hipY);
+  ctx.lineTo(0, shoulderY);
+  ctx.stroke();
+
+  // 披风效果
+  ctx.strokeStyle = '#1A0033';
+  ctx.lineWidth = Math.max(1, 2 * s);
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.5, shoulderY);
+  ctx.quadraticCurveTo(-len * 0.7, hipY, -len * 0.4, hipY + legLen * 0.8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.5, shoulderY);
+  ctx.quadraticCurveTo(len * 0.7, hipY, len * 0.4, hipY + legLen * 0.8);
+  ctx.stroke();
+
+  // 强壮的手臂
+  ctx.strokeStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 4 * s);
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.5, shoulderY);
+  ctx.lineTo(-len * 0.7, shoulderY + armLen * 0.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(len * 0.5, shoulderY);
+  ctx.lineTo(len * 0.7, shoulderY + armLen * 0.5);
+  ctx.stroke();
+
+  // 头
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(0, headY, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 王冠/角
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = Math.max(1, 2 * s);
+  ctx.beginPath();
+  ctx.moveTo(-headR * 0.5, headY - headR * 0.8);
+  ctx.lineTo(-headR * 0.3, headY - headR * 1.6);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, headY - headR);
+  ctx.lineTo(0, headY - headR * 1.8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(headR * 0.5, headY - headR * 0.8);
+  ctx.lineTo(headR * 0.3, headY - headR * 1.6);
+  ctx.stroke();
+
+  // 邪恶的眼睛
+  ctx.fillStyle = '#FF0000';
+  ctx.beginPath();
+  ctx.arc(-len * 0.12, headY - headR * 0.15, headR * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(len * 0.12, headY - headR * 0.15, headR * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 光芒效果
+  ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2 + time;
+    const rayLen = headR * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(0, headY);
+    ctx.lineTo(Math.cos(angle) * rayLen, headY + Math.sin(angle) * rayLen);
+    ctx.stroke();
+  }
+
+  drawMonsterHPBar(len * 1.2, headY, headR * 1.8, monster);
+  ctx.restore();
+}
+
+// 绘制怪物血条（通用）
+function drawMonsterHPBar(len, headY, headR, monster) {
   if (monster.hp < monster.maxHp) {
     const barW = len * 2;
     const barH = 3;
@@ -451,8 +991,6 @@ function drawZombie(x, y, scale, monster, time) {
     ctx.fillStyle = '#E53935';
     ctx.fillRect(-barW / 2, barY, barW * (monster.hp / monster.maxHp), barH);
   }
-
-  ctx.restore();
 }
 
 // 开始冒险
@@ -1369,7 +1907,7 @@ function drawGroundScene(groundQuad) {
       const screenY = m.y - playerY + 0.5;
       if (screenX >= 0.02 && screenX <= 0.98 && screenY >= 0.02 && screenY <= 0.98) {
         const pt = getGroundPoint(groundQuad, screenX, screenY);
-        drawZombie(pt.x, pt.y, pt.scale, m, walkTime);
+        drawMonster(pt.x, pt.y, pt.scale, m, walkTime);
       }
     }
 
