@@ -615,8 +615,9 @@ function calculateMoveDirection() {
   let nearestMonster = null;
   let nearestMonsterDist = Infinity;
   let dangerCount = 0; // 危险范围内的怪物数量
-  const dangerZone = 0.18; // 危险距离
+  const dangerZone = 0.25; // 危险距离（多怪物时需要躲避）
   const attackRange = 0.15; // 攻击范围
+  const comfortZone = 0.12; // 战斗舒适区（保持这个距离战斗）
 
   for (const m of monsters) {
     const dx = playerX - m.x;
@@ -633,33 +634,49 @@ function calculateMoveDirection() {
     }
   }
 
-  // 判断是否安全（可以主动攻击）
-  // 安全条件：最近的怪物距离 > 攻击范围，且危险范围内怪物 <= 1
-  const isSafeToAttack = nearestMonsterDist > attackRange && dangerCount <= 1;
+  // 战斗AI逻辑：
+  // 1. 多个怪物靠近时 -> 逃跑
+  // 2. 只有1个怪物时 -> 保持在攻击距离战斗
+  // 3. 没有怪物时 -> 寻找物品或随机移动
 
-  if (isSafeToAttack && nearestMonster && nearestMonsterDist < 0.5) {
-    // 安全时主动接近怪物攻击
-    const dx = nearestMonster.x - playerX;
-    const dy = nearestMonster.y - playerY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > 0.01) {
-      // 移动到攻击距离
-      const approachForce = 1.5;
-      dirX += (dx / dist) * approachForce;
-      dirY += (dy / dist) * approachForce;
-    }
-  } else {
-    // 危险时远离怪物
+  if (dangerCount >= 2) {
+    // 多个怪物，需要逃跑
     for (const m of monsters) {
       const dx = playerX - m.x;
       const dy = playerY - m.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 0.3 && dist > 0.001) {
-        // 距离越近，逃离力度越大
-        const force = (0.3 - dist) / 0.3;
-        dirX += (dx / dist) * force * 2;
-        dirY += (dy / dist) * force * 2;
+      if (dist < 0.35 && dist > 0.001) {
+        const force = (0.35 - dist) / 0.35;
+        dirX += (dx / dist) * force * 2.5;
+        dirY += (dy / dist) * force * 2.5;
       }
+    }
+  } else if (nearestMonster && nearestMonsterDist < 0.5) {
+    // 只有0-1个怪物在附近，可以战斗
+    const dx = nearestMonster.x - playerX;
+    const dy = nearestMonster.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 0.01) {
+      if (dist > attackRange) {
+        // 太远了，接近敌人
+        const approachForce = 1.0;
+        dirX += (dx / dist) * approachForce;
+        dirY += (dy / dist) * approachForce;
+      } else if (dist < comfortZone) {
+        // 太近了，稍微后退保持距离
+        const retreatForce = 0.5;
+        dirX -= (dx / dist) * retreatForce;
+        dirY -= (dy / dist) * retreatForce;
+      }
+      // 在舒适区内时不移动，专心攻击
+
+      // 添加轻微的环绕移动（让战斗更生动）
+      const perpX = -dy / dist;
+      const perpY = dx / dist;
+      const circleForce = Math.sin(walkTime * 2) * 0.3;
+      dirX += perpX * circleForce;
+      dirY += perpY * circleForce;
     }
   }
 
