@@ -101,14 +101,16 @@ function playSound(type) {
   }
 }
 
-// 播放单音
+// 播放单音（应用音效音量）
 function playTone(freq, duration, volume, type = 'sine') {
   if (!audioContext) return;
+  const adjustedVolume = volume * soundVolume;
+  if (adjustedVolume < 0.01) return;
   const osc = audioContext.createOscillator();
   const gain = audioContext.createGain();
   osc.type = type;
   osc.frequency.value = freq;
-  gain.gain.setValueAtTime(volume, audioContext.currentTime);
+  gain.gain.setValueAtTime(adjustedVolume, audioContext.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
   osc.connect(gain);
   gain.connect(audioContext.destination);
@@ -116,15 +118,17 @@ function playTone(freq, duration, volume, type = 'sine') {
   osc.stop(audioContext.currentTime + duration);
 }
 
-// 播放扫频
+// 播放扫频（应用音效音量）
 function playSweep(startFreq, endFreq, duration, volume) {
   if (!audioContext) return;
+  const adjustedVolume = volume * soundVolume;
+  if (adjustedVolume < 0.01) return;
   const osc = audioContext.createOscillator();
   const gain = audioContext.createGain();
   osc.type = 'sawtooth';
   osc.frequency.setValueAtTime(startFreq, audioContext.currentTime);
   osc.frequency.exponentialRampToValueAtTime(endFreq, audioContext.currentTime + duration);
-  gain.gain.setValueAtTime(volume, audioContext.currentTime);
+  gain.gain.setValueAtTime(adjustedVolume, audioContext.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
   osc.connect(gain);
   gain.connect(audioContext.destination);
@@ -132,9 +136,11 @@ function playSweep(startFreq, endFreq, duration, volume) {
   osc.stop(audioContext.currentTime + duration);
 }
 
-// 播放噪声（用于打击感）
+// 播放噪声（应用音效音量）
 function playNoise(duration, volume) {
   if (!audioContext) return;
+  const adjustedVolume = volume * soundVolume;
+  if (adjustedVolume < 0.01) return;
   const bufferSize = audioContext.sampleRate * duration;
   const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
   const data = buffer.getChannelData(0);
@@ -144,7 +150,7 @@ function playNoise(duration, volume) {
   const noise = audioContext.createBufferSource();
   const gain = audioContext.createGain();
   noise.buffer = buffer;
-  gain.gain.setValueAtTime(volume, audioContext.currentTime);
+  gain.gain.setValueAtTime(adjustedVolume, audioContext.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
   noise.connect(gain);
   gain.connect(audioContext.destination);
@@ -163,11 +169,62 @@ function toggleSound() {
 // ==================== 程序化背景音乐系统 ====================
 let musicEnabled = true;
 let musicVolume = 0.15;
+let soundVolume = 0.5;  // 音效音量
 let currentMusicMode = 'idle'; // 'idle' | 'combat'
 let musicScheduler = null;
 let musicNodes = [];
 let nextNoteTime = 0;
 let currentBeat = 0;
+
+// 音量等级 (0-4 对应 0%, 25%, 50%, 75%, 100%)
+const VOLUME_LEVELS = [0, 0.25, 0.5, 0.75, 1.0];
+let musicVolumeLevel = 2;  // 默认50%
+let soundVolumeLevel = 3;  // 默认75%
+
+// 设置音乐音量等级
+function setMusicVolumeLevel(level) {
+  musicVolumeLevel = Math.max(0, Math.min(4, level));
+  musicVolume = 0.15 * VOLUME_LEVELS[musicVolumeLevel];
+  saveAudioSettings();
+}
+
+// 设置音效音量等级
+function setSoundVolumeLevel(level) {
+  soundVolumeLevel = Math.max(0, Math.min(4, level));
+  soundVolume = VOLUME_LEVELS[soundVolumeLevel];
+  saveAudioSettings();
+}
+
+// 保存音频设置
+function saveAudioSettings() {
+  try {
+    wx.setStorageSync('audioSettings', {
+      musicEnabled,
+      soundEnabled,
+      musicVolumeLevel,
+      soundVolumeLevel
+    });
+  } catch (e) {
+    console.log('保存音频设置失败');
+  }
+}
+
+// 加载音频设置
+function loadAudioSettings() {
+  try {
+    const settings = wx.getStorageSync('audioSettings');
+    if (settings) {
+      musicEnabled = settings.musicEnabled !== false;
+      soundEnabled = settings.soundEnabled !== false;
+      musicVolumeLevel = settings.musicVolumeLevel ?? 2;
+      soundVolumeLevel = settings.soundVolumeLevel ?? 3;
+      musicVolume = 0.15 * VOLUME_LEVELS[musicVolumeLevel];
+      soundVolume = VOLUME_LEVELS[soundVolumeLevel];
+    }
+  } catch (e) {
+    console.log('加载音频设置失败');
+  }
+}
 
 // 五声音阶 - 宫商角徵羽 (更有东方韵味)
 const PENTATONIC_IDLE = [261.63, 293.66, 329.63, 392.00, 440.00]; // C D E G A
@@ -2329,10 +2386,14 @@ function getAchievementStats() {
 // 游戏启动时加载数据
 loadGameData();
 loadAchievements();
+loadAudioSettings();
 checkTutorial();
 
 // 音乐会在首次用户交互时启动（浏览器音频策略）
 let musicInitialized = false;
+
+// 设置面板状态
+let showSettingsPanel = false;
 
 // 获取当前角色信息
 function getCurrentCharacter() {
@@ -3332,52 +3393,168 @@ function drawPauseButton() {
   return { x: btnX, y: btnY, size: btnSize };
 }
 
-// 绘制音频控制按钮（音效+音乐）
+// 绘制音频控制按钮（设置按钮）
 function drawSoundButton() {
   const btnSize = 36;
-  const gap = 8;
 
-  // 音效按钮
-  const soundBtnX = W - btnSize - 10;
-  const soundBtnY = 10;
+  // 设置按钮（右上角）
+  const settingsBtnX = W - btnSize - 10;
+  const settingsBtnY = 10;
 
-  ctx.fillStyle = soundEnabled ? 'rgba(0, 100, 0, 0.6)' : 'rgba(100, 0, 0, 0.6)';
+  // 按钮背景 - 根据音频状态显示不同颜色
+  const allOn = soundEnabled && musicEnabled;
+  const allOff = !soundEnabled && !musicEnabled;
+  ctx.fillStyle = allOn ? 'rgba(0, 100, 0, 0.6)' : (allOff ? 'rgba(100, 0, 0, 0.6)' : 'rgba(100, 80, 0, 0.6)');
   ctx.beginPath();
-  ctx.arc(soundBtnX + btnSize / 2, soundBtnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
+  ctx.arc(settingsBtnX + btnSize / 2, settingsBtnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = '#FFFFFF';
   ctx.font = '18px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(soundEnabled ? '🔊' : '🔇', soundBtnX + btnSize / 2, soundBtnY + btnSize / 2);
-
-  // 音乐按钮（在音效按钮左边）
-  const musicBtnX = soundBtnX - btnSize - gap;
-  const musicBtnY = 10;
-
-  ctx.fillStyle = musicEnabled ? 'rgba(80, 50, 150, 0.6)' : 'rgba(60, 60, 60, 0.6)';
-  ctx.beginPath();
-  ctx.arc(musicBtnX + btnSize / 2, musicBtnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '18px sans-serif';
-  ctx.fillText(musicEnabled ? '🎵' : '🎵', musicBtnX + btnSize / 2, musicBtnY + btnSize / 2);
-
-  // 音乐关闭时显示删除线
-  if (!musicEnabled) {
-    ctx.strokeStyle = '#FF4444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(musicBtnX + 8, musicBtnY + btnSize - 8);
-    ctx.lineTo(musicBtnX + btnSize - 8, musicBtnY + 8);
-    ctx.stroke();
-  }
+  ctx.fillText('⚙️', settingsBtnX + btnSize / 2, settingsBtnY + btnSize / 2);
 
   return {
-    sound: { x: soundBtnX, y: soundBtnY, size: btnSize },
-    music: { x: musicBtnX, y: musicBtnY, size: btnSize }
+    settings: { x: settingsBtnX, y: settingsBtnY, size: btnSize }
+  };
+}
+
+// 设置面板按钮位置缓存
+let settingsPanelButtons = null;
+
+// 绘制设置面板
+function drawSettingsPanel() {
+  if (!showSettingsPanel) return;
+
+  // 半透明背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 面板
+  const panelW = Math.min(W - 40, 300);
+  const panelH = 320;
+  const panelX = (W - panelW) / 2;
+  const panelY = (H - panelH) / 2;
+
+  // 面板背景
+  ctx.fillStyle = 'rgba(40, 40, 60, 0.95)';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+  // 标题
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('⚙️ 音频设置', W / 2, panelY + 30);
+
+  // 音效设置区域
+  let y = panelY + 70;
+  const sliderW = panelW - 60;
+  const sliderX = panelX + 30;
+  const sliderH = 24;
+  const dotSize = 20;
+
+  // 音效开关和音量
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('🔊 音效', sliderX, y);
+
+  // 音效开关
+  const soundToggleX = sliderX + sliderW - 50;
+  ctx.fillStyle = soundEnabled ? '#00AA00' : '#AA0000';
+  ctx.fillRect(soundToggleX, y - 12, 50, 24);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(soundEnabled ? '开' : '关', soundToggleX + 25, y);
+
+  // 音效音量滑块
+  y += 35;
+  ctx.fillStyle = '#333333';
+  ctx.fillRect(sliderX, y, sliderW, sliderH);
+
+  // 音量等级指示
+  for (let i = 0; i <= 4; i++) {
+    const dotX = sliderX + (sliderW / 4) * i;
+    const isActive = i <= soundVolumeLevel;
+    ctx.fillStyle = isActive ? '#00FF00' : '#555555';
+    ctx.beginPath();
+    ctx.arc(dotX, y + sliderH / 2, isActive ? dotSize / 2 : dotSize / 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 百分比显示
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${VOLUME_LEVELS[soundVolumeLevel] * 100}%`, sliderX + sliderW, y - 5);
+
+  // 音乐设置区域
+  y += 55;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('🎵 音乐', sliderX, y);
+
+  // 音乐开关
+  const musicToggleX = sliderX + sliderW - 50;
+  ctx.fillStyle = musicEnabled ? '#00AA00' : '#AA0000';
+  ctx.fillRect(musicToggleX, y - 12, 50, 24);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(musicEnabled ? '开' : '关', musicToggleX + 25, y);
+
+  // 音乐音量滑块
+  y += 35;
+  ctx.fillStyle = '#333333';
+  ctx.fillRect(sliderX, y, sliderW, sliderH);
+
+  // 音量等级指示
+  for (let i = 0; i <= 4; i++) {
+    const dotX = sliderX + (sliderW / 4) * i;
+    const isActive = i <= musicVolumeLevel;
+    ctx.fillStyle = isActive ? '#9966FF' : '#555555';
+    ctx.beginPath();
+    ctx.arc(dotX, y + sliderH / 2, isActive ? dotSize / 2 : dotSize / 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 百分比显示
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${VOLUME_LEVELS[musicVolumeLevel] * 100}%`, sliderX + sliderW, y - 5);
+
+  // 关闭按钮
+  const closeBtnY = panelY + panelH - 50;
+  const closeBtnW = 100;
+  const closeBtnH = 36;
+  const closeBtnX = (W - closeBtnW) / 2;
+
+  ctx.fillStyle = 'rgba(100, 100, 100, 0.9)';
+  ctx.fillRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH);
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('关闭', W / 2, closeBtnY + closeBtnH / 2);
+
+  // 缓存按钮位置
+  settingsPanelButtons = {
+    soundToggle: { x: soundToggleX, y: panelY + 70 - 12, w: 50, h: 24 },
+    soundSlider: { x: sliderX, y: panelY + 105, w: sliderW, h: sliderH },
+    musicToggle: { x: musicToggleX, y: panelY + 160 - 12, w: 50, h: 24 },
+    musicSlider: { x: sliderX, y: panelY + 195, w: sliderW, h: sliderH },
+    close: { x: closeBtnX, y: closeBtnY, w: closeBtnW, h: closeBtnH }
   };
 }
 
@@ -5494,6 +5671,9 @@ function draw() {
   // 成就通知（浮动显示）
   drawAchievementNotification();
 
+  // 设置面板（高优先级）
+  drawSettingsPanel();
+
   // 新手引导（最高优先级）
   if (showTutorial && gameState === 'idle') {
     drawTutorial();
@@ -6303,30 +6483,79 @@ wx.onTouchEnd((e) => {
     return;
   }
 
-  // 检查音频按钮（所有状态下都可用）
-  const audioBtnSize = 36;
-  const gap = 8;
+  // 设置面板优先处理
+  if (showSettingsPanel && settingsPanelButtons) {
+    const btns = settingsPanelButtons;
 
-  // 音效按钮
-  const soundBtnX = W - audioBtnSize - 10;
-  const soundBtnY = 10;
-  const soundCenterX = soundBtnX + audioBtnSize / 2;
-  const soundCenterY = soundBtnY + audioBtnSize / 2;
-  const soundDist = Math.sqrt((tx - soundCenterX) ** 2 + (ty - soundCenterY) ** 2);
-  if (soundDist <= audioBtnSize / 2 + 5) {
-    toggleSound();
+    // 音效开关
+    if (tx >= btns.soundToggle.x && tx <= btns.soundToggle.x + btns.soundToggle.w &&
+        ty >= btns.soundToggle.y && ty <= btns.soundToggle.y + btns.soundToggle.h) {
+      toggleSound();
+      saveAudioSettings();
+      touchStart = null;
+      return;
+    }
+
+    // 音效音量滑块
+    if (tx >= btns.soundSlider.x && tx <= btns.soundSlider.x + btns.soundSlider.w &&
+        ty >= btns.soundSlider.y && ty <= btns.soundSlider.y + btns.soundSlider.h) {
+      const relX = tx - btns.soundSlider.x;
+      const level = Math.round((relX / btns.soundSlider.w) * 4);
+      setSoundVolumeLevel(level);
+      playSound('hit'); // 预览音效
+      touchStart = null;
+      return;
+    }
+
+    // 音乐开关
+    if (tx >= btns.musicToggle.x && tx <= btns.musicToggle.x + btns.musicToggle.w &&
+        ty >= btns.musicToggle.y && ty <= btns.musicToggle.y + btns.musicToggle.h) {
+      toggleMusic();
+      saveAudioSettings();
+      touchStart = null;
+      return;
+    }
+
+    // 音乐音量滑块
+    if (tx >= btns.musicSlider.x && tx <= btns.musicSlider.x + btns.musicSlider.w &&
+        ty >= btns.musicSlider.y && ty <= btns.musicSlider.y + btns.musicSlider.h) {
+      const relX = tx - btns.musicSlider.x;
+      const level = Math.round((relX / btns.musicSlider.w) * 4);
+      setMusicVolumeLevel(level);
+      touchStart = null;
+      return;
+    }
+
+    // 关闭按钮
+    if (tx >= btns.close.x && tx <= btns.close.x + btns.close.w &&
+        ty >= btns.close.y && ty <= btns.close.y + btns.close.h) {
+      showSettingsPanel = false;
+      touchStart = null;
+      return;
+    }
+
+    // 点击面板外关闭
+    const panelW = Math.min(W - 40, 300);
+    const panelH = 320;
+    const panelX = (W - panelW) / 2;
+    const panelY = (H - panelH) / 2;
+    if (tx < panelX || tx > panelX + panelW || ty < panelY || ty > panelY + panelH) {
+      showSettingsPanel = false;
+    }
+
     touchStart = null;
     return;
   }
 
-  // 音乐按钮
-  const musicBtnX = soundBtnX - audioBtnSize - gap;
-  const musicBtnY = 10;
-  const musicCenterX = musicBtnX + audioBtnSize / 2;
-  const musicCenterY = musicBtnY + audioBtnSize / 2;
-  const musicDist = Math.sqrt((tx - musicCenterX) ** 2 + (ty - musicCenterY) ** 2);
-  if (musicDist <= audioBtnSize / 2 + 5) {
-    toggleMusic();
+  // 检查设置按钮（所有状态下都可用）
+  const settingsBtnSize = 36;
+  const settingsBtnX = W - settingsBtnSize - 10;
+  const settingsBtnY = 10;
+  const settingsCenterX = settingsBtnX + settingsBtnSize / 2;
+  const settingsCenterY = settingsBtnY + settingsBtnSize / 2;
+  const settingsDist = Math.sqrt((tx - settingsCenterX) ** 2 + (ty - settingsCenterY) ** 2);
+  if (settingsDist <= settingsBtnSize / 2 + 5) {
+    showSettingsPanel = true;
     touchStart = null;
     return;
   }
