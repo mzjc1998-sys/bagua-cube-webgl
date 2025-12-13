@@ -6763,7 +6763,7 @@ function draw() {
       const nextQuality = getNextQualityInfo();
       if (nextQuality) {
         const upgradeBtnY = forgeBtnY + forgeBtnH - 18;
-        const canUpgrade = gold >= nextQuality.cost.gold && weaponFragments >= nextQuality.cost.fragments;
+        const canUpgrade = goldCollected >= nextQuality.cost.gold && weaponFragments >= nextQuality.cost.fragments;
 
         ctx.fillStyle = canUpgrade ? 'rgba(60, 150, 60, 0.9)' : 'rgba(80, 80, 80, 0.7)';
         ctx.fillRect(forgeBtnX + 5, upgradeBtnY, forgeBtnW - 10, 16);
@@ -8183,7 +8183,7 @@ function upgradeWeapon() {
   const cost = WEAPON_UPGRADE_COST[currentQuality];
   if (!cost) return false;
 
-  if (gold < cost.gold) {
+  if (goldCollected < cost.gold) {
     wx.showToast && wx.showToast({ title: `金币不足！需要${cost.gold}`, icon: 'none' });
     return false;
   }
@@ -8193,7 +8193,7 @@ function upgradeWeapon() {
   }
 
   // 扣除材料
-  gold -= cost.gold;
+  goldCollected -= cost.gold;
   weaponFragments -= cost.fragments;
 
   // 升级品质
