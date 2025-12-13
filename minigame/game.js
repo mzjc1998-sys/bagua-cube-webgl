@@ -298,7 +298,7 @@ const CLASS_TYPES = {
 let currentClass = 'none'; // 100级前无职业
 let playerLevel = 1;
 let playerExp = 0;
-let expToNext = 100;
+let expToNext = 60;  // 第一级只需60经验（3只僵尸）
 
 // ==================== 技能系统 ====================
 // 基于英雄联盟20位人气英雄的技能设计
@@ -1628,13 +1628,23 @@ function loadGameData() {
 // 重置游戏数据（新游戏）
 function resetGameData() {
   try {
+    // 先清除存储
     wx.removeStorageSync(SAVE_KEY);
+    // 重置所有变量
     playerLevel = 1;
     playerExp = 0;
-    expToNext = 100;
+    expToNext = 60;  // 第一级只需60经验
     currentClass = 'none';
     currentPalace = '艮';
-    console.log('游戏数据已重置');
+    // 保存新数据
+    saveGameData();
+    console.log('游戏数据已重置到1级');
+    // 提示用户
+    wx.showToast && wx.showToast({
+      title: '已重置到1级',
+      icon: 'success',
+      duration: 1500
+    });
     return true;
   } catch (e) {
     console.error('重置游戏数据失败:', e);
@@ -2482,7 +2492,12 @@ function attackMonsters() {
         while (playerExp >= expToNext) {
           playerExp -= expToNext;
           playerLevel++;
-          expToNext = Math.floor(expToNext * 1.5);
+          // 前10级经验需求增长较慢，之后加速
+          if (playerLevel <= 10) {
+            expToNext = 60 + (playerLevel - 1) * 20; // 60, 80, 100, 120...
+          } else {
+            expToNext = Math.floor(expToNext * 1.3); // 10级后增长加速
+          }
           const newStats = getPlayerStats();
           playerMaxHP = newStats.hp;
           playerHP = Math.min(playerHP + 20, playerMaxHP);
@@ -2993,7 +3008,12 @@ function updateCollectibles(dt) {
         while (playerExp >= expToNext) {
           playerExp -= expToNext;
           playerLevel++;
-          expToNext = Math.floor(expToNext * 1.5);
+          // 前10级经验需求增长较慢，之后加速
+          if (playerLevel <= 10) {
+            expToNext = 60 + (playerLevel - 1) * 20;
+          } else {
+            expToNext = Math.floor(expToNext * 1.3);
+          }
           const newStats = getPlayerStats();
           playerMaxHP = newStats.hp;
           playerHP = Math.min(playerHP + 20, playerMaxHP);
@@ -3771,23 +3791,24 @@ function draw() {
     ctx.font = '10px sans-serif';
     ctx.fillText('点击顶点可切换八卦视角', W / 2, btnY - 15);
 
-    // 重置数据按钮（右上角小按钮）
-    const resetBtnW = 60;
-    const resetBtnH = 24;
+    // 重置数据按钮（右上角，红色醒目）
+    const resetBtnW = 70;
+    const resetBtnH = 28;
     const resetBtnX = W - resetBtnW - 10;
     const resetBtnY = 10;
 
-    ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
+    // 红色背景更醒目
+    ctx.fillStyle = 'rgba(180, 60, 60, 0.9)';
     ctx.fillRect(resetBtnX, resetBtnY, resetBtnW, resetBtnH);
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#FF6666';
+    ctx.lineWidth = 2;
     ctx.strokeRect(resetBtnX, resetBtnY, resetBtnW, resetBtnH);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('重置', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2);
+    ctx.fillText('重置数据', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2);
   }
 
   // 冒险模式UI
@@ -4628,10 +4649,10 @@ wx.onTouchEnd((e) => {
 
   // 待机模式的交互
   if (dt < 300 && Math.abs(dx) < 20 && Math.abs(dy) < 20) {
-    // 检查是否点击了"重置"按钮（右上角）
+    // 检查是否点击了"重置数据"按钮（右上角）
     if (gameState === 'idle') {
-      const resetBtnW = 60;
-      const resetBtnH = 24;
+      const resetBtnW = 70;
+      const resetBtnH = 28;
       const resetBtnX = W - resetBtnW - 10;
       const resetBtnY = 10;
       if (tx >= resetBtnX && tx <= resetBtnX + resetBtnW && ty >= resetBtnY && ty <= resetBtnY + resetBtnH) {
