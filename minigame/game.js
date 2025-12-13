@@ -2923,8 +2923,25 @@ function spawnMonster() {
 
 // 绘制怪物（统一入口）
 function drawMonster(x, y, scale, monster, time) {
-  const info = MONSTER_TYPES[monster.type];
-  const drawType = info.drawType;
+  // Boss使用自己的属性，普通怪物从MONSTER_TYPES查找
+  let info;
+  let drawType;
+
+  if (monster.isBoss) {
+    // Boss直接使用自身属性
+    info = {
+      size: monster.size,
+      color: monster.color
+    };
+    drawType = 'boss';
+  } else {
+    info = MONSTER_TYPES[monster.type];
+    if (!info) {
+      console.warn('Unknown monster type:', monster.type);
+      return;
+    }
+    drawType = info.drawType;
+  }
 
   switch (drawType) {
     case 'zombie':
