@@ -1596,11 +1596,15 @@ function loadGameData() {
     const saved = wx.getStorageSync(SAVE_KEY);
     if (saved) {
       const data = JSON.parse(saved);
-      if (data.currentClass && CLASS_TYPES[data.currentClass]) {
-        currentClass = data.currentClass;
-      }
+      // 先加载等级
       if (typeof data.playerLevel === 'number' && data.playerLevel >= 1) {
         playerLevel = data.playerLevel;
+      }
+      // 只有100级以上才能使用职业
+      if (playerLevel >= 100 && data.currentClass && CLASS_TYPES[data.currentClass]) {
+        currentClass = data.currentClass;
+      } else {
+        currentClass = 'none';
       }
       if (typeof data.playerExp === 'number' && data.playerExp >= 0) {
         playerExp = data.playerExp;
@@ -1611,7 +1615,8 @@ function loadGameData() {
       if (data.currentPalace && palacePairs[data.currentPalace]) {
         currentPalace = data.currentPalace;
       }
-      console.log(`游戏数据已加载: ${CLASS_TYPES[currentClass].name} Lv.${playerLevel}`);
+      const character = getCurrentCharacter();
+      console.log(`游戏数据已加载: ${character.name} Lv.${playerLevel}`);
       return true;
     }
   } catch (e) {
@@ -1657,6 +1662,9 @@ let adventureTime = 0;
 let killCount = 0;
 let playerHP = 100;
 let playerMaxHP = 100;
+let playerMP = 100;       // 蓝量/魔法值
+let playerMaxMP = 100;
+let showDetailedStats = false;  // 是否显示详细数值
 let playerX = 0.5;  // 玩家在地面上的位置 (0-1)
 let playerY = 0.5;
 let playerTargetX = 0.5;
@@ -2356,6 +2364,9 @@ function startAdventure() {
   const stats = getPlayerStats();
   playerMaxHP = stats.hp;
   playerHP = playerMaxHP;
+  playerMaxMP = 100;  // 基础蓝量
+  playerMP = playerMaxMP;
+  showDetailedStats = false;
   playerX = 0.5;
   playerY = 0.5;
   playerTargetX = 0.5;
@@ -3701,32 +3712,10 @@ function draw() {
     ctx.fillText('点击顶点切换视角', 15, 42);
   }
 
-  // 右上角 - 角色信息面板
+  // 左下角 - 角色状态面板
   const character = getCurrentCharacter();
   const stats = getPlayerStats();
-  const panelX = W - 125;
-  const panelY = 10;
-
-  // 面板背景
-  ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(panelX - 5, panelY, 120, 85);
-
-  // 角色名称
-  ctx.fillStyle = character.color;
-  ctx.font = 'bold 14px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(`${character.name} Lv.${playerLevel}`, panelX, panelY + 15);
-
-  // 属性
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '10px sans-serif';
-  ctx.fillText(`HP:${stats.hp} 伤害:${stats.dmg}`, panelX, panelY + 32);
-  ctx.fillText(`移速:${stats.spd.toFixed(1)} 攻速:${stats.atkSpd.toFixed(2)}s`, panelX, panelY + 45);
-  ctx.fillText(`射程:${(stats.range * 100).toFixed(0)} 暴击:${stats.luck.toFixed(0)}%`, panelX, panelY + 58);
-  // 显示描述
-  ctx.fillStyle = '#AAAAAA';
-  ctx.font = '9px sans-serif';
-  ctx.fillText(character.description, panelX, panelY + 74);
+  drawCharacterStatusPanel(character, stats);
 
   // 底部 - 开始冒险按钮（只在待机模式显示）
   if (gameState === 'idle') {
@@ -3768,40 +3757,24 @@ function draw() {
 
   // 冒险模式UI
   if (gameState === 'adventure') {
-    // 冒险模式 - 底部HP血条
-    const hpBarW = W * 0.6;
-    const hpBarH = 20;
-    const hpBarX = (W - hpBarW) / 2;
-    const hpBarY = H - 70;
+    // 右上角 - 战斗信息
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(W - 115, 5, 110, 50);
 
-    // 血条背景
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(hpBarX - 5, hpBarY - 5, hpBarW + 10, hpBarH + 25);
-
-    // 血条底
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(hpBarX, hpBarY, hpBarW, hpBarH);
-
-    // 血条
-    const hpRatio = Math.max(0, playerHP / playerMaxHP);
-    const hpColor = hpRatio > 0.5 ? '#4CAF50' : hpRatio > 0.25 ? '#FF9800' : '#F44336';
-    ctx.fillStyle = hpColor;
-    ctx.fillRect(hpBarX, hpBarY, hpBarW * hpRatio, hpBarH);
-
-    // HP数值
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`HP: ${Math.ceil(playerHP)} / ${playerMaxHP}`, W / 2, hpBarY + hpBarH / 2 + 1);
-
-    // 信息显示
     ctx.font = '11px sans-serif';
-    ctx.fillText(`击杀: ${killCount}  金币: ${goldCollected}  时间: ${Math.floor(adventureTime)}s`, W / 2, hpBarY + hpBarH + 12);
+    ctx.textAlign = 'right';
+    ctx.fillText(`击杀: ${killCount}`, W - 10, 22);
+    ctx.fillStyle = '#FFD700';
+    ctx.fillText(`金币: ${goldCollected}`, W - 10, 38);
+    ctx.fillStyle = '#00BCD4';
+    ctx.fillText(`时间: ${Math.floor(adventureTime)}s`, W - 10, 54);
 
-    // 操作提示
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    // 操作提示（顶部中央）
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '10px sans-serif';
-    ctx.fillText('角色自动移动躲避怪物 | 点击可手动控制', W / 2, 60);
+    ctx.textAlign = 'center';
+    ctx.fillText('点击头像查看详细属性', W / 2, 25);
   }
 
   // 游戏结束UI
@@ -3852,12 +3825,198 @@ function draw() {
   }
 }
 
+// 角色头像点击区域
+let avatarHitBox = { x: 0, y: 0, w: 0, h: 0 };
+
+// 绘制角色状态面板（左下角）
+function drawCharacterStatusPanel(character, stats) {
+  const panelX = 10;
+  const panelY = H - 75;
+  const avatarSize = 50;
+  const barWidth = 100;
+  const barHeight = 10;
+
+  // 存储头像点击区域
+  avatarHitBox = { x: panelX, y: panelY - 5, w: avatarSize, h: avatarSize + 25 };
+
+  // 面板背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.beginPath();
+  ctx.moveTo(panelX, panelY);
+  ctx.lineTo(panelX + avatarSize + barWidth + 20, panelY);
+  ctx.lineTo(panelX + avatarSize + barWidth + 20, panelY + avatarSize + 15);
+  ctx.lineTo(panelX, panelY + avatarSize + 15);
+  ctx.closePath();
+  ctx.fill();
+
+  // 头像背景
+  ctx.fillStyle = character.color || '#666666';
+  ctx.fillRect(panelX + 5, panelY + 5, avatarSize - 10, avatarSize - 10);
+
+  // 头像边框
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(panelX + 5, panelY + 5, avatarSize - 10, avatarSize - 10);
+
+  // 绘制小人头像
+  drawAvatarHead(panelX + avatarSize / 2, panelY + avatarSize / 2, avatarSize * 0.35, character.color);
+
+  // 等级标签
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`Lv.${playerLevel}`, panelX + avatarSize / 2, panelY + avatarSize + 8);
+
+  // 条形图起始位置
+  const barsX = panelX + avatarSize + 8;
+  const barsY = panelY + 8;
+
+  // HP条
+  const hpRatio = gameState === 'adventure' ? Math.max(0, playerHP / playerMaxHP) : 1;
+  drawStatusBar(barsX, barsY, barWidth, barHeight, hpRatio, '#4CAF50', '#2E7D32', 'HP');
+
+  // MP条（蓝条）
+  const mpRatio = Math.max(0, playerMP / playerMaxMP);
+  drawStatusBar(barsX, barsY + barHeight + 4, barWidth, barHeight, mpRatio, '#2196F3', '#1565C0', 'MP');
+
+  // EXP条
+  const expRatio = playerExp / expToNext;
+  drawStatusBar(barsX, barsY + (barHeight + 4) * 2, barWidth, barHeight, expRatio, '#9C27B0', '#6A1B9A', 'EXP');
+
+  // 显示详细数值面板
+  if (showDetailedStats) {
+    drawDetailedStatsPanel(character, stats);
+  }
+}
+
+// 绘制状态条
+function drawStatusBar(x, y, width, height, ratio, fgColor, bgColor, label) {
+  // 背景
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(x, y, width, height);
+
+  // 前景
+  ctx.fillStyle = fgColor;
+  ctx.fillRect(x, y, width * ratio, height);
+
+  // 边框
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x, y, width, height);
+
+  // 标签
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '8px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x + 2, y + height / 2);
+}
+
+// 绘制头像中的小人头
+function drawAvatarHead(x, y, size, color) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // 头
+  ctx.fillStyle = color || '#666666';
+  ctx.beginPath();
+  ctx.arc(0, -size * 0.3, size * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 身体
+  ctx.strokeStyle = color || '#666666';
+  ctx.lineWidth = size * 0.15;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.1);
+  ctx.lineTo(0, size * 0.4);
+  ctx.stroke();
+
+  // 手臂
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.35, size * 0.1);
+  ctx.lineTo(size * 0.35, size * 0.1);
+  ctx.stroke();
+
+  // 腿
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.4);
+  ctx.lineTo(-size * 0.25, size * 0.8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.4);
+  ctx.lineTo(size * 0.25, size * 0.8);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// 绘制详细数值面板
+function drawDetailedStatsPanel(character, stats) {
+  const panelW = 160;
+  const panelH = 180;
+  const panelX = 10;
+  const panelY = H - 75 - panelH - 10;
+
+  // 背景
+  ctx.fillStyle = 'rgba(20, 20, 30, 0.95)';
+  ctx.fillRect(panelX, panelY, panelW, panelH);
+
+  // 边框
+  ctx.strokeStyle = character.color || '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+  // 标题栏
+  ctx.fillStyle = character.color || '#666666';
+  ctx.fillRect(panelX, panelY, panelW, 25);
+
+  // 角色名称
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${character.name} Lv.${playerLevel}`, panelX + panelW / 2, panelY + 16);
+
+  // 属性列表
+  ctx.textAlign = 'left';
+  ctx.font = '11px sans-serif';
+  const lineHeight = 18;
+  let y = panelY + 40;
+
+  const statItems = [
+    { label: '生命值', value: `${Math.ceil(playerHP)} / ${playerMaxHP}`, color: '#4CAF50' },
+    { label: '魔法值', value: `${Math.ceil(playerMP)} / ${playerMaxMP}`, color: '#2196F3' },
+    { label: '经验值', value: `${playerExp} / ${expToNext}`, color: '#9C27B0' },
+    { label: '攻击力', value: stats.dmg.toString(), color: '#FF5722' },
+    { label: '攻击速度', value: `${stats.atkSpd.toFixed(2)}s`, color: '#FFC107' },
+    { label: '移动速度', value: stats.spd.toFixed(2), color: '#00BCD4' },
+    { label: '攻击范围', value: (stats.range * 100).toFixed(0), color: '#8BC34A' },
+    { label: '暴击率', value: `${stats.luck.toFixed(1)}%`, color: '#E91E63' }
+  ];
+
+  for (const item of statItems) {
+    ctx.fillStyle = '#AAAAAA';
+    ctx.fillText(item.label + ':', panelX + 10, y);
+    ctx.fillStyle = item.color;
+    ctx.textAlign = 'right';
+    ctx.fillText(item.value, panelX + panelW - 10, y);
+    ctx.textAlign = 'left';
+    y += lineHeight;
+  }
+
+  // 描述
+  ctx.fillStyle = '#888888';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(character.description, panelX + panelW / 2, panelY + panelH - 8);
+}
+
 // 绘制技能HUD
 function drawSkillHUD() {
   const skillSlotSize = 42;
   const skillSpacing = 6;
   const startX = 12;
-  const startY = H - 135;
+  const startY = H - 155; // 上移一点，给状态面板让位
 
   // 清空技能点击区域
   skillHitBoxes = [];
@@ -4413,6 +4572,21 @@ wx.onTouchEnd((e) => {
         isMoving = true;
       }
     }
+    touchStart = null;
+    return;
+  }
+
+  // 点击头像显示/隐藏详细数值
+  if (tx >= avatarHitBox.x && tx <= avatarHitBox.x + avatarHitBox.w &&
+      ty >= avatarHitBox.y && ty <= avatarHitBox.y + avatarHitBox.h) {
+    showDetailedStats = !showDetailedStats;
+    touchStart = null;
+    return;
+  }
+
+  // 点击其他地方关闭详细数值面板
+  if (showDetailedStats) {
+    showDetailedStats = false;
     touchStart = null;
     return;
   }
