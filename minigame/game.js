@@ -340,17 +340,13 @@ const MONSTER_TYPES = {
   }
 };
 
-// 创建怪物
+// 创建怪物（在玩家周围的世界坐标生成）
 function spawnMonster() {
-  // 从四面八方生成
-  const side = Math.floor(Math.random() * 4);
-  let x, y;
-  switch (side) {
-    case 0: x = Math.random(); y = 0; break;      // 上
-    case 1: x = Math.random(); y = 1; break;      // 下
-    case 2: x = 0; y = Math.random(); break;      // 左
-    case 3: x = 1; y = Math.random(); break;      // 右
-  }
+  // 在玩家周围0.5-0.8距离处生成
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 0.5 + Math.random() * 0.3;
+  const x = playerX + Math.cos(angle) * distance;
+  const y = playerY + Math.sin(angle) * distance;
 
   const type = 'zombie';
   const info = MONSTER_TYPES[type];
@@ -550,30 +546,25 @@ function updateAdventure(dt) {
   if (adventureTime > 60) monsterSpawnInterval = 1.0;
   if (adventureTime > 120) monsterSpawnInterval = 0.7;
 
-  // 生成怪物
+  // 生成怪物（在玩家周围生成）
   monsterSpawnTimer += dt;
   if (monsterSpawnTimer >= monsterSpawnInterval) {
     monsterSpawnTimer = 0;
     spawnMonster();
   }
 
-  // 玩家移动
-  if (isMoving) {
-    const dx = playerTargetX - playerX;
-    const dy = playerTargetY - playerY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > 0.01) {
-      const speed = 0.008;
-      playerX += (dx / dist) * speed;
-      playerY += (dy / dist) * speed;
-      playerX = Math.max(0.1, Math.min(0.9, playerX));
-      playerY = Math.max(0.1, Math.min(0.9, playerY));
-    } else {
-      isMoving = false;
-    }
+  // 自动移动AI - 每帧计算移动方向（平滑移动）
+  const moveDir = calculateMoveDirection();
+
+  // 玩家持续移动
+  const playerSpeed = 0.012 * dt * 60; // 基于帧率的速度
+  if (moveDir.dx !== 0 || moveDir.dy !== 0) {
+    const len = Math.sqrt(moveDir.dx * moveDir.dx + moveDir.dy * moveDir.dy);
+    playerX += (moveDir.dx / len) * playerSpeed;
+    playerY += (moveDir.dy / len) * playerSpeed;
   }
 
-  // 更新怪物
+  // 更新怪物（相对于玩家位置生成和移动）
   for (const m of monsters) {
     // 朝玩家移动
     const dx = playerX - m.x;
@@ -596,6 +587,16 @@ function updateAdventure(dt) {
     }
   }
 
+  // 移除太远的怪物
+  for (let i = monsters.length - 1; i >= 0; i--) {
+    const m = monsters[i];
+    const dx = m.x - playerX;
+    const dy = m.y - playerY;
+    if (Math.sqrt(dx * dx + dy * dy) > 2.0) {
+      monsters.splice(i, 1);
+    }
+  }
+
   // 检查死亡
   if (playerHP <= 0) {
     playerHP = 0;
@@ -604,11 +605,73 @@ function updateAdventure(dt) {
 
   // 更新拾取物
   updateCollectibles(dt);
+}
 
-  // 自动移动AI（躲避怪物+拾取物品）
-  if (!isMoving) {
-    autoMoveAI();
+// 计算移动方向（平滑AI）
+function calculateMoveDirection() {
+  let dirX = 0;
+  let dirY = 0;
+
+  // 远离怪物
+  for (const m of monsters) {
+    const dx = playerX - m.x;
+    const dy = playerY - m.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.3 && dist > 0.001) {
+      // 距离越近，逃离力度越大
+      const force = (0.3 - dist) / 0.3;
+      dirX += (dx / dist) * force * 2;
+      dirY += (dy / dist) * force * 2;
+    }
   }
+
+  // 靠近安全的拾取物
+  let nearestSafeCollectible = null;
+  let nearestDist = Infinity;
+  for (const c of collectibles) {
+    const dx = c.x - playerX;
+    const dy = c.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // 检查这个拾取物是否安全
+    let isSafe = true;
+    for (const m of monsters) {
+      const mdx = c.x - m.x;
+      const mdy = c.y - m.y;
+      if (Math.sqrt(mdx * mdx + mdy * mdy) < 0.25) {
+        isSafe = false;
+        break;
+      }
+    }
+
+    if (isSafe && dist < nearestDist) {
+      nearestDist = dist;
+      nearestSafeCollectible = c;
+    }
+  }
+
+  if (nearestSafeCollectible && nearestDist < 0.8) {
+    const dx = nearestSafeCollectible.x - playerX;
+    const dy = nearestSafeCollectible.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 0.01) {
+      // 低血量时更倾向于拾取血瓶
+      let priority = 0.5;
+      if (nearestSafeCollectible.type === 'health' && playerHP < playerMaxHP * 0.5) {
+        priority = 1.5;
+      }
+      dirX += (dx / dist) * priority;
+      dirY += (dy / dist) * priority;
+    }
+  }
+
+  // 如果没有威胁，轻微随机移动
+  if (monsters.length === 0) {
+    dirX += Math.sin(walkTime * 0.5) * 0.3;
+    dirY += Math.cos(walkTime * 0.7) * 0.3;
+  }
+
+  return { dx: dirX, dy: dirY };
 }
 
 // ==================== 拾取物系统 ====================
@@ -628,10 +691,14 @@ function spawnCollectible() {
   const type = types[Math.floor(Math.random() * types.length)];
   const info = COLLECTIBLE_TYPES[type];
 
+  // 在玩家周围0.2-0.5距离处生成
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 0.2 + Math.random() * 0.3;
+
   collectibles.push({
     type,
-    x: 0.1 + Math.random() * 0.8,
-    y: 0.1 + Math.random() * 0.8,
+    x: playerX + Math.cos(angle) * distance,
+    y: playerY + Math.sin(angle) * distance,
     value: info.value,
     size: info.size,
     bobPhase: Math.random() * Math.PI * 2
@@ -646,12 +713,18 @@ function updateCollectibles(dt) {
     spawnCollectible();
   }
 
-  // 检测拾取
+  // 检测拾取和移除太远的物品
   for (let i = collectibles.length - 1; i >= 0; i--) {
     const c = collectibles[i];
     const dx = c.x - playerX;
     const dy = c.y - playerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // 移除太远的物品
+    if (dist > 1.5) {
+      collectibles.splice(i, 1);
+      continue;
+    }
 
     if (dist < 0.08) {
       // 拾取成功
@@ -726,100 +799,61 @@ function drawCollectible(x, y, scale, collectible, time) {
   ctx.restore();
 }
 
-// ==================== 自动移动AI ====================
-let autoMoveTimer = 0;
-
-function autoMoveAI() {
-  autoMoveTimer += 0.016;
-  if (autoMoveTimer < 0.5) return; // 每0.5秒决策一次
-  autoMoveTimer = 0;
-
-  // 计算最佳移动方向
-  let bestX = playerX;
-  let bestY = playerY;
-  let bestScore = -Infinity;
-
-  // 尝试多个方向
-  const directions = [
-    { dx: 0, dy: 0 },
-    { dx: 0.1, dy: 0 },
-    { dx: -0.1, dy: 0 },
-    { dx: 0, dy: 0.1 },
-    { dx: 0, dy: -0.1 },
-    { dx: 0.07, dy: 0.07 },
-    { dx: -0.07, dy: 0.07 },
-    { dx: 0.07, dy: -0.07 },
-    { dx: -0.07, dy: -0.07 }
-  ];
-
-  for (const dir of directions) {
-    const testX = Math.max(0.1, Math.min(0.9, playerX + dir.dx));
-    const testY = Math.max(0.1, Math.min(0.9, playerY + dir.dy));
-
-    let score = 0;
-
-    // 远离怪物得分（负距离权重高）
-    for (const m of monsters) {
-      const dx = testX - m.x;
-      const dy = testY - m.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 0.15) {
-        score -= (0.15 - dist) * 100; // 太近扣分很多
-      } else {
-        score += dist * 10; // 远离得分
-      }
-    }
-
-    // 靠近拾取物得分
-    for (const c of collectibles) {
-      const dx = testX - c.x;
-      const dy = testY - c.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      // 只有在安全时才考虑拾取
-      let isSafe = true;
-      for (const m of monsters) {
-        const mdx = c.x - m.x;
-        const mdy = c.y - m.y;
-        if (Math.sqrt(mdx * mdx + mdy * mdy) < 0.2) {
-          isSafe = false;
-          break;
-        }
-      }
-      if (isSafe) {
-        score += (0.5 - dist) * 30; // 靠近拾取物加分
-        if (c.type === 'health' && playerHP < playerMaxHP * 0.5) {
-          score += 50; // 低血量时血瓶加分更多
-        }
-      }
-    }
-
-    // 靠近怪物攻击得分（在安全范围内）
-    for (const m of monsters) {
-      const dx = testX - m.x;
-      const dy = testY - m.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > 0.1 && dist < 0.2) {
-        score += 20; // 在攻击范围内得分
-      }
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestX = testX;
-      bestY = testY;
-    }
-  }
-
-  // 设置目标位置
-  if (bestX !== playerX || bestY !== playerY) {
-    playerTargetX = bestX;
-    playerTargetY = bestY;
-    isMoving = true;
-  }
+// ==================== 程序化地图生成 ====================
+// 种子随机数生成器
+function seededRandom(seed) {
+  const x = Math.sin(seed * 12.9898 + seed * 78.233) * 43758.5453;
+  return x - Math.floor(x);
 }
 
-// ==================== 场景元素 ====================
-const groundElements = [
+// 根据世界坐标生成场景元素
+function getWorldElements(worldX, worldY, radius) {
+  const elements = [];
+  const tileSize = 0.15; // 每个格子的大小
+
+  // 遍历玩家周围的格子
+  const minTileX = Math.floor((worldX - radius) / tileSize);
+  const maxTileX = Math.floor((worldX + radius) / tileSize);
+  const minTileY = Math.floor((worldY - radius) / tileSize);
+  const maxTileY = Math.floor((worldY + radius) / tileSize);
+
+  for (let tx = minTileX; tx <= maxTileX; tx++) {
+    for (let ty = minTileY; ty <= maxTileY; ty++) {
+      // 使用格子坐标作为种子
+      const seed = tx * 7919 + ty * 104729;
+      const rand = seededRandom(seed);
+
+      // 30%概率生成元素
+      if (rand < 0.3) {
+        const rand2 = seededRandom(seed + 1);
+        const rand3 = seededRandom(seed + 2);
+        const rand4 = seededRandom(seed + 3);
+
+        // 确定类型
+        let type;
+        if (rand2 < 0.25) type = 'tree';
+        else if (rand2 < 0.6) type = 'grass';
+        else type = 'flower';
+
+        // 在格子内随机偏移
+        const elemX = tx * tileSize + rand3 * tileSize;
+        const elemY = ty * tileSize + rand4 * tileSize;
+
+        elements.push({
+          type,
+          x: elemX,
+          y: elemY,
+          seed: seed // 用于随机大小变化
+        });
+      }
+    }
+  }
+
+  return elements;
+}
+
+// 待机模式的固定场景元素（向后兼容）
+const idleGroundElements = [
   { type: 'tree', x: 0.12, y: 0.18 },
   { type: 'tree', x: 0.82, y: 0.28 },
   { type: 'grass', x: 0.28, y: 0.38 },
@@ -1237,66 +1271,59 @@ function drawGroundScene(groundQuad) {
   const deltaOffset = sceneOffset - lastSceneOffset;
   lastSceneOffset = sceneOffset;
 
-  // 冒险模式下计算相机偏移（让玩家保持在中心）
   const isAdventure = (gameState === 'adventure' || gameState === 'gameover');
-  const cameraOffsetX = isAdventure ? (0.5 - playerX) : 0;
-  const cameraOffsetY = isAdventure ? (0.5 - playerY) : 0;
 
-  // 待机模式下场景元素移动
-  if (gameState === 'idle') {
-    for (const elem of groundElements) {
+  if (isAdventure) {
+    // 冒险模式：使用程序化生成的世界元素
+    const worldElements = getWorldElements(playerX, playerY, 0.6);
+
+    for (const elem of worldElements) {
+      // 转换到屏幕坐标（相对于玩家位置）
+      const screenX = elem.x - playerX + 0.5;
+      const screenY = elem.y - playerY + 0.5;
+
+      if (screenX >= 0.02 && screenX <= 0.98 && screenY >= 0.02 && screenY <= 0.98) {
+        drawGroundElement(groundQuad, elem.type, screenX, screenY);
+      }
+    }
+
+    // 绘制拾取物（世界坐标转屏幕坐标）
+    for (const c of collectibles) {
+      const screenX = c.x - playerX + 0.5;
+      const screenY = c.y - playerY + 0.5;
+      if (screenX >= 0.02 && screenX <= 0.98 && screenY >= 0.02 && screenY <= 0.98) {
+        const pt = getGroundPoint(groundQuad, screenX, screenY);
+        drawCollectible(pt.x, pt.y, pt.scale, c, walkTime);
+      }
+    }
+
+    // 绘制怪物（世界坐标转屏幕坐标）
+    for (const m of monsters) {
+      const screenX = m.x - playerX + 0.5;
+      const screenY = m.y - playerY + 0.5;
+      if (screenX >= 0.02 && screenX <= 0.98 && screenY >= 0.02 && screenY <= 0.98) {
+        const pt = getGroundPoint(groundQuad, screenX, screenY);
+        drawZombie(pt.x, pt.y, pt.scale, m, walkTime);
+      }
+    }
+
+    // 玩家始终在中心
+    const centerPt = getGroundPoint(groundQuad, 0.5, 0.5);
+    drawStickMan(centerPt.x, centerPt.y, centerPt.scale, walkTime, groundQuad);
+
+  } else {
+    // 待机模式：使用固定的场景元素
+    for (const elem of idleGroundElements) {
       elem.x += deltaOffset * normX;
       elem.y += deltaOffset * normY;
       elem.x = ((elem.x % 1.0) + 1.0) % 1.0;
       elem.y = ((elem.y % 1.0) + 1.0) % 1.0;
     }
-  }
 
-  // 绘制地面元素（带相机偏移）
-  for (const elem of groundElements) {
-    let drawX = elem.x + cameraOffsetX;
-    let drawY = elem.y + cameraOffsetY;
-    // 冒险模式下元素可以超出边界（但仍需在可视范围内）
-    if (isAdventure) {
-      if (drawX >= -0.2 && drawX <= 1.2 && drawY >= -0.2 && drawY <= 1.2) {
-        drawX = Math.max(0.02, Math.min(0.98, drawX));
-        drawY = Math.max(0.02, Math.min(0.98, drawY));
-        drawGroundElement(groundQuad, elem.type, drawX, drawY);
-      }
-    } else {
+    for (const elem of idleGroundElements) {
       drawGroundElement(groundQuad, elem.type, elem.x, elem.y);
     }
-  }
 
-  // 冒险模式：绘制拾取物（带相机偏移）
-  if (isAdventure) {
-    for (const c of collectibles) {
-      const drawX = c.x + cameraOffsetX;
-      const drawY = c.y + cameraOffsetY;
-      if (drawX >= 0.02 && drawX <= 0.98 && drawY >= 0.02 && drawY <= 0.98) {
-        const pt = getGroundPoint(groundQuad, drawX, drawY);
-        drawCollectible(pt.x, pt.y, pt.scale, c, walkTime);
-      }
-    }
-  }
-
-  // 冒险模式：绘制怪物（带相机偏移）
-  if (isAdventure) {
-    for (const m of monsters) {
-      const drawX = m.x + cameraOffsetX;
-      const drawY = m.y + cameraOffsetY;
-      if (drawX >= 0.02 && drawX <= 0.98 && drawY >= 0.02 && drawY <= 0.98) {
-        const pt = getGroundPoint(groundQuad, drawX, drawY);
-        drawZombie(pt.x, pt.y, pt.scale, m, walkTime);
-      }
-    }
-  }
-
-  // 绘制玩家（冒险模式下始终在中心）
-  if (isAdventure) {
-    const centerPt = getGroundPoint(groundQuad, 0.5, 0.5);
-    drawStickMan(centerPt.x, centerPt.y, centerPt.scale, walkTime, groundQuad);
-  } else {
     const stickPt = getDiamondCenter(groundQuad);
     drawStickMan(stickPt.x, stickPt.y, stickPt.scale, walkTime, groundQuad);
   }
