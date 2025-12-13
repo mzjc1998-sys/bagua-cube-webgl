@@ -3494,6 +3494,20 @@ function drawMonster(x, y, scale, monster, time) {
     drawType = info.drawType;
   }
 
+  // ===== 状态视觉效果（底层） =====
+  drawMonsterStatusEffects(x, y, scale, monster, time, false);
+
+  // 冻结/眩晕时颜色变化
+  ctx.save();
+  if (monster.freezeTimer > 0) {
+    ctx.globalAlpha = 0.7;
+    ctx.filter = 'saturate(0.3) brightness(1.3) hue-rotate(180deg)';
+  } else if (monster.stunTimer > 0) {
+    ctx.filter = 'brightness(1.5)';
+  } else if (monster.slowTimer > 0) {
+    ctx.filter = 'saturate(0.6)';
+  }
+
   switch (drawType) {
     case 'zombie':
       drawZombieType(x, y, scale, monster, time, info);
@@ -3515,6 +3529,93 @@ function drawMonster(x, y, scale, monster, time) {
       break;
     default:
       drawZombieType(x, y, scale, monster, time, info);
+  }
+
+  ctx.restore();
+
+  // ===== 状态视觉效果（顶层） =====
+  drawMonsterStatusEffects(x, y, scale, monster, time, true);
+}
+
+// 绘制怪物状态特效
+function drawMonsterStatusEffects(x, y, scale, monster, time, isTop) {
+  const s = scale * (monster.isBoss ? 1.5 : 1);
+  const h = BASE_UNIT * 1.5 * s;
+
+  if (!isTop) {
+    // 底层效果：冰冻光环、减速圈
+    if (monster.freezeTimer > 0) {
+      // 冰冻光环
+      ctx.save();
+      ctx.strokeStyle = '#88DDFF';
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.6 + Math.sin(time * 8) * 0.2;
+      ctx.shadowColor = '#00FFFF';
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.arc(x, y - h * 0.4, h * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+      // 冰晶
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + time * 2;
+        const r = h * 0.45;
+        ctx.fillStyle = '#AAEEFF';
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a) * r, y - h * 0.4 + Math.sin(a) * r * 0.5);
+        ctx.lineTo(x + Math.cos(a + 0.1) * (r - 5), y - h * 0.4 + Math.sin(a + 0.1) * (r - 5) * 0.5);
+        ctx.lineTo(x + Math.cos(a - 0.1) * (r - 5), y - h * 0.4 + Math.sin(a - 0.1) * (r - 5) * 0.5);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    if (monster.slowTimer > 0) {
+      // 减速圈
+      ctx.save();
+      ctx.strokeStyle = '#8866FF';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.4;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.arc(x, y, h * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  } else {
+    // 顶层效果：火焰、眩晕星星
+    if (monster.burnTimer > 0) {
+      // 火焰粒子
+      ctx.save();
+      for (let i = 0; i < 5; i++) {
+        const flameT = (time * 4 + i * 0.7) % 1;
+        const fx = x + Math.sin(time * 8 + i * 2) * h * 0.2;
+        const fy = y - h * 0.3 - flameT * h * 0.5;
+        const fSize = (1 - flameT) * h * 0.15;
+        ctx.globalAlpha = (1 - flameT) * 0.8;
+        ctx.fillStyle = flameT < 0.5 ? '#FFAA00' : '#FF4400';
+        ctx.beginPath();
+        ctx.arc(fx, fy, fSize, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    if (monster.stunTimer > 0) {
+      // 眩晕星星
+      ctx.save();
+      ctx.fillStyle = '#FFFF00';
+      ctx.globalAlpha = 0.9;
+      for (let i = 0; i < 3; i++) {
+        const a = time * 5 + (i / 3) * Math.PI * 2;
+        const r = h * 0.35;
+        const sx = x + Math.cos(a) * r;
+        const sy = y - h * 0.9 + Math.sin(a * 2) * 5;
+        ctx.font = `${10 * scale}px sans-serif`;
+        ctx.fillText('✦', sx, sy);
+      }
+      ctx.restore();
+    }
   }
 }
 
@@ -5943,6 +6044,26 @@ function drawStickMan(x, y, scale, time, groundQuad) {
   poseState.facing = facing;
   poseState.initialized = true;
 
+  // ===== 玩家发光效果 =====
+  if (gameState === 'adventure') {
+    const glowIntensity = 0.4 + Math.sin(time * 3) * 0.15;
+    const glowRadius = BASE_UNIT * 2 * scale;
+    const character = CLASS_DATA[selectedClass];
+    const glowColor = character ? character.color : '#FFFFFF';
+
+    ctx.save();
+    ctx.globalAlpha = glowIntensity * 0.3;
+    const gradient = ctx.createRadialGradient(x, y - glowRadius * 0.3, 0, x, y - glowRadius * 0.3, glowRadius);
+    gradient.addColorStop(0, glowColor);
+    gradient.addColorStop(0.5, glowColor + '44');
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y - glowRadius * 0.3, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   const sideView = Math.abs(Math.sin(facing));
   const facingRight = Math.sin(facing) >= 0 ? 1 : -1;
   const facingAway = Math.cos(facing);
@@ -6589,6 +6710,75 @@ function draw() {
   if (showTutorial && gameState === 'idle') {
     drawTutorial();
   }
+
+  // ===== 后处理效果 =====
+  drawPostProcessing();
+}
+
+// 环境粒子系统
+let ambientParticles = [];
+const MAX_AMBIENT_PARTICLES = 30;
+
+// 后处理效果
+function drawPostProcessing() {
+  // 暗角效果 (Vignette) - 增加氛围
+  if (gameState === 'adventure') {
+    const vignetteGradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.85);
+    vignetteGradient.addColorStop(0, 'rgba(0,0,0,0)');
+    vignetteGradient.addColorStop(0.7, 'rgba(0,0,0,0.15)');
+    vignetteGradient.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = vignetteGradient;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // 环境粒子（漂浮的光点）
+  if (gameState === 'adventure' || gameState === 'idle') {
+    updateAndDrawAmbientParticles();
+  }
+}
+
+// 更新并绘制环境粒子
+function updateAndDrawAmbientParticles() {
+  // 生成新粒子
+  while (ambientParticles.length < MAX_AMBIENT_PARTICLES) {
+    ambientParticles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      size: 1 + Math.random() * 2,
+      alpha: Math.random() * 0.4 + 0.1,
+      speed: 0.2 + Math.random() * 0.3,
+      phase: Math.random() * Math.PI * 2,
+      color: Math.random() > 0.7 ? '#FFD700' : '#FFFFFF'
+    });
+  }
+
+  ctx.save();
+  for (let i = ambientParticles.length - 1; i >= 0; i--) {
+    const p = ambientParticles[i];
+
+    // 更新位置（缓慢上升 + 左右摆动）
+    p.y -= p.speed;
+    p.x += Math.sin(walkTime * 2 + p.phase) * 0.3;
+    p.phase += 0.02;
+
+    // 移出屏幕则重置
+    if (p.y < -10) {
+      p.y = H + 10;
+      p.x = Math.random() * W;
+    }
+
+    // 绘制
+    const flicker = 0.7 + Math.sin(walkTime * 5 + p.phase * 3) * 0.3;
+    ctx.globalAlpha = p.alpha * flicker;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  ctx.restore();
 }
 
 // 角色头像点击区域
