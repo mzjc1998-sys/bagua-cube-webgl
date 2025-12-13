@@ -1266,7 +1266,12 @@ function autoUseSkills() {
   for (const skill of playerSkills) {
     if (skillCooldowns[skill.id] <= 0 && monsters.length > 0) {
       useSkill(skill);
-      skillCooldowns[skill.id] = skill.cooldown;
+      // 每日挑战：快速冷却修饰符 - 技能冷却-25%
+      let cooldown = skill.cooldown;
+      if (isDailyChallenge && hasDailyModifier('skill_cd')) {
+        cooldown *= 0.75;
+      }
+      skillCooldowns[skill.id] = cooldown;
     }
   }
 }
@@ -2383,10 +2388,185 @@ function getAchievementStats() {
   return { total, unlocked, percent: Math.floor(unlocked / total * 100) };
 }
 
+// ==================== 每日挑战系统 ====================
+
+// 每日挑战状态
+let isDailyChallenge = false;
+let dailySeed = 0;
+let dailyRNG = null;
+let dailyChallengeScore = 0;
+let dailyChallengeCompleted = false;
+let dailyLeaderboard = [];  // { name, score, time }
+let todayBestScore = 0;
+let activeDailyModifiers = [];  // 当前生效的每日修饰符
+
+// 生成每日种子（基于日期）
+function getDailySeed() {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  let hash = 0;
+  for (let i = 0; i < dateStr.length; i++) {
+    hash = ((hash << 5) - hash) + dateStr.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+// 伪随机数生成器（基于种子）
+function createSeededRNG(seed) {
+  let state = seed;
+  return function() {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return state / 0x7fffffff;
+  };
+}
+
+// 获取每日挑战的随机数
+function dailyRandom() {
+  if (dailyRNG) {
+    return dailyRNG();
+  }
+  return Math.random();
+}
+
+// 获取今天的日期字符串
+function getTodayDateStr() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+// 加载每日挑战数据
+function loadDailyChallengeData() {
+  try {
+    const data = wx.getStorageSync('dailyChallenge');
+    if (data) {
+      const today = getTodayDateStr();
+      if (data.date === today) {
+        todayBestScore = data.bestScore || 0;
+        dailyChallengeCompleted = data.completed || false;
+        dailyLeaderboard = data.leaderboard || [];
+      } else {
+        // 新的一天，重置数据
+        todayBestScore = 0;
+        dailyChallengeCompleted = false;
+        dailyLeaderboard = [];
+      }
+    }
+  } catch (e) {
+    console.log('加载每日挑战数据失败');
+  }
+}
+
+// 保存每日挑战数据
+function saveDailyChallengeData() {
+  try {
+    wx.setStorageSync('dailyChallenge', {
+      date: getTodayDateStr(),
+      bestScore: todayBestScore,
+      completed: dailyChallengeCompleted,
+      leaderboard: dailyLeaderboard.slice(0, 10)  // 保留前10名
+    });
+  } catch (e) {
+    console.log('保存每日挑战数据失败');
+  }
+}
+
+// 计算每日挑战分数
+function calculateDailyChallengeScore() {
+  const killScore = killCount * 100;
+  const timeScore = Math.floor(adventureTime) * 10;
+  const comboScore = gameStats.bestCombo * 50;
+  const bossScore = bossCount * 500;
+  const levelScore = playerLevel * 200;
+  const goldScore = goldCollected * 5;
+
+  return killScore + timeScore + comboScore + bossScore + levelScore + goldScore;
+}
+
+// 开始每日挑战
+function startDailyChallenge() {
+  isDailyChallenge = true;
+  dailySeed = getDailySeed();
+  dailyRNG = createSeededRNG(dailySeed);
+  dailyChallengeScore = 0;
+  activeDailyModifiers = getDailyChallengeModifiers();
+
+  // 使用固定的宫位（基于种子）
+  const palaces = Object.keys(PALACE_BONUS);
+  const palaceIndex = dailySeed % palaces.length;
+  selectedPalace = palaces[palaceIndex];
+
+  startAdventure();
+  playSound('start');
+}
+
+// 结束每日挑战
+function endDailyChallenge() {
+  dailyChallengeScore = calculateDailyChallengeScore();
+
+  // 更新最佳分数
+  if (dailyChallengeScore > todayBestScore) {
+    todayBestScore = dailyChallengeScore;
+
+    // 添加到排行榜
+    dailyLeaderboard.push({
+      name: '我',
+      score: dailyChallengeScore,
+      time: Math.floor(adventureTime),
+      kills: killCount
+    });
+
+    // 排序并保留前10名
+    dailyLeaderboard.sort((a, b) => b.score - a.score);
+    dailyLeaderboard = dailyLeaderboard.slice(0, 10);
+  }
+
+  dailyChallengeCompleted = true;
+  saveDailyChallengeData();
+
+  isDailyChallenge = false;
+  dailyRNG = null;
+  activeDailyModifiers = [];
+}
+
+// 检查是否有某个每日修饰符
+function hasDailyModifier(effect) {
+  return activeDailyModifiers.some(m => m.effect === effect);
+}
+
+// 获取每日挑战修饰符（增加趣味性）
+function getDailyChallengeModifiers() {
+  const seed = getDailySeed();
+  const rng = createSeededRNG(seed);
+
+  const modifiers = [];
+  const allModifiers = [
+    { name: '怪物狂潮', desc: '怪物刷新速度+50%', icon: '👹', effect: 'monster_speed' },
+    { name: '强化敌人', desc: '怪物生命值+30%', icon: '💪', effect: 'monster_hp' },
+    { name: '快速冷却', desc: '技能冷却-25%', icon: '⚡', effect: 'skill_cd' },
+    { name: '暴击日', desc: '暴击率+20%', icon: '💥', effect: 'crit' },
+    { name: '金币雨', desc: '金币掉落+100%', icon: '💰', effect: 'gold' },
+    { name: '治愈之日', desc: '回血效果+50%', icon: '💚', effect: 'heal' },
+    { name: '速度之日', desc: '移动速度+20%', icon: '🏃', effect: 'speed' },
+    { name: 'Boss猎人', desc: 'Boss出现更频繁', icon: '💀', effect: 'boss' }
+  ];
+
+  // 每天选择2个修饰符
+  const idx1 = Math.floor(rng() * allModifiers.length);
+  let idx2 = Math.floor(rng() * allModifiers.length);
+  while (idx2 === idx1) idx2 = Math.floor(rng() * allModifiers.length);
+
+  modifiers.push(allModifiers[idx1]);
+  modifiers.push(allModifiers[idx2]);
+
+  return modifiers;
+}
+
 // 游戏启动时加载数据
 loadGameData();
 loadAchievements();
 loadAudioSettings();
+loadDailyChallengeData();
 checkTutorial();
 
 // 音乐会在首次用户交互时启动（浏览器音频策略）
@@ -2394,6 +2574,9 @@ let musicInitialized = false;
 
 // 设置面板状态
 let showSettingsPanel = false;
+
+// 主界面按钮位置缓存
+let idleScreenButtons = null;
 
 // 获取当前角色信息
 function getCurrentCharacter() {
@@ -2434,6 +2617,13 @@ function getPlayerStats() {
   if (palace.luck) luck += palace.luck;
   if (palace.healRate) healRate += palace.healRate;
   if (palace.armor) armor += palace.armor;
+
+  // 应用每日挑战修饰符
+  if (isDailyChallenge && activeDailyModifiers.length > 0) {
+    if (hasDailyModifier('crit')) luck += 20;      // 暴击日：暴击率+20%
+    if (hasDailyModifier('heal')) healRate += 0.5; // 治愈之日：回血效果+50%
+    if (hasDailyModifier('speed')) spd *= 1.2;     // 速度之日：移动速度+20%
+  }
 
   return { hp, spd, dmg, atkSpd, range, luck, healRate, armor };
 }
@@ -2680,8 +2870,15 @@ function getAvailableMonsterTypes() {
 // 计算怪物强化倍率（随时间增加）
 function getMonsterScaling() {
   // 每30秒增加10%的属性
-  const scaleFactor = 1 + Math.floor(adventureTime / 30) * 0.1;
-  return Math.min(scaleFactor, 3.0); // 最多3倍
+  let scaleFactor = 1 + Math.floor(adventureTime / 30) * 0.1;
+  scaleFactor = Math.min(scaleFactor, 3.0); // 最多3倍
+
+  // 每日挑战：强化敌人修饰符
+  if (isDailyChallenge && hasDailyModifier('monster_hp')) {
+    scaleFactor *= 1.3;  // 怪物生命值+30%
+  }
+
+  return scaleFactor;
 }
 
 // 创建怪物（在玩家周围的世界坐标生成）
@@ -3320,6 +3517,11 @@ function endAdventure() {
   gameState = 'gameover';
   playSound('death');
   setMusicMode('idle');  // 死亡后切换到待机音乐
+
+  // 如果是每日挑战，结束挑战并计算分数
+  if (isDailyChallenge) {
+    endDailyChallenge();
+  }
 
   // 更新成就统计
   gameStats.totalRuns++;
@@ -4132,8 +4334,29 @@ function drawBattleResultScreen() {
     ctx.fillText(`🎉 新纪录: ${newRecords.join('、')}`, W / 2, panelY + panelH + 15);
   }
 
+  // 每日挑战分数展示
+  if (dailyChallengeScore > 0) {
+    const dailyY = newRecords.length > 0 ? panelY + panelH + 35 : panelY + panelH + 15;
+
+    ctx.fillStyle = 'rgba(255, 165, 0, 0.9)';
+    ctx.fillRect(40, dailyY, W - 80, 45);
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, dailyY, W - 80, 45);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('📅 每日挑战分数', W / 2, dailyY + 15);
+
+    ctx.font = 'bold 18px sans-serif';
+    const isNewBest = dailyChallengeScore >= todayBestScore;
+    ctx.fillStyle = isNewBest ? '#FFD700' : '#FFFFFF';
+    ctx.fillText(`${dailyChallengeScore} 分 ${isNewBest ? '(今日最佳!)' : `(最佳: ${todayBestScore})`}`, W / 2, dailyY + 36);
+  }
+
   // 按钮区域
-  const btnY = panelY + panelH + 35;
+  const btnY = panelY + panelH + (dailyChallengeScore > 0 ? 90 : 35);
   const btnW = 100;
   const btnH = 42;
   const btnGap = 15;
@@ -4422,13 +4645,19 @@ function updateAdventure(dt) {
     bossWarningTimer -= dt;
   }
 
+  // 每日挑战：Boss猎人修饰符 - Boss出现更频繁
+  let effectiveBossInterval = bossInterval;
+  if (isDailyChallenge && hasDailyModifier('boss')) {
+    effectiveBossInterval = 40;  // 40秒一个Boss
+  }
+
   // Boss警告（出现前3秒）
-  if (bossTimer >= bossInterval - 3 && bossTimer < bossInterval - 2.9 && !currentBoss) {
+  if (bossTimer >= effectiveBossInterval - 3 && bossTimer < effectiveBossInterval - 2.9 && !currentBoss) {
     bossWarningTimer = 3;
   }
 
   // 生成Boss
-  if (bossTimer >= bossInterval && !currentBoss) {
+  if (bossTimer >= effectiveBossInterval && !currentBoss) {
     bossTimer = 0;
     spawnBoss();
   }
@@ -4440,7 +4669,12 @@ function updateAdventure(dt) {
 
   // 生成怪物（在玩家周围生成）
   monsterSpawnTimer += dt;
-  if (monsterSpawnTimer >= monsterSpawnInterval) {
+  // 每日挑战：怪物狂潮修饰符 - 刷新速度+50%
+  let effectiveInterval = monsterSpawnInterval;
+  if (isDailyChallenge && hasDailyModifier('monster_speed')) {
+    effectiveInterval *= 0.67;  // 间隔缩短33%，相当于刷新速度+50%
+  }
+  if (monsterSpawnTimer >= effectiveInterval) {
     monsterSpawnTimer = 0;
     spawnMonster();
   }
@@ -4695,7 +4929,12 @@ function updateCollectibles(dt) {
       const info = COLLECTIBLE_TYPES[c.type];
       if (c.type === 'gold') {
         playSound('pickup');
-        goldCollected += c.value;
+        // 每日挑战：金币雨修饰符 - 金币掉落+100%
+        let goldValue = c.value;
+        if (isDailyChallenge && hasDailyModifier('gold')) {
+          goldValue *= 2;
+        }
+        goldCollected += goldValue;
       } else if (c.type === 'health') {
         playSound('heal');
         playerHP = Math.min(playerHP + c.value, playerMaxHP);
@@ -5467,40 +5706,93 @@ function draw() {
     // 右上角音效按钮
     drawSoundButton();
 
-    // 居中的大按钮
-    const btnW = 140;
-    const btnH = 50;
-    const btnX = (W - btnW) / 2;
-    const btnY = H - btnH - 30;
+    // 两个主按钮并排
+    const btnW = 110;
+    const btnH = 45;
+    const btnGap = 12;
+    const totalW = btnW * 2 + btnGap;
+    const startX = (W - totalW) / 2;
+    const btnY = H - btnH - 35;
 
-    // 按钮阴影
+    // === 普通冒险按钮 ===
+    const adventureBtnX = startX;
+
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.fillRect(btnX + 3, btnY + 3, btnW, btnH);
+    ctx.fillRect(adventureBtnX + 2, btnY + 2, btnW, btnH);
 
-    // 按钮背景渐变效果
     ctx.fillStyle = 'rgba(180, 40, 40, 0.95)';
-    ctx.fillRect(btnX, btnY, btnW, btnH);
+    ctx.fillRect(adventureBtnX, btnY, btnW, btnH);
 
-    // 按钮高光
     ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    ctx.fillRect(btnX, btnY, btnW, btnH / 2);
+    ctx.fillRect(adventureBtnX, btnY, btnW, btnH / 2);
 
-    // 按钮边框
     ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(btnX, btnY, btnW, btnH);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(adventureBtnX, btnY, btnW, btnH);
 
-    // 按钮文字
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 18px sans-serif';
+    ctx.font = 'bold 15px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('开始冒险', btnX + btnW / 2, btnY + btnH / 2);
+    ctx.fillText('⚔️ 冒险', adventureBtnX + btnW / 2, btnY + btnH / 2);
+
+    // === 每日挑战按钮 ===
+    const dailyBtnX = startX + btnW + btnGap;
+    const modifiers = getDailyChallengeModifiers();
+
+    // 闪烁边框效果
+    const glowIntensity = 0.6 + Math.sin(Date.now() / 300) * 0.4;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(dailyBtnX + 2, btnY + 2, btnW, btnH);
+
+    // 渐变背景
+    const dailyGradient = ctx.createLinearGradient(dailyBtnX, btnY, dailyBtnX + btnW, btnY + btnH);
+    dailyGradient.addColorStop(0, 'rgba(100, 50, 150, 0.95)');
+    dailyGradient.addColorStop(1, 'rgba(150, 80, 200, 0.95)');
+    ctx.fillStyle = dailyGradient;
+    ctx.fillRect(dailyBtnX, btnY, btnW, btnH);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(dailyBtnX, btnY, btnW, btnH / 2);
+
+    ctx.shadowColor = '#AA66FF';
+    ctx.shadowBlur = 10 * glowIntensity;
+    ctx.strokeStyle = '#CC88FF';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(dailyBtnX, btnY, btnW, btnH);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('📅 每日挑战', dailyBtnX + btnW / 2, btnY + btnH / 2 - 6);
+
+    // 显示今日最佳分数
+    ctx.fillStyle = '#FFDD88';
+    ctx.font = '10px sans-serif';
+    if (todayBestScore > 0) {
+      ctx.fillText(`最高: ${todayBestScore}`, dailyBtnX + btnW / 2, btnY + btnH / 2 + 10);
+    } else {
+      ctx.fillText('今日未挑战', dailyBtnX + btnW / 2, btnY + btnH / 2 + 10);
+    }
+
+    // 每日修饰符预览
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(startX, btnY - 28, totalW, 22);
+    ctx.fillStyle = '#AAAAAA';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(`今日加成: ${modifiers[0].icon} ${modifiers[0].name} | ${modifiers[1].icon} ${modifiers[1].name}`, W / 2, btnY - 17);
 
     // 小提示
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '10px sans-serif';
-    ctx.fillText('点击顶点可切换八卦视角', W / 2, btnY - 15);
+    ctx.fillText('点击顶点可切换八卦视角', W / 2, btnY - 42);
+
+    // 缓存按钮位置
+    idleScreenButtons = {
+      adventure: { x: adventureBtnX, y: btnY, w: btnW, h: btnH },
+      daily: { x: dailyBtnX, y: btnY, w: btnW, h: btnH }
+    };
 
     // 重置数据按钮（右上角，红色醒目）
     const resetBtnW = 70;
@@ -5547,6 +5839,28 @@ function draw() {
 
   // 冒险模式UI
   if (gameState === 'adventure') {
+    // 每日挑战模式指示器（左上角）
+    if (isDailyChallenge && activeDailyModifiers.length > 0) {
+      const modY = 8;
+      ctx.fillStyle = 'rgba(255, 165, 0, 0.85)';
+      ctx.fillRect(5, modY, 120, 45);
+      ctx.strokeStyle = '#FFD700';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(5, modY, 120, 45);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('📅 每日挑战', 12, modY + 14);
+
+      // 显示当日修饰符
+      ctx.font = '10px sans-serif';
+      for (let i = 0; i < activeDailyModifiers.length && i < 2; i++) {
+        const mod = activeDailyModifiers[i];
+        ctx.fillText(`${mod.icon} ${mod.name}`, 12, modY + 28 + i * 12);
+      }
+    }
+
     // 右上角 - 战斗信息
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(W - 115, 5, 110, 50);
@@ -6721,15 +7035,25 @@ wx.onTouchEnd((e) => {
       }
     }
 
-    // 检查是否点击了"开始冒险"按钮（居中）
-    const advBtnW = 140;
-    const advBtnH = 50;
-    const advBtnX = (W - advBtnW) / 2;
-    const advBtnY = H - advBtnH - 30;
-    if (tx >= advBtnX && tx <= advBtnX + advBtnW && ty >= advBtnY && ty <= advBtnY + advBtnH) {
-      startAdventure();
-      touchStart = null;
-      return;
+    // 检查是否点击了主界面按钮
+    if (idleScreenButtons) {
+      const btns = idleScreenButtons;
+
+      // 普通冒险按钮
+      if (tx >= btns.adventure.x && tx <= btns.adventure.x + btns.adventure.w &&
+          ty >= btns.adventure.y && ty <= btns.adventure.y + btns.adventure.h) {
+        startAdventure();
+        touchStart = null;
+        return;
+      }
+
+      // 每日挑战按钮
+      if (tx >= btns.daily.x && tx <= btns.daily.x + btns.daily.w &&
+          ty >= btns.daily.y && ty <= btns.daily.y + btns.daily.h) {
+        startDailyChallenge();
+        touchStart = null;
+        return;
+      }
     }
 
     // 检查是否点击了立方体顶点
