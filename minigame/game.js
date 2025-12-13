@@ -4563,11 +4563,18 @@ function attackMonsters() {
           currentBoss = null;
           // Boss击杀回满血
           playerHP = playerMaxHP;
+
+          // Boss掉落武器碎片（有自定义武器时掉落更多）
+          const fragmentDrop = customWeapon ? (2 + Math.floor(bossCount / 2)) : 1;
+          weaponFragments += fragmentDrop;
+          saveWeaponFragments();
+          showFloatingText(`+${fragmentDrop} 武器碎片`, '#FFD700');
+
           // 触发技能选择
           if (!isSelectingSkill && !isSelectingClass) {
             startSkillSelection();
           }
-          console.log(`Boss已击杀! 总计: ${bossCount}`);
+          console.log(`Boss已击杀! 总计: ${bossCount}, 获得碎片: ${fragmentDrop}`);
         }
 
         // 检查成就
@@ -5308,10 +5315,41 @@ function drawAttackEffects(groundQuad) {
           ctx.fill();
         }
         break;
+
+      case 'floating_text':
+        // 屏幕浮动文字（用于系统提示）
+        ctx.globalAlpha = progress < 0.2 ? progress * 5 : Math.max(0, 1 - (progress - 0.5) * 2);
+        const floatY = H / 2 - 50 - progress * 80;
+
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // 文字阴影
+        ctx.fillStyle = '#000000';
+        ctx.fillText(effect.text, W / 2 + 2, floatY + 2);
+
+        // 文字内容
+        ctx.fillStyle = effect.color || '#FFFFFF';
+        ctx.fillText(effect.text, W / 2, floatY);
+        break;
     }
 
     ctx.restore();
   }
+}
+
+// 显示屏幕浮动文字
+function showFloatingText(text, color) {
+  attackEffects.push({
+    type: 'floating_text',
+    x: playerX, // 用于坐标判断但实际绘制在屏幕固定位置
+    y: playerY,
+    text: text,
+    color: color || '#FFD700',
+    timer: 1.5,
+    duration: 1.5
+  });
 }
 
 // 更新冒险逻辑
@@ -5996,12 +6034,17 @@ function drawCustomWeapon(handX, handY, scale, angle, facingRight, attackProgres
   const flip = facingRight;
   const weaponScale = BASE_UNIT * 0.7 * s; // 武器缩放
 
+  // 获取武器品质信息
+  const quality = customWeapon.quality || 'broken';
+  const qualityInfo = WEAPON_QUALITY[quality] || WEAPON_QUALITY.broken;
+  const qualityAlpha = qualityInfo.glowAlpha;
+
   ctx.save();
   ctx.translate(handX, handY);
   ctx.rotate(angle - Math.PI * 0.1); // 稍微旋转使武器看起来被握住
   ctx.scale(flip, 1);
 
-  // 获取武器效果颜色
+  // 获取武器效果颜色（低品质时颜色变暗）
   const effectColors = {
     burn: '#FF6600',
     freeze: '#00FFFF',
@@ -6010,12 +6053,28 @@ function drawCustomWeapon(handX, handY, scale, angle, facingRight, attackProgres
     pierce: '#FF00FF',
     none: '#00FFFF'
   };
-  const weaponColor = effectColors[customWeapon.effect] || '#00FFFF';
+  let weaponColor = effectColors[customWeapon.effect] || '#00FFFF';
 
-  // 攻击时的发光效果
+  // 残缺武器使用灰暗色调
+  if (quality === 'broken') {
+    weaponColor = '#666666';
+  } else if (quality === 'legendary') {
+    // 传说武器颜色闪烁
+    const time = Date.now() / 1000;
+    const hue = (time * 60) % 360;
+    weaponColor = `hsl(${hue}, 100%, 60%)`;
+  }
+
+  // 攻击时的发光效果（受品质影响）
   if (attackProgress > 0) {
-    ctx.shadowColor = weaponColor;
-    ctx.shadowBlur = 15 * attackProgress;
+    ctx.shadowColor = quality === 'legendary' ? '#FFD700' : weaponColor;
+    ctx.shadowBlur = 15 * attackProgress * qualityAlpha;
+  }
+
+  // 高品质武器常驻发光
+  if (quality === 'perfect' || quality === 'legendary') {
+    ctx.shadowColor = qualityInfo.color;
+    ctx.shadowBlur = 8 * qualityAlpha;
   }
 
   // 绘制武器轮廓
@@ -6622,9 +6681,9 @@ function draw() {
       daily: { x: dailyBtnX, y: btnY, w: btnW, h: btnH }
     };
 
-    // 锻造武器按钮（左上角）
-    const forgeBtnW = 80;
-    const forgeBtnH = 32;
+    // 锻造武器区域（左上角）
+    const forgeBtnW = customWeapon ? 120 : 80;
+    const forgeBtnH = customWeapon ? 75 : 32;
     const forgeBtnX = 10;
     const forgeBtnY = 55;
 
@@ -6642,14 +6701,55 @@ function draw() {
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🗡️ 锻造', forgeBtnX + forgeBtnW / 2, forgeBtnY + forgeBtnH / 2);
 
-    // 显示当前武器（如果有）
     if (customWeapon) {
-      const rarityColors = { common: '#AAA', rare: '#48F', epic: '#A4F', legendary: '#FD0' };
-      ctx.fillStyle = rarityColors[customWeapon.rarity] || '#FFF';
+      // 有武器时显示武器信息
+      const quality = customWeapon.quality || 'broken';
+      const qualityInfo = WEAPON_QUALITY[quality];
+
+      // 武器名称和品质
+      ctx.fillStyle = qualityInfo.color;
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(`${customWeapon.name}`, forgeBtnX + forgeBtnW / 2, forgeBtnY + 14);
+
+      ctx.font = '10px sans-serif';
+      ctx.fillText(`【${qualityInfo.name}】`, forgeBtnX + forgeBtnW / 2, forgeBtnY + 28);
+
+      // 属性显示
+      ctx.fillStyle = '#AAAAAA';
       ctx.font = '9px sans-serif';
-      ctx.fillText(customWeapon.name, forgeBtnX + forgeBtnW / 2, forgeBtnY + forgeBtnH + 12);
+      ctx.fillText(`伤害:${customWeapon.damage} 暴击:${customWeapon.critChance}%`, forgeBtnX + forgeBtnW / 2, forgeBtnY + 42);
+
+      // 碎片显示
+      ctx.fillStyle = '#FFD700';
+      ctx.fillText(`🔹碎片: ${weaponFragments}`, forgeBtnX + forgeBtnW / 2, forgeBtnY + 55);
+
+      // 升级按钮（如果可以升级）
+      const nextQuality = getNextQualityInfo();
+      if (nextQuality) {
+        const upgradeBtnY = forgeBtnY + forgeBtnH - 18;
+        const canUpgrade = gold >= nextQuality.cost.gold && weaponFragments >= nextQuality.cost.fragments;
+
+        ctx.fillStyle = canUpgrade ? 'rgba(60, 150, 60, 0.9)' : 'rgba(80, 80, 80, 0.7)';
+        ctx.fillRect(forgeBtnX + 5, upgradeBtnY, forgeBtnW - 10, 16);
+        ctx.strokeStyle = canUpgrade ? '#66FF66' : '#666666';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(forgeBtnX + 5, upgradeBtnY, forgeBtnW - 10, 16);
+
+        ctx.fillStyle = canUpgrade ? '#FFFFFF' : '#888888';
+        ctx.font = '9px sans-serif';
+        ctx.fillText(`强化→${nextQuality.name}`, forgeBtnX + forgeBtnW / 2, upgradeBtnY + 9);
+
+        idleScreenButtons.upgradeWeapon = { x: forgeBtnX + 5, y: upgradeBtnY, w: forgeBtnW - 10, h: 16 };
+      } else {
+        // 已满级
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText('✨ 已达最高品质', forgeBtnX + forgeBtnW / 2, forgeBtnY + forgeBtnH - 8);
+      }
+    } else {
+      // 无武器时显示锻造按钮
+      ctx.fillText('🗡️ 锻造', forgeBtnX + forgeBtnW / 2, forgeBtnY + forgeBtnH / 2);
     }
 
     idleScreenButtons.forge = { x: forgeBtnX, y: forgeBtnY, w: forgeBtnW, h: forgeBtnH };
@@ -7611,6 +7711,27 @@ let weaponCreateStep = 0;          // 0:绘制, 1:描述, 2:生成中, 3:完成
 let weaponCreateButtons = null;    // 按钮缓存
 let generatedWeaponData = null;    // AI生成的武器数据
 let weaponApiError = null;         // API错误信息
+let weaponFragments = 0;           // 武器碎片（Boss掉落）
+
+// 武器品质系统
+const WEAPON_QUALITY = {
+  broken: { name: '残缺', color: '#888888', statMult: 0.4, glowAlpha: 0.3 },
+  normal: { name: '普通', color: '#FFFFFF', statMult: 0.7, glowAlpha: 0.5 },
+  fine: { name: '精良', color: '#00FF00', statMult: 1.0, glowAlpha: 0.7 },
+  perfect: { name: '完美', color: '#FF00FF', statMult: 1.3, glowAlpha: 0.9 },
+  legendary: { name: '传说', color: '#FFD700', statMult: 1.6, glowAlpha: 1.0 }
+};
+
+// 武器强化所需材料
+const WEAPON_UPGRADE_COST = {
+  broken: { gold: 100, fragments: 0 },      // 残缺 -> 普通
+  normal: { gold: 300, fragments: 3 },      // 普通 -> 精良
+  fine: { gold: 800, fragments: 8 },        // 精良 -> 完美
+  perfect: { gold: 2000, fragments: 15 }    // 完美 -> 传说
+};
+
+// 品质升级顺序
+const QUALITY_ORDER = ['broken', 'normal', 'fine', 'perfect', 'legendary'];
 
 // DeepSeek API配置 (用户需要填入自己的API Key)
 const DEEPSEEK_API_KEY = 'YOUR_API_KEY_HERE'; // 请替换为你的DeepSeek API Key
@@ -7886,18 +8007,31 @@ function equipCustomWeapon() {
     newStroke: pt.newStroke
   }));
 
+  // 保存基础属性（满品质时的属性）
+  const baseStats = {
+    damage: generatedWeaponData.damage,
+    attackSpeed: generatedWeaponData.attackSpeed,
+    critChance: generatedWeaponData.critChance,
+    effectValue: generatedWeaponData.effectValue
+  };
+
   customWeapon = {
     ...generatedWeaponData,
     drawingPoints: [...weaponDrawingPoints],
     normalizedPoints: normalizedPoints,
     bounds: { minX, maxX, minY, maxY, width: drawW, height: drawH },
+    quality: 'broken',  // 新武器默认是残缺品质
+    baseStats: baseStats, // 保存完整属性用于升级计算
     createdAt: Date.now()
   };
+
+  // 应用残缺品质的属性削减
+  applyWeaponQuality();
 
   // 保存到本地
   saveCustomWeapon();
 
-  wx.showToast && wx.showToast({ title: `装备了 ${customWeapon.name}！`, icon: 'success' });
+  wx.showToast && wx.showToast({ title: `获得了残缺的 ${customWeapon.name}！`, icon: 'none' });
   exitWeaponCreate();
 }
 
@@ -7932,6 +8066,102 @@ function getWeaponBonus() {
     effect: customWeapon.effect,
     effectValue: customWeapon.effectValue
   };
+}
+
+// 应用武器品质到属性
+function applyWeaponQuality() {
+  if (!customWeapon || !customWeapon.baseStats) return;
+
+  const quality = customWeapon.quality || 'broken';
+  const mult = WEAPON_QUALITY[quality].statMult;
+  const base = customWeapon.baseStats;
+
+  customWeapon.damage = Math.floor(base.damage * mult);
+  customWeapon.attackSpeed = 1 - (1 - base.attackSpeed) * mult; // 攻速反向计算
+  customWeapon.critChance = Math.floor(base.critChance * mult);
+  customWeapon.effectValue = Math.floor(base.effectValue * mult);
+}
+
+// 强化武器
+function upgradeWeapon() {
+  if (!customWeapon) return false;
+
+  const currentQuality = customWeapon.quality || 'broken';
+  const currentIndex = QUALITY_ORDER.indexOf(currentQuality);
+
+  // 已经是最高品质
+  if (currentIndex >= QUALITY_ORDER.length - 1) {
+    wx.showToast && wx.showToast({ title: '武器已达最高品质！', icon: 'none' });
+    return false;
+  }
+
+  // 检查升级所需材料
+  const cost = WEAPON_UPGRADE_COST[currentQuality];
+  if (!cost) return false;
+
+  if (gold < cost.gold) {
+    wx.showToast && wx.showToast({ title: `金币不足！需要${cost.gold}`, icon: 'none' });
+    return false;
+  }
+  if (weaponFragments < cost.fragments) {
+    wx.showToast && wx.showToast({ title: `碎片不足！需要${cost.fragments}`, icon: 'none' });
+    return false;
+  }
+
+  // 扣除材料
+  gold -= cost.gold;
+  weaponFragments -= cost.fragments;
+
+  // 升级品质
+  const nextQuality = QUALITY_ORDER[currentIndex + 1];
+  customWeapon.quality = nextQuality;
+  applyWeaponQuality();
+  saveCustomWeapon();
+  saveWeaponFragments();
+
+  const qualityInfo = WEAPON_QUALITY[nextQuality];
+  wx.showToast && wx.showToast({ title: `武器升级为 ${qualityInfo.name}！`, icon: 'success' });
+  playSound('levelup');
+
+  return true;
+}
+
+// 获取下一品质信息
+function getNextQualityInfo() {
+  if (!customWeapon) return null;
+
+  const currentQuality = customWeapon.quality || 'broken';
+  const currentIndex = QUALITY_ORDER.indexOf(currentQuality);
+
+  if (currentIndex >= QUALITY_ORDER.length - 1) return null;
+
+  const nextQuality = QUALITY_ORDER[currentIndex + 1];
+  return {
+    quality: nextQuality,
+    ...WEAPON_QUALITY[nextQuality],
+    cost: WEAPON_UPGRADE_COST[currentQuality]
+  };
+}
+
+// 保存武器碎片
+function saveWeaponFragments() {
+  try {
+    wx.setStorageSync('weaponFragments', weaponFragments);
+  } catch (e) {
+    console.error('保存碎片失败:', e);
+  }
+}
+
+// 加载武器碎片
+function loadWeaponFragments() {
+  try {
+    const data = wx.getStorageSync('weaponFragments');
+    if (data !== undefined && data !== null) {
+      weaponFragments = parseInt(data) || 0;
+    }
+  } catch (e) {
+    console.error('加载碎片失败:', e);
+  }
 }
 
 // 应用武器特殊效果
@@ -8409,6 +8639,7 @@ function handleWeaponCreateTouch(tx, ty, isStart, isEnd) {
 
 // 初始化时加载武器
 loadCustomWeapon();
+loadWeaponFragments();
 
 // ==================== 游戏循环 ====================
 let lastTime = Date.now();
@@ -8919,6 +9150,14 @@ wx.onTouchEnd((e) => {
       if (tx >= btns.daily.x && tx <= btns.daily.x + btns.daily.w &&
           ty >= btns.daily.y && ty <= btns.daily.y + btns.daily.h) {
         startDailyChallenge();
+        touchStart = null;
+        return;
+      }
+
+      // 武器强化按钮（必须在锻造按钮之前检查，因为它在锻造区域内）
+      if (btns.upgradeWeapon && tx >= btns.upgradeWeapon.x && tx <= btns.upgradeWeapon.x + btns.upgradeWeapon.w &&
+          ty >= btns.upgradeWeapon.y && ty <= btns.upgradeWeapon.y + btns.upgradeWeapon.h) {
+        upgradeWeapon();
         touchStart = null;
         return;
       }
