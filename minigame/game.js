@@ -1799,8 +1799,180 @@ function drawTutorial() {
   };
 }
 
+// ==================== 成就系统 ====================
+const ACHIEVEMENT_KEY = 'bagua_achievements';
+
+// 成就定义
+const ACHIEVEMENTS = {
+  // 击杀成就
+  kill_10: { name: '初出茅庐', desc: '累计击杀10只怪物', icon: '🗡️', condition: s => s.totalKills >= 10 },
+  kill_100: { name: '百人斩', desc: '累计击杀100只怪物', icon: '⚔️', condition: s => s.totalKills >= 100 },
+  kill_500: { name: '千人斩', desc: '累计击杀500只怪物', icon: '🔪', condition: s => s.totalKills >= 500 },
+
+  // Boss成就
+  boss_1: { name: '挑战者', desc: '击杀第一个Boss', icon: '💀', condition: s => s.totalBossKills >= 1 },
+  boss_5: { name: 'Boss猎手', desc: '累计击杀5个Boss', icon: '👹', condition: s => s.totalBossKills >= 5 },
+  boss_10: { name: '魔王终结者', desc: '累计击杀10个Boss', icon: '☠️', condition: s => s.totalBossKills >= 10 },
+
+  // 存活成就
+  survive_60: { name: '坚持一分钟', desc: '单次存活超过60秒', icon: '⏱️', condition: s => s.bestTime >= 60 },
+  survive_180: { name: '三分钟先生', desc: '单次存活超过180秒', icon: '⏰', condition: s => s.bestTime >= 180 },
+  survive_300: { name: '生存大师', desc: '单次存活超过300秒', icon: '🏆', condition: s => s.bestTime >= 300 },
+
+  // 等级成就
+  level_10: { name: '职业觉醒', desc: '达到10级解锁职业', icon: '⭐', condition: s => s.maxLevel >= 10 },
+  level_20: { name: '强者之路', desc: '达到20级', icon: '🌟', condition: s => s.maxLevel >= 20 },
+  level_30: { name: '传奇', desc: '达到30级', icon: '💫', condition: s => s.maxLevel >= 30 },
+
+  // 金币成就
+  gold_100: { name: '小财主', desc: '单次收集100金币', icon: '💰', condition: s => s.bestGold >= 100 },
+  gold_500: { name: '大富翁', desc: '单次收集500金币', icon: '💎', condition: s => s.bestGold >= 500 },
+
+  // 连击成就
+  combo_10: { name: '连击新手', desc: '达成10连击', icon: '🔥', condition: s => s.bestCombo >= 10 },
+  combo_30: { name: '连击大师', desc: '达成30连击', icon: '💥', condition: s => s.bestCombo >= 30 },
+
+  // 冒险次数
+  runs_10: { name: '屡败屡战', desc: '完成10次冒险', icon: '🎮', condition: s => s.totalRuns >= 10 },
+  runs_50: { name: '永不言弃', desc: '完成50次冒险', icon: '🎯', condition: s => s.totalRuns >= 50 }
+};
+
+// 统计数据
+let gameStats = {
+  totalKills: 0,
+  totalBossKills: 0,
+  totalRuns: 0,
+  bestTime: 0,
+  bestGold: 0,
+  bestCombo: 0,
+  maxLevel: 1
+};
+
+// 已解锁的成就
+let unlockedAchievements = {};
+
+// 成就通知队列
+let achievementNotifications = [];
+let currentNotification = null;
+let notificationTimer = 0;
+
+// 加载成就数据
+function loadAchievements() {
+  try {
+    const saved = wx.getStorageSync(ACHIEVEMENT_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      if (data.stats) gameStats = { ...gameStats, ...data.stats };
+      if (data.unlocked) unlockedAchievements = data.unlocked;
+    }
+  } catch (e) {
+    console.log('加载成就数据失败:', e);
+  }
+}
+
+// 保存成就数据
+function saveAchievements() {
+  try {
+    wx.setStorageSync(ACHIEVEMENT_KEY, JSON.stringify({
+      stats: gameStats,
+      unlocked: unlockedAchievements
+    }));
+  } catch (e) {
+    console.log('保存成就数据失败:', e);
+  }
+}
+
+// 检查成就解锁
+function checkAchievements() {
+  for (const [id, achievement] of Object.entries(ACHIEVEMENTS)) {
+    if (!unlockedAchievements[id] && achievement.condition(gameStats)) {
+      unlockAchievement(id, achievement);
+    }
+  }
+}
+
+// 解锁成就
+function unlockAchievement(id, achievement) {
+  unlockedAchievements[id] = Date.now();
+  achievementNotifications.push({
+    id,
+    name: achievement.name,
+    desc: achievement.desc,
+    icon: achievement.icon
+  });
+  saveAchievements();
+  console.log(`成就解锁: ${achievement.name}`);
+}
+
+// 更新成就通知显示
+function updateAchievementNotification(dt) {
+  if (currentNotification) {
+    notificationTimer -= dt;
+    if (notificationTimer <= 0) {
+      currentNotification = null;
+    }
+  } else if (achievementNotifications.length > 0) {
+    currentNotification = achievementNotifications.shift();
+    notificationTimer = 3.0;  // 显示3秒
+    playSound('levelup');  // 成就音效
+  }
+}
+
+// 绘制成就通知
+function drawAchievementNotification() {
+  if (!currentNotification) return;
+
+  const alpha = Math.min(1, notificationTimer, 3 - notificationTimer + 1);
+  const slideY = (1 - alpha) * -50;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // 通知背景
+  const notifW = 200;
+  const notifH = 60;
+  const notifX = (W - notifW) / 2;
+  const notifY = 80 + slideY;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+  ctx.fillRect(notifX, notifY, notifW, notifH);
+
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(notifX, notifY, notifW, notifH);
+
+  // 成就图标
+  ctx.font = '24px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(currentNotification.icon, notifX + 10, notifY + notifH / 2);
+
+  // 成就文字
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText('🏆 成就解锁!', notifX + 45, notifY + 18);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.fillText(currentNotification.name, notifX + 45, notifY + 36);
+
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(currentNotification.desc, notifX + 45, notifY + 50);
+
+  ctx.restore();
+}
+
+// 获取成就统计
+function getAchievementStats() {
+  const total = Object.keys(ACHIEVEMENTS).length;
+  const unlocked = Object.keys(unlockedAchievements).length;
+  return { total, unlocked, percent: Math.floor(unlocked / total * 100) };
+}
+
 // 游戏启动时加载数据
 loadGameData();
+loadAchievements();
 checkTutorial();
 
 // 获取当前角色信息
@@ -2707,6 +2879,18 @@ function startAdventure() {
 function endAdventure() {
   gameState = 'gameover';
   playSound('death');
+
+  // 更新成就统计
+  gameStats.totalRuns++;
+  if (adventureTime > gameStats.bestTime) {
+    gameStats.bestTime = Math.floor(adventureTime);
+  }
+  if (goldCollected > gameStats.bestGold) {
+    gameStats.bestGold = goldCollected;
+  }
+  checkAchievements();
+  saveAchievements();
+
   console.log(`冒险结束！击杀: ${killCount}, 存活时间: ${Math.floor(adventureTime)}秒`);
 }
 
@@ -2889,9 +3073,16 @@ function attackMonsters() {
         killCount++;
         comboCount++;
 
+        // 更新成就统计
+        gameStats.totalKills++;
+        if (comboCount > gameStats.bestCombo) {
+          gameStats.bestCombo = comboCount;
+        }
+
         // Boss击杀特殊奖励
         if (m.isBoss) {
           bossCount++;
+          gameStats.totalBossKills++;
           currentBoss = null;
           // Boss击杀回满血
           playerHP = playerMaxHP;
@@ -2901,6 +3092,9 @@ function attackMonsters() {
           }
           console.log(`Boss已击杀! 总计: ${bossCount}`);
         }
+
+        // 检查成就
+        checkAchievements();
 
         monsters.splice(i, 1);
 
@@ -2919,6 +3113,11 @@ function attackMonsters() {
           playerHP = Math.min(playerHP + 20, playerMaxHP);
           playSound('levelup');
           console.log(`升级! Lv.${playerLevel}`);
+          // 更新最高等级成就
+          if (playerLevel > gameStats.maxLevel) {
+            gameStats.maxLevel = playerLevel;
+            checkAchievements();
+          }
           saveGameData(); // 保存升级数据
           // 10级时触发职业选择
           if (playerLevel === 10 && currentClass === 'none') {
@@ -4268,6 +4467,29 @@ function draw() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('重置数据', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2);
+
+    // 成就进度显示（右下角）
+    const achStats = getAchievementStats();
+    const achX = W - 10;
+    const achY = H - 20;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(achX - 95, achY - 15, 100, 25);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#FFD700';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(`🏆 成就: ${achStats.unlocked}/${achStats.total}`, achX - 5, achY);
+
+    // 进度条
+    const barW = 88;
+    const barH = 4;
+    const barX = achX - 93;
+    const barY = achY + 5;
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#FFD700';
+    ctx.fillRect(barX, barY, barW * (achStats.percent / 100), barH);
   }
 
   // 冒险模式UI
@@ -4415,6 +4637,9 @@ function draw() {
   if (isSelectingClass) {
     drawClassSelectionUI();
   }
+
+  // 成就通知（浮动显示）
+  drawAchievementNotification();
 
   // 新手引导（最高优先级）
   if (showTutorial && gameState === 'idle') {
@@ -4998,6 +5223,9 @@ function gameLoop() {
       updateSkillEffects(dt);
     }
   }
+
+  // 更新成就通知（始终更新）
+  updateAchievementNotification(dt);
 
   draw();
   requestAnimationFrame(gameLoop);
