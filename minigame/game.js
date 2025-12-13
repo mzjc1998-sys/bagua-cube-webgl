@@ -3176,7 +3176,15 @@ function getPlayerStats() {
     if (hasDailyModifier('speed')) spd *= 1.2;     // 速度之日：移动速度+20%
   }
 
-  return { hp, spd, dmg, atkSpd, range, luck, healRate, armor };
+  // 应用自定义武器加成
+  const weaponBonus = getWeaponBonus();
+  if (weaponBonus) {
+    dmg += weaponBonus.damage;                     // 武器伤害加成
+    atkSpd = Math.max(0.15, atkSpd * weaponBonus.attackSpeed); // 武器攻速
+    luck += weaponBonus.critChance;                // 武器暴击
+  }
+
+  return { hp, spd, dmg, atkSpd, range, luck, healRate, armor, weaponBonus };
 }
 
 // ==================== 冒险系统 ====================
@@ -4520,6 +4528,11 @@ function attackMonsters() {
       m.hp -= damage;
       m.hitTimer = isCrit ? 0.25 : 0.15; // 暴击闪烁更久
       hitAny = true;
+
+      // 应用武器特殊效果
+      if (stats.weaponBonus && stats.weaponBonus.effect !== 'none') {
+        applyWeaponEffect(m, stats.weaponBonus, damage);
+      }
 
       // 播放击中音效
       playSound(isCrit ? 'crit' : 'hit');
@@ -6512,6 +6525,38 @@ function draw() {
       daily: { x: dailyBtnX, y: btnY, w: btnW, h: btnH }
     };
 
+    // 锻造武器按钮（左上角）
+    const forgeBtnW = 80;
+    const forgeBtnH = 32;
+    const forgeBtnX = 10;
+    const forgeBtnY = 55;
+
+    // 渐变背景
+    const forgeGradient = ctx.createLinearGradient(forgeBtnX, forgeBtnY, forgeBtnX + forgeBtnW, forgeBtnY + forgeBtnH);
+    forgeGradient.addColorStop(0, 'rgba(100, 60, 150, 0.9)');
+    forgeGradient.addColorStop(1, 'rgba(150, 80, 180, 0.9)');
+    ctx.fillStyle = forgeGradient;
+    ctx.fillRect(forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH);
+    ctx.strokeStyle = '#AA66FF';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(forgeBtnX, forgeBtnY, forgeBtnW, forgeBtnH);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🗡️ 锻造', forgeBtnX + forgeBtnW / 2, forgeBtnY + forgeBtnH / 2);
+
+    // 显示当前武器（如果有）
+    if (customWeapon) {
+      const rarityColors = { common: '#AAA', rare: '#48F', epic: '#A4F', legendary: '#FD0' };
+      ctx.fillStyle = rarityColors[customWeapon.rarity] || '#FFF';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(customWeapon.name, forgeBtnX + forgeBtnW / 2, forgeBtnY + forgeBtnH + 12);
+    }
+
+    idleScreenButtons.forge = { x: forgeBtnX, y: forgeBtnY, w: forgeBtnW, h: forgeBtnH };
+
     // 重置数据按钮（右上角，红色醒目）
     const resetBtnW = 70;
     const resetBtnH = 28;
@@ -6709,6 +6754,11 @@ function draw() {
   // 新手引导（最高优先级）
   if (showTutorial && gameState === 'idle') {
     drawTutorial();
+  }
+
+  // 武器创建界面（全屏覆盖）
+  if (isWeaponCreating) {
+    drawWeaponCreateUI();
   }
 
   // ===== 后处理效果 =====
@@ -7454,6 +7504,784 @@ function drawSkillSelectionUI() {
   ctx.fillText('跳过', skipBtnX + skipBtnW / 2, skipBtnY + skipBtnH / 2);
 }
 
+// ==================== 武器绘制系统 ====================
+let isWeaponCreating = false;      // 是否在武器创建模式
+let weaponDrawingPoints = [];      // 绘制的点
+let isDrawing = false;             // 是否正在绘制
+let weaponDescription = '';        // 武器描述
+let customWeapon = null;           // 当前自定义武器
+let weaponCreateStep = 0;          // 0:绘制, 1:描述, 2:生成中, 3:完成
+let weaponCreateButtons = null;    // 按钮缓存
+let generatedWeaponData = null;    // AI生成的武器数据
+let weaponApiError = null;         // API错误信息
+
+// DeepSeek API配置 (用户需要填入自己的API Key)
+const DEEPSEEK_API_KEY = 'YOUR_API_KEY_HERE'; // 请替换为你的DeepSeek API Key
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+// 开始武器创建
+function startWeaponCreate() {
+  isWeaponCreating = true;
+  weaponDrawingPoints = [];
+  weaponDescription = '';
+  weaponCreateStep = 0;
+  generatedWeaponData = null;
+  weaponApiError = null;
+  playSound('start');
+}
+
+// 退出武器创建
+function exitWeaponCreate() {
+  isWeaponCreating = false;
+  weaponDrawingPoints = [];
+  weaponCreateStep = 0;
+}
+
+// 清除绘制
+function clearWeaponDrawing() {
+  weaponDrawingPoints = [];
+}
+
+// 添加绘制点
+function addWeaponDrawPoint(x, y, isNewStroke) {
+  weaponDrawingPoints.push({ x, y, newStroke: isNewStroke });
+}
+
+// 进入描述步骤
+function goToDescriptionStep() {
+  if (weaponDrawingPoints.length < 10) {
+    wx.showToast && wx.showToast({ title: '请先绘制武器形状', icon: 'none' });
+    return;
+  }
+  weaponCreateStep = 1;
+  // 弹出输入框
+  showWeaponDescriptionInput();
+}
+
+// 显示武器描述输入
+function showWeaponDescriptionInput() {
+  wx.showModal && wx.showModal({
+    title: '描述你的武器',
+    editable: true,
+    placeholderText: '例如：一把燃烧的火焰剑，能造成持续灼烧伤害',
+    success: (res) => {
+      if (res.confirm && res.content) {
+        weaponDescription = res.content;
+        weaponCreateStep = 2;
+        generateWeaponWithAI();
+      } else {
+        weaponCreateStep = 0; // 返回绘制
+      }
+    }
+  });
+}
+
+// 使用DeepSeek生成武器
+function generateWeaponWithAI() {
+  const prompt = `你是一个游戏武器设计师。根据玩家的描述，生成一个平衡的武器数据。
+
+玩家描述: "${weaponDescription}"
+
+请生成一个JSON格式的武器数据，必须严格遵循以下格式（不要加任何其他文字）:
+{
+  "name": "武器名称（2-4个字）",
+  "description": "简短描述（10-20字）",
+  "damage": 数值(15-50之间，基础伤害),
+  "attackSpeed": 数值(0.3-1.5之间，攻击间隔秒数，越小越快),
+  "critChance": 数值(0-30之间，暴击率百分比),
+  "effect": "特殊效果类型(burn/freeze/stun/lifesteal/pierce/none)",
+  "effectValue": 数值(效果强度，0-20),
+  "effectDesc": "效果描述（5-15字）",
+  "rarity": "稀有度(common/rare/epic/legendary)"
+}
+
+平衡规则：
+- 伤害高则攻速慢，伤害低则攻速快
+- 特殊效果越强，基础属性越低
+- legendary武器总属性最高但有明显缺点`;
+
+  // 检查API Key
+  if (DEEPSEEK_API_KEY === 'YOUR_API_KEY_HERE') {
+    // 没有配置API Key，使用本地生成
+    generateWeaponLocally();
+    return;
+  }
+
+  wx.request && wx.request({
+    url: DEEPSEEK_API_URL,
+    method: 'POST',
+    header: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+    },
+    data: {
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 500
+    },
+    success: (res) => {
+      try {
+        const content = res.data.choices[0].message.content;
+        // 提取JSON
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const weaponData = JSON.parse(jsonMatch[0]);
+          applyGeneratedWeapon(weaponData);
+        } else {
+          throw new Error('无法解析武器数据');
+        }
+      } catch (e) {
+        console.error('AI生成失败:', e);
+        weaponApiError = 'AI解析失败，使用本地生成';
+        generateWeaponLocally();
+      }
+    },
+    fail: (err) => {
+      console.error('API调用失败:', err);
+      weaponApiError = '网络错误，使用本地生成';
+      generateWeaponLocally();
+    }
+  });
+}
+
+// 本地生成武器（备用方案）
+function generateWeaponLocally() {
+  // 根据描述关键词生成
+  const desc = weaponDescription.toLowerCase();
+  let weapon = {
+    name: '自制武器',
+    description: weaponDescription.slice(0, 20),
+    damage: 20 + Math.floor(Math.random() * 20),
+    attackSpeed: 0.5 + Math.random() * 0.8,
+    critChance: Math.floor(Math.random() * 20),
+    effect: 'none',
+    effectValue: 0,
+    effectDesc: '无特殊效果',
+    rarity: 'common'
+  };
+
+  // 根据关键词调整
+  if (desc.includes('火') || desc.includes('燃烧') || desc.includes('flame') || desc.includes('fire')) {
+    weapon.name = '炎魔之刃';
+    weapon.effect = 'burn';
+    weapon.effectValue = 8;
+    weapon.effectDesc = '攻击附带灼烧';
+    weapon.rarity = 'rare';
+    weapon.damage -= 5;
+  } else if (desc.includes('冰') || desc.includes('冻') || desc.includes('frost') || desc.includes('ice')) {
+    weapon.name = '霜寒之刃';
+    weapon.effect = 'freeze';
+    weapon.effectValue = 15;
+    weapon.effectDesc = '几率冻结敌人';
+    weapon.rarity = 'rare';
+    weapon.attackSpeed += 0.2;
+  } else if (desc.includes('雷') || desc.includes('电') || desc.includes('lightning') || desc.includes('thunder')) {
+    weapon.name = '雷霆之怒';
+    weapon.effect = 'stun';
+    weapon.effectValue = 10;
+    weapon.effectDesc = '几率眩晕敌人';
+    weapon.rarity = 'epic';
+    weapon.critChance += 10;
+  } else if (desc.includes('吸血') || desc.includes('生命') || desc.includes('vampir') || desc.includes('life')) {
+    weapon.name = '血饮之刃';
+    weapon.effect = 'lifesteal';
+    weapon.effectValue = 12;
+    weapon.effectDesc = '攻击回复生命';
+    weapon.rarity = 'epic';
+    weapon.damage -= 8;
+  } else if (desc.includes('穿透') || desc.includes('刺穿') || desc.includes('pierce')) {
+    weapon.name = '破甲之矛';
+    weapon.effect = 'pierce';
+    weapon.effectValue = 15;
+    weapon.effectDesc = '穿透多个敌人';
+    weapon.rarity = 'rare';
+    weapon.attackSpeed += 0.3;
+  } else if (desc.includes('神') || desc.includes('圣') || desc.includes('光') || desc.includes('divine')) {
+    weapon.name = '圣光裁决';
+    weapon.effect = 'burn';
+    weapon.effectValue = 12;
+    weapon.effectDesc = '圣光灼烧邪恶';
+    weapon.rarity = 'legendary';
+    weapon.damage += 10;
+    weapon.critChance += 15;
+    weapon.attackSpeed += 0.4; // legendary缺点：攻速慢
+  } else if (desc.includes('暗') || desc.includes('黑') || desc.includes('shadow') || desc.includes('dark')) {
+    weapon.name = '暗影之刃';
+    weapon.effect = 'lifesteal';
+    weapon.effectValue = 18;
+    weapon.effectDesc = '汲取生命精华';
+    weapon.rarity = 'legendary';
+    weapon.damage += 5;
+    weapon.attackSpeed -= 0.1;
+  } else if (desc.includes('快') || desc.includes('速') || desc.includes('swift') || desc.includes('fast')) {
+    weapon.name = '疾风匕首';
+    weapon.effect = 'none';
+    weapon.effectValue = 0;
+    weapon.effectDesc = '无特殊效果';
+    weapon.rarity = 'rare';
+    weapon.damage -= 10;
+    weapon.attackSpeed = 0.3;
+    weapon.critChance += 15;
+  } else if (desc.includes('重') || desc.includes('锤') || desc.includes('hammer') || desc.includes('heavy')) {
+    weapon.name = '毁灭巨锤';
+    weapon.effect = 'stun';
+    weapon.effectValue = 20;
+    weapon.effectDesc = '重击眩晕敌人';
+    weapon.rarity = 'epic';
+    weapon.damage += 15;
+    weapon.attackSpeed = 1.2;
+    weapon.critChance += 5;
+  }
+
+  // 根据绘制复杂度调整稀有度
+  if (weaponDrawingPoints.length > 200) {
+    if (weapon.rarity === 'common') weapon.rarity = 'rare';
+    else if (weapon.rarity === 'rare') weapon.rarity = 'epic';
+    weapon.damage += 3;
+  }
+
+  applyGeneratedWeapon(weapon);
+}
+
+// 应用生成的武器
+function applyGeneratedWeapon(weaponData) {
+  // 数值校验和平衡
+  weaponData.damage = Math.max(10, Math.min(60, weaponData.damage || 20));
+  weaponData.attackSpeed = Math.max(0.2, Math.min(2, weaponData.attackSpeed || 0.8));
+  weaponData.critChance = Math.max(0, Math.min(50, weaponData.critChance || 0));
+  weaponData.effectValue = Math.max(0, Math.min(25, weaponData.effectValue || 0));
+
+  generatedWeaponData = weaponData;
+  weaponCreateStep = 3;
+  playSound('levelup');
+}
+
+// 确认装备武器
+function equipCustomWeapon() {
+  if (!generatedWeaponData) return;
+
+  customWeapon = {
+    ...generatedWeaponData,
+    drawingPoints: [...weaponDrawingPoints],
+    createdAt: Date.now()
+  };
+
+  // 保存到本地
+  saveCustomWeapon();
+
+  wx.showToast && wx.showToast({ title: `装备了 ${customWeapon.name}！`, icon: 'success' });
+  exitWeaponCreate();
+}
+
+// 保存自定义武器
+function saveCustomWeapon() {
+  try {
+    wx.setStorageSync('customWeapon', JSON.stringify(customWeapon));
+  } catch (e) {
+    console.error('保存武器失败:', e);
+  }
+}
+
+// 加载自定义武器
+function loadCustomWeapon() {
+  try {
+    const data = wx.getStorageSync('customWeapon');
+    if (data) {
+      customWeapon = JSON.parse(data);
+    }
+  } catch (e) {
+    console.error('加载武器失败:', e);
+  }
+}
+
+// 获取武器加成
+function getWeaponBonus() {
+  if (!customWeapon) return null;
+  return {
+    damage: customWeapon.damage,
+    attackSpeed: customWeapon.attackSpeed,
+    critChance: customWeapon.critChance,
+    effect: customWeapon.effect,
+    effectValue: customWeapon.effectValue
+  };
+}
+
+// 应用武器特殊效果
+function applyWeaponEffect(target, weaponBonus, damage) {
+  if (!target || !weaponBonus) return;
+
+  const effect = weaponBonus.effect;
+  const value = weaponBonus.effectValue;
+
+  switch (effect) {
+    case 'burn':
+      // 灼烧效果
+      target.burnDamage = value;
+      target.burnTimer = 3;
+      break;
+
+    case 'freeze':
+      // 冻结效果（几率触发）
+      if (Math.random() * 100 < value) {
+        target.freezeTimer = 1.5;
+      }
+      break;
+
+    case 'stun':
+      // 眩晕效果（几率触发）
+      if (Math.random() * 100 < value) {
+        target.stunTimer = 0.8;
+      }
+      break;
+
+    case 'lifesteal':
+      // 吸血效果
+      const healAmount = Math.floor(damage * value / 100);
+      if (healAmount > 0) {
+        playerHP = Math.min(playerHP + healAmount, playerMaxHP);
+      }
+      break;
+
+    case 'pierce':
+      // 穿透效果 - 对周围敌人也造成伤害
+      const pierceDamage = Math.floor(damage * 0.5);
+      for (const m of monsters) {
+        if (m !== target) {
+          const dx = m.x - target.x;
+          const dy = m.y - target.y;
+          if (Math.sqrt(dx * dx + dy * dy) < 0.15) {
+            m.hp -= pierceDamage;
+            m.hitTimer = 0.1;
+          }
+        }
+      }
+      break;
+  }
+}
+
+// 绘制武器创建界面
+function drawWeaponCreateUI() {
+  if (!isWeaponCreating) return;
+
+  // 全屏背景
+  ctx.fillStyle = 'rgba(20, 20, 35, 0.98)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 标题
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🗡️ 锻造武器', W / 2, 35);
+
+  const stepNames = ['绘制武器', '描述效果', '生成中...', '锻造完成'];
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`步骤 ${weaponCreateStep + 1}/4: ${stepNames[weaponCreateStep]}`, W / 2, 58);
+
+  if (weaponCreateStep === 0) {
+    drawWeaponDrawingCanvas();
+  } else if (weaponCreateStep === 1) {
+    drawWeaponDescriptionUI();
+  } else if (weaponCreateStep === 2) {
+    drawWeaponGeneratingUI();
+  } else if (weaponCreateStep === 3) {
+    drawWeaponResultUI();
+  }
+
+  // 返回按钮
+  const backBtnW = 60;
+  const backBtnH = 30;
+  const backBtnX = 15;
+  const backBtnY = 15;
+
+  ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
+  ctx.fillRect(backBtnX, backBtnY, backBtnW, backBtnH);
+  ctx.strokeStyle = '#888888';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(backBtnX, backBtnY, backBtnW, backBtnH);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('← 返回', backBtnX + backBtnW / 2, backBtnY + backBtnH / 2);
+
+  weaponCreateButtons = {
+    back: { x: backBtnX, y: backBtnY, w: backBtnW, h: backBtnH }
+  };
+}
+
+// 绘制绘画画布
+function drawWeaponDrawingCanvas() {
+  // 画布区域
+  const canvasX = 20;
+  const canvasY = 80;
+  const canvasW = W - 40;
+  const canvasH = H - 200;
+
+  // 画布背景
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(canvasX, canvasY, canvasW, canvasH);
+  ctx.strokeStyle = '#444466';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(canvasX, canvasY, canvasW, canvasH);
+
+  // 网格
+  ctx.strokeStyle = 'rgba(100, 100, 150, 0.2)';
+  ctx.lineWidth = 1;
+  const gridSize = 30;
+  for (let x = canvasX + gridSize; x < canvasX + canvasW; x += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, canvasY);
+    ctx.lineTo(x, canvasY + canvasH);
+    ctx.stroke();
+  }
+  for (let y = canvasY + gridSize; y < canvasY + canvasH; y += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(canvasX, y);
+    ctx.lineTo(canvasX + canvasW, y);
+    ctx.stroke();
+  }
+
+  // 绘制玩家画的线条
+  if (weaponDrawingPoints.length > 1) {
+    ctx.strokeStyle = '#00FFFF';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = '#00FFFF';
+    ctx.shadowBlur = 10;
+
+    ctx.beginPath();
+    let started = false;
+    for (const pt of weaponDrawingPoints) {
+      if (pt.newStroke || !started) {
+        ctx.moveTo(pt.x, pt.y);
+        started = true;
+      } else {
+        ctx.lineTo(pt.x, pt.y);
+      }
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // 提示文字
+  if (weaponDrawingPoints.length < 10) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('在此区域绘制你的武器形状', W / 2, canvasY + canvasH / 2);
+  }
+
+  // 按钮区域
+  const btnY = canvasY + canvasH + 20;
+  const btnW = 100;
+  const btnH = 40;
+  const gap = 20;
+
+  // 清除按钮
+  const clearBtnX = W / 2 - btnW - gap / 2;
+  ctx.fillStyle = 'rgba(150, 80, 80, 0.9)';
+  ctx.fillRect(clearBtnX, btnY, btnW, btnH);
+  ctx.strokeStyle = '#FF6666';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(clearBtnX, btnY, btnW, btnH);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('🗑️ 清除', clearBtnX + btnW / 2, btnY + btnH / 2);
+
+  // 下一步按钮
+  const nextBtnX = W / 2 + gap / 2;
+  const canProceed = weaponDrawingPoints.length >= 10;
+  ctx.fillStyle = canProceed ? 'rgba(80, 150, 80, 0.9)' : 'rgba(80, 80, 80, 0.5)';
+  ctx.fillRect(nextBtnX, btnY, btnW, btnH);
+  ctx.strokeStyle = canProceed ? '#66FF66' : '#666666';
+  ctx.strokeRect(nextBtnX, btnY, btnW, btnH);
+  ctx.fillStyle = canProceed ? '#FFFFFF' : '#888888';
+  ctx.fillText('下一步 →', nextBtnX + btnW / 2, btnY + btnH / 2);
+
+  // 绘制点数统计
+  ctx.fillStyle = '#888888';
+  ctx.font = '11px sans-serif';
+  ctx.fillText(`笔画点数: ${weaponDrawingPoints.length}`, W / 2, btnY + btnH + 25);
+
+  weaponCreateButtons.canvas = { x: canvasX, y: canvasY, w: canvasW, h: canvasH };
+  weaponCreateButtons.clear = { x: clearBtnX, y: btnY, w: btnW, h: btnH };
+  weaponCreateButtons.next = { x: nextBtnX, y: btnY, w: btnW, h: btnH };
+}
+
+// 绘制描述输入UI
+function drawWeaponDescriptionUI() {
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('正在等待输入描述...', W / 2, H / 2);
+
+  ctx.fillStyle = '#888888';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('请在弹出的对话框中输入武器描述', W / 2, H / 2 + 30);
+}
+
+// 绘制生成中UI
+function drawWeaponGeneratingUI() {
+  // 加载动画
+  const dotCount = Math.floor((Date.now() / 300) % 4);
+  const dots = '.'.repeat(dotCount);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`⚙️ 正在锻造武器${dots}`, W / 2, H / 2 - 20);
+
+  if (weaponApiError) {
+    ctx.fillStyle = '#FFAA00';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(weaponApiError, W / 2, H / 2 + 20);
+  }
+
+  // 绘制武器预览（缩小版）
+  drawWeaponPreview(W / 2, H / 2 + 80, 0.4);
+}
+
+// 绘制结果UI
+function drawWeaponResultUI() {
+  if (!generatedWeaponData) return;
+
+  const weapon = generatedWeaponData;
+
+  // 稀有度颜色
+  const rarityColors = {
+    common: '#AAAAAA',
+    rare: '#4488FF',
+    epic: '#AA44FF',
+    legendary: '#FFD700'
+  };
+  const rarityNames = {
+    common: '普通',
+    rare: '稀有',
+    epic: '史诗',
+    legendary: '传说'
+  };
+
+  const color = rarityColors[weapon.rarity] || '#FFFFFF';
+
+  // 武器卡片
+  const cardW = W - 60;
+  const cardH = 280;
+  const cardX = 30;
+  const cardY = 80;
+
+  // 卡片背景
+  ctx.fillStyle = 'rgba(30, 30, 50, 0.95)';
+  ctx.fillRect(cardX, cardY, cardW, cardH);
+
+  // 发光边框
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 20;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(cardX, cardY, cardW, cardH);
+  ctx.shadowBlur = 0;
+
+  // 武器名称
+  ctx.fillStyle = color;
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(weapon.name, W / 2, cardY + 35);
+
+  // 稀有度标签
+  ctx.fillStyle = color;
+  ctx.font = '12px sans-serif';
+  ctx.fillText(`✦ ${rarityNames[weapon.rarity]} ✦`, W / 2, cardY + 55);
+
+  // 武器预览
+  drawWeaponPreview(W / 2, cardY + 110, 0.5);
+
+  // 属性面板
+  const statsY = cardY + 160;
+  ctx.textAlign = 'left';
+  ctx.font = '13px sans-serif';
+
+  const stats = [
+    { label: '⚔️ 伤害', value: weapon.damage, color: '#FF6666' },
+    { label: '⚡ 攻速', value: (1 / weapon.attackSpeed).toFixed(1) + '/秒', color: '#66FF66' },
+    { label: '💥 暴击', value: weapon.critChance + '%', color: '#FFFF66' }
+  ];
+
+  stats.forEach((stat, i) => {
+    const x = cardX + 25 + (i % 3) * ((cardW - 50) / 3);
+    ctx.fillStyle = stat.color;
+    ctx.fillText(`${stat.label}: ${stat.value}`, x, statsY);
+  });
+
+  // 特效
+  if (weapon.effect !== 'none') {
+    ctx.fillStyle = '#00FFFF';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`✨ ${weapon.effectDesc}`, W / 2, statsY + 25);
+  }
+
+  // 描述
+  ctx.fillStyle = '#CCCCCC';
+  ctx.font = '11px sans-serif';
+  ctx.fillText(`"${weapon.description}"`, W / 2, statsY + 50);
+
+  // 装备按钮
+  const equipBtnW = 140;
+  const equipBtnH = 45;
+  const equipBtnX = (W - equipBtnW) / 2;
+  const equipBtnY = cardY + cardH + 20;
+
+  ctx.fillStyle = 'rgba(80, 180, 80, 0.9)';
+  ctx.fillRect(equipBtnX, equipBtnY, equipBtnW, equipBtnH);
+  ctx.strokeStyle = '#66FF66';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(equipBtnX, equipBtnY, equipBtnW, equipBtnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('✓ 装备武器', equipBtnX + equipBtnW / 2, equipBtnY + equipBtnH / 2);
+
+  weaponCreateButtons.equip = { x: equipBtnX, y: equipBtnY, w: equipBtnW, h: equipBtnH };
+
+  // 重新锻造按钮
+  const retryBtnY = equipBtnY + equipBtnH + 15;
+  ctx.fillStyle = 'rgba(100, 100, 100, 0.7)';
+  ctx.fillRect(equipBtnX, retryBtnY, equipBtnW, 35);
+  ctx.strokeStyle = '#888888';
+  ctx.strokeRect(equipBtnX, retryBtnY, equipBtnW, 35);
+  ctx.fillStyle = '#CCCCCC';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('🔄 重新锻造', equipBtnX + equipBtnW / 2, retryBtnY + 17);
+
+  weaponCreateButtons.retry = { x: equipBtnX, y: retryBtnY, w: equipBtnW, h: 35 };
+}
+
+// 绘制武器预览（使用玩家绘制的形状）
+function drawWeaponPreview(cx, cy, scale) {
+  if (weaponDrawingPoints.length < 2) return;
+
+  // 计算绘制的边界
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  for (const pt of weaponDrawingPoints) {
+    minX = Math.min(minX, pt.x);
+    maxX = Math.max(maxX, pt.x);
+    minY = Math.min(minY, pt.y);
+    maxY = Math.max(maxY, pt.y);
+  }
+
+  const drawW = maxX - minX;
+  const drawH = maxY - minY;
+  const drawCx = (minX + maxX) / 2;
+  const drawCy = (minY + maxY) / 2;
+
+  // 缩放和居中
+  const maxSize = 100;
+  const fitScale = Math.min(maxSize / drawW, maxSize / drawH, 1) * scale;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(fitScale, fitScale);
+  ctx.translate(-drawCx, -drawCy);
+
+  // 绘制武器
+  ctx.strokeStyle = generatedWeaponData ?
+    (generatedWeaponData.rarity === 'legendary' ? '#FFD700' :
+      generatedWeaponData.rarity === 'epic' ? '#AA44FF' :
+        generatedWeaponData.rarity === 'rare' ? '#4488FF' : '#CCCCCC') : '#00FFFF';
+  ctx.lineWidth = 4 / fitScale;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.shadowBlur = 15 / fitScale;
+
+  ctx.beginPath();
+  let started = false;
+  for (const pt of weaponDrawingPoints) {
+    if (pt.newStroke || !started) {
+      ctx.moveTo(pt.x, pt.y);
+      started = true;
+    } else {
+      ctx.lineTo(pt.x, pt.y);
+    }
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+// 处理武器创建触摸事件
+function handleWeaponCreateTouch(tx, ty, isStart, isEnd) {
+  if (!isWeaponCreating || !weaponCreateButtons) return false;
+
+  const btns = weaponCreateButtons;
+
+  // 返回按钮
+  if (btns.back && isEnd) {
+    if (tx >= btns.back.x && tx <= btns.back.x + btns.back.w &&
+      ty >= btns.back.y && ty <= btns.back.y + btns.back.h) {
+      exitWeaponCreate();
+      return true;
+    }
+  }
+
+  if (weaponCreateStep === 0) {
+    // 绘制阶段
+    if (btns.canvas) {
+      if (tx >= btns.canvas.x && tx <= btns.canvas.x + btns.canvas.w &&
+        ty >= btns.canvas.y && ty <= btns.canvas.y + btns.canvas.h) {
+        if (isStart) {
+          isDrawing = true;
+          addWeaponDrawPoint(tx, ty, true);
+        } else if (!isEnd && isDrawing) {
+          addWeaponDrawPoint(tx, ty, false);
+        } else if (isEnd) {
+          isDrawing = false;
+        }
+        return true;
+      }
+    }
+
+    if (isEnd) {
+      // 清除按钮
+      if (btns.clear && tx >= btns.clear.x && tx <= btns.clear.x + btns.clear.w &&
+        ty >= btns.clear.y && ty <= btns.clear.y + btns.clear.h) {
+        clearWeaponDrawing();
+        return true;
+      }
+      // 下一步按钮
+      if (btns.next && tx >= btns.next.x && tx <= btns.next.x + btns.next.w &&
+        ty >= btns.next.y && ty <= btns.next.y + btns.next.h) {
+        goToDescriptionStep();
+        return true;
+      }
+    }
+  } else if (weaponCreateStep === 3 && isEnd) {
+    // 结果阶段
+    if (btns.equip && tx >= btns.equip.x && tx <= btns.equip.x + btns.equip.w &&
+      ty >= btns.equip.y && ty <= btns.equip.y + btns.equip.h) {
+      equipCustomWeapon();
+      return true;
+    }
+    if (btns.retry && tx >= btns.retry.x && tx <= btns.retry.x + btns.retry.w &&
+      ty >= btns.retry.y && ty <= btns.retry.y + btns.retry.h) {
+      weaponCreateStep = 0;
+      weaponDrawingPoints = [];
+      generatedWeaponData = null;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// 初始化时加载武器
+loadCustomWeapon();
+
 // ==================== 游戏循环 ====================
 let lastTime = Date.now();
 
@@ -7570,6 +8398,12 @@ wx.onTouchStart((e) => {
     touchStart = { x: tx, y: ty, t: Date.now() };
     updateGroundQuadCache();
 
+    // 武器创建模式优先处理
+    if (isWeaponCreating) {
+      handleWeaponCreateTouch(tx, ty, true, false);
+      return;
+    }
+
     // 清除之前的长按计时器
     if (longPressTimer) {
       clearTimeout(longPressTimer);
@@ -7596,6 +8430,19 @@ wx.onTouchStart((e) => {
   }
 });
 
+// 触摸移动事件（用于武器绘制）
+wx.onTouchMove && wx.onTouchMove((e) => {
+  if (e.touches.length > 0) {
+    const tx = e.touches[0].clientX;
+    const ty = e.touches[0].clientY;
+
+    // 武器创建模式
+    if (isWeaponCreating) {
+      handleWeaponCreateTouch(tx, ty, false, false);
+    }
+  }
+});
+
 wx.onTouchEnd((e) => {
   // 清除长按计时器和提示
   if (longPressTimer) {
@@ -7605,13 +8452,22 @@ wx.onTouchEnd((e) => {
   const wasShowingTooltip = skillTooltip !== null;
   skillTooltip = null;
 
-  if (!touchStart || !e.changedTouches.length) return;
+  if (!e.changedTouches.length) return;
   const touch = e.changedTouches[0];
+  const tx = touch.clientX;
+  const ty = touch.clientY;
+
+  // 武器创建模式优先处理
+  if (isWeaponCreating) {
+    handleWeaponCreateTouch(tx, ty, false, true);
+    touchStart = null;
+    return;
+  }
+
+  if (!touchStart) return;
   const dx = touch.clientX - touchStart.x;
   const dy = touch.clientY - touchStart.y;
   const dt = Date.now() - touchStart.t;
-  const tx = touch.clientX;
-  const ty = touch.clientY;
 
   // 如果正在显示技能提示，松开后不执行其他操作
   if (wasShowingTooltip) {
@@ -7935,6 +8791,14 @@ wx.onTouchEnd((e) => {
       if (tx >= btns.daily.x && tx <= btns.daily.x + btns.daily.w &&
           ty >= btns.daily.y && ty <= btns.daily.y + btns.daily.h) {
         startDailyChallenge();
+        touchStart = null;
+        return;
+      }
+
+      // 锻造武器按钮
+      if (btns.forge && tx >= btns.forge.x && tx <= btns.forge.x + btns.forge.w &&
+          ty >= btns.forge.y && ty <= btns.forge.y + btns.forge.h) {
+        startWeaponCreate();
         touchStart = null;
         return;
       }
