@@ -1887,6 +1887,13 @@ let monsters = [];
 let monsterSpawnTimer = 0;
 let monsterSpawnInterval = 3.0; // 初始生成间隔（更宽松）
 
+// Boss系统
+let bossTimer = 0;              // Boss计时器
+let bossInterval = 60;          // 每60秒一个Boss
+let bossWarningTimer = 0;       // Boss警告显示时间
+let bossCount = 0;              // 已击杀Boss数量
+let currentBoss = null;         // 当前Boss引用
+
 // 怪物类型定义（降低早期怪物伤害，提高生存能力）
 const MONSTER_TYPES = {
   zombie: {
@@ -1956,6 +1963,98 @@ const MONSTER_TYPES = {
     drawType: 'boss'
   }
 };
+
+// Boss类型定义（根据击杀数递进）
+const BOSS_TYPES = [
+  {
+    name: '骷髅王',
+    color: '#FFD700',
+    baseHp: 300,
+    baseDamage: 8,
+    speed: 0.0015,
+    size: 1.6,
+    icon: '💀',
+    description: '亡灵之王'
+  },
+  {
+    name: '炎魔',
+    color: '#FF4500',
+    baseHp: 450,
+    baseDamage: 12,
+    speed: 0.0018,
+    size: 1.7,
+    icon: '🔥',
+    description: '烈焰化身'
+  },
+  {
+    name: '冰霜巨人',
+    color: '#00BFFF',
+    baseHp: 600,
+    baseDamage: 10,
+    speed: 0.0012,
+    size: 1.8,
+    icon: '❄️',
+    description: '永冻之躯'
+  },
+  {
+    name: '暗影领主',
+    color: '#4B0082',
+    baseHp: 800,
+    baseDamage: 15,
+    speed: 0.002,
+    size: 1.9,
+    icon: '👿',
+    description: '黑暗主宰'
+  },
+  {
+    name: '混沌魔神',
+    color: '#FF00FF',
+    baseHp: 1000,
+    baseDamage: 18,
+    speed: 0.0016,
+    size: 2.0,
+    icon: '☠️',
+    description: '终极Boss'
+  }
+];
+
+// 生成Boss
+function spawnBoss() {
+  // 根据已击杀Boss数选择类型（循环）
+  const bossIndex = bossCount % BOSS_TYPES.length;
+  const bossType = BOSS_TYPES[bossIndex];
+
+  // Boss属性随击杀数增强（每轮+50%）
+  const round = Math.floor(bossCount / BOSS_TYPES.length);
+  const scaling = 1 + round * 0.5;
+
+  // 在玩家前方生成Boss
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 0.6;
+
+  const boss = {
+    x: playerX + Math.cos(angle) * distance,
+    y: playerY + Math.sin(angle) * distance,
+    hp: Math.floor(bossType.baseHp * scaling),
+    maxHp: Math.floor(bossType.baseHp * scaling),
+    damage: Math.floor(bossType.baseDamage * scaling),
+    speed: bossType.speed,
+    exp: 100 + bossCount * 50,  // 经验随Boss数增加
+    size: bossType.size,
+    color: bossType.color,
+    name: bossType.name,
+    icon: bossType.icon,
+    isBoss: true,
+    hitTimer: 0,
+    bossIndex: bossIndex
+  };
+
+  monsters.push(boss);
+  currentBoss = boss;
+  playSound('skill');  // Boss出现音效
+
+  console.log(`Boss出现: ${bossType.name} (HP: ${boss.hp})`);
+}
 
 // 获取可用的怪物类型（根据冒险时间）
 function getAvailableMonsterTypes() {
@@ -2571,7 +2670,11 @@ function startAdventure() {
   isMoving = false;
   monsters = [];
   monsterSpawnTimer = 0;
-  monsterSpawnInterval = 2.0;
+  monsterSpawnInterval = 3.0;
+  // 重置Boss状态
+  bossTimer = 0;
+  bossWarningTimer = 0;
+  currentBoss = null;
   comboCount = 0;
   // 重置拾取物
   collectibles = [];
@@ -2785,6 +2888,20 @@ function attackMonsters() {
         playerExp += m.exp;
         killCount++;
         comboCount++;
+
+        // Boss击杀特殊奖励
+        if (m.isBoss) {
+          bossCount++;
+          currentBoss = null;
+          // Boss击杀回满血
+          playerHP = playerMaxHP;
+          // 触发技能选择
+          if (!isSelectingSkill && !isSelectingClass) {
+            startSkillSelection();
+          }
+          console.log(`Boss已击杀! 总计: ${bossCount}`);
+        }
+
         monsters.splice(i, 1);
 
         // 升级检测
@@ -3047,6 +3164,28 @@ function updateAdventure(dt) {
   if (adventureTime > 90) monsterSpawnInterval = 2.0;
   if (adventureTime > 150) monsterSpawnInterval = 1.5;
   if (adventureTime > 200) monsterSpawnInterval = 1.2;
+
+  // Boss系统计时
+  bossTimer += dt;
+  if (bossWarningTimer > 0) {
+    bossWarningTimer -= dt;
+  }
+
+  // Boss警告（出现前3秒）
+  if (bossTimer >= bossInterval - 3 && bossTimer < bossInterval - 2.9 && !currentBoss) {
+    bossWarningTimer = 3;
+  }
+
+  // 生成Boss
+  if (bossTimer >= bossInterval && !currentBoss) {
+    bossTimer = 0;
+    spawnBoss();
+  }
+
+  // 检查Boss是否还存活
+  if (currentBoss && currentBoss.hp <= 0) {
+    currentBoss = null;
+  }
 
   // 生成怪物（在玩家周围生成）
   monsterSpawnTimer += dt;
@@ -4155,6 +4294,69 @@ function draw() {
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('点击头像查看详细属性', W / 2, 25);
+
+    // Boss血条（顶部中央）
+    if (currentBoss) {
+      const barW = W * 0.6;
+      const barH = 20;
+      const barX = (W - barW) / 2;
+      const barY = 40;
+
+      // 背景
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.fillRect(barX - 5, barY - 5, barW + 10, barH + 25);
+
+      // Boss名称和图标
+      ctx.fillStyle = currentBoss.color;
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${currentBoss.icon} ${currentBoss.name}`, W / 2, barY + 5);
+
+      // 血条背景
+      ctx.fillStyle = '#333333';
+      ctx.fillRect(barX, barY + 12, barW, barH);
+
+      // 血条
+      const hpRatio = Math.max(0, currentBoss.hp / currentBoss.maxHp);
+      const gradient = ctx.createLinearGradient(barX, 0, barX + barW * hpRatio, 0);
+      gradient.addColorStop(0, '#FF0000');
+      gradient.addColorStop(1, currentBoss.color);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(barX, barY + 12, barW * hpRatio, barH);
+
+      // 血条边框
+      ctx.strokeStyle = currentBoss.color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(barX, barY + 12, barW, barH);
+
+      // HP数值
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(`${currentBoss.hp} / ${currentBoss.maxHp}`, W / 2, barY + 24);
+    }
+
+    // Boss警告
+    if (bossWarningTimer > 0) {
+      const alpha = 0.5 + Math.sin(bossWarningTimer * 10) * 0.3;
+      ctx.fillStyle = `rgba(255, 0, 0, ${alpha * 0.3})`;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = `rgba(255, 50, 50, ${alpha})`;
+      ctx.font = 'bold 28px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⚠️ BOSS来袭 ⚠️', W / 2, H / 2 - 30);
+
+      const nextBossIndex = bossCount % BOSS_TYPES.length;
+      const nextBoss = BOSS_TYPES[nextBossIndex];
+      ctx.font = '18px sans-serif';
+      ctx.fillStyle = nextBoss.color;
+      ctx.fillText(`${nextBoss.icon} ${nextBoss.name}`, W / 2, H / 2 + 10);
+
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(`${Math.ceil(bossWarningTimer)}秒后出现...`, W / 2, H / 2 + 40);
+    }
   }
 
   // 暂停菜单（最高优先级显示）
