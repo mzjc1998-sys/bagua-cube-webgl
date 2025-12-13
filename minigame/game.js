@@ -824,6 +824,173 @@ const SKILL_POOL = {
   }
 };
 
+// ==================== 技能进化系统 ====================
+// 当同一卦象的两个技能都获得时，可以合成为终极技能
+const SKILL_EVOLUTIONS = {
+  // 乾卦进化：天威 + 天道 = 天罚
+  qian_ultimate: {
+    name: '天罚',
+    trigram: '乾',
+    trigramName: '天',
+    type: 'evolved',
+    icon: '⚡️',
+    color: '#FFD700',
+    rarity: 'legendary',
+    description: '【终极】天罚降临，全屏闪电风暴',
+    cooldown: 15,
+    damage: 100,
+    effect: 'sky_judgement',
+    requires: ['tianwei', 'tiandao'],
+    bonusStats: { critBonus: 25, dmg: 1.3 }
+  },
+
+  // 坤卦进化：地召 + 地脉 = 山河
+  kun_ultimate: {
+    name: '山河',
+    trigram: '坤',
+    trigramName: '地',
+    type: 'evolved',
+    icon: '🌍',
+    color: '#8B4513',
+    rarity: 'legendary',
+    description: '【终极】山河永固，超强护盾+持续回血',
+    cooldown: 20,
+    duration: 5,
+    effect: 'earth_fortress',
+    requires: ['dizhao', 'dimai'],
+    bonusStats: { armor: 50, healRate: 5 }
+  },
+
+  // 震卦进化：雷霆 + 雷神 = 雷劫
+  zhen_ultimate: {
+    name: '雷劫',
+    trigram: '震',
+    trigramName: '雷',
+    type: 'evolved',
+    icon: '🌩️',
+    color: '#9400D3',
+    rarity: 'legendary',
+    description: '【终极】九天雷劫，连续落雷毁灭敌人',
+    cooldown: 12,
+    damage: 60,
+    hitCount: 5,
+    effect: 'thunder_calamity',
+    requires: ['leiting', 'leishen'],
+    bonusStats: { atkSpdBoost: 0.5 }
+  },
+
+  // 巽卦进化：风刃 + 风行 = 风暴
+  xun_ultimate: {
+    name: '风暴',
+    trigram: '巽',
+    trigramName: '风',
+    type: 'evolved',
+    icon: '🌪️',
+    color: '#00CED1',
+    rarity: 'legendary',
+    description: '【终极】狂风席卷，吸引并撕裂敌人',
+    cooldown: 10,
+    damage: 45,
+    duration: 3,
+    effect: 'tornado',
+    requires: ['fengren', 'fengxing'],
+    bonusStats: { spd: 1.3, range: 1.3 }
+  },
+
+  // 坎卦进化：水波 + 水源 = 洪流
+  kan_ultimate: {
+    name: '洪流',
+    trigram: '坎',
+    trigramName: '水',
+    type: 'evolved',
+    icon: '🌊',
+    color: '#1E90FF',
+    rarity: 'legendary',
+    description: '【终极】洪水滔天，治愈自身并淹没敌人',
+    cooldown: 14,
+    damage: 50,
+    healAmount: 50,
+    effect: 'great_flood',
+    requires: ['shuibo', 'shuiyuan'],
+    bonusStats: { healRate: 8, hp: 1.2 }
+  },
+
+  // 离卦进化：烈焰 + 火灵 = 焚天
+  li_ultimate: {
+    name: '焚天',
+    trigram: '离',
+    trigramName: '火',
+    type: 'evolved',
+    icon: '☀️',
+    color: '#FF4500',
+    rarity: 'legendary',
+    description: '【终极】焚天烈火，持续灼烧整个战场',
+    cooldown: 12,
+    damage: 30,
+    duration: 5,
+    effect: 'inferno',
+    requires: ['lieyan', 'huoling'],
+    bonusStats: { dmg: 1.4, burnDamage: 10 }
+  },
+
+  // 艮卦进化：山石 + 山镇 = 镇岳
+  gen_ultimate: {
+    name: '镇岳',
+    trigram: '艮',
+    trigramName: '山',
+    type: 'evolved',
+    icon: '⛰️',
+    color: '#A0522D',
+    rarity: 'legendary',
+    description: '【终极】五岳镇世，召唤山岳碾压敌人',
+    cooldown: 16,
+    damage: 80,
+    stunDuration: 2,
+    effect: 'mountain_crush',
+    requires: ['shanshi', 'shanzhen'],
+    bonusStats: { armor: 40, damageReduction: 25 }
+  },
+
+  // 兑卦进化：泽沼 + 泽露 = 泽润
+  dui_ultimate: {
+    name: '泽润',
+    trigram: '兑',
+    trigramName: '泽',
+    type: 'evolved',
+    icon: '🌈',
+    color: '#32CD32',
+    rarity: 'legendary',
+    description: '【终极】泽被苍生，击杀回血+持续陷阱',
+    cooldown: 8,
+    damage: 40,
+    healOnKill: 30,
+    effect: 'blessing_swamp',
+    requires: ['zezhao', 'zelu'],
+    bonusStats: { luck: 20, healOnKill: 25 }
+  }
+};
+
+// 检查是否可以进化
+function checkEvolutionAvailable() {
+  const ownedSkillIds = [...playerSkills.map(s => s.id)];
+  if (playerPassive) ownedSkillIds.push(playerPassive.id);
+
+  for (const [evoId, evolution] of Object.entries(SKILL_EVOLUTIONS)) {
+    if (evolution.requires.every(req => ownedSkillIds.includes(req))) {
+      // 检查是否已经进化过
+      if (!playerSkills.some(s => s.id === evoId)) {
+        return { id: evoId, ...evolution };
+      }
+    }
+  }
+  return null;
+}
+
+// 进化状态
+let pendingEvolution = null;
+let showEvolutionNotice = false;
+let evolutionNoticeTimer = 0;
+
 // 玩家技能槽
 let playerSkills = []; // 最多4个主动技能
 let playerPassive = null; // 1个被动技能
@@ -966,7 +1133,15 @@ function generateSkillChoices() {
 
 // 开始技能选择
 function startSkillSelection() {
-  skillChoices = generateSkillChoices();
+  // 检查是否有进化可用
+  const evolution = checkEvolutionAvailable();
+  if (evolution) {
+    // 进化作为第一个选项
+    skillChoices = [evolution, ...generateSkillChoices().slice(0, 2)];
+  } else {
+    skillChoices = generateSkillChoices();
+  }
+
   if (skillChoices.length > 0) {
     isSelectingSkill = true;
   }
@@ -977,7 +1152,23 @@ function selectSkill(index) {
   if (index < 0 || index >= skillChoices.length) return;
 
   const skill = skillChoices[index];
-  if (skill.type === 'passive') {
+
+  // 如果选择的是进化技能
+  if (skill.type === 'evolved') {
+    // 移除原技能
+    const reqIds = skill.requires || [];
+    playerSkills = playerSkills.filter(s => !reqIds.includes(s.id));
+    if (playerPassive && reqIds.includes(playerPassive.id)) {
+      playerPassive = null;
+    }
+    // 添加进化技能
+    playerSkills.push(skill);
+    skillCooldowns[skill.id] = 0;
+    playSound('levelup');
+    showEvolutionNotice = true;
+    evolutionNoticeTimer = 2;
+    console.log(`技能进化！获得终极技能: ${skill.name}`);
+  } else if (skill.type === 'passive') {
     // 被动技能（只能有一个）
     if (playerPassive) {
       // 替换旧被动
@@ -999,6 +1190,9 @@ function selectSkill(index) {
 
   isSelectingSkill = false;
   skillChoices = [];
+
+  // 检查是否有新的进化可用
+  pendingEvolution = checkEvolutionAvailable();
 }
 
 // 更新技能冷却
@@ -2206,6 +2400,24 @@ let lastHurtSoundTime = 0;  // 受伤音效冷却
 let smoothDirX = 0;
 let smoothDirY = 0;
 let comboCount = 0;
+let comboTimer = 0;            // 连击计时（2秒内无击杀则重置）
+let lastComboAnnounce = 0;     // 上次连击播报的击杀数
+
+// 屏幕震动系统
+let screenShakeX = 0;
+let screenShakeY = 0;
+let screenShakeTimer = 0;
+let screenShakeIntensity = 0;
+
+// 时间缩放（击杀Boss时慢动作）
+let timeScale = 1;
+let timeScaleTimer = 0;
+
+// 连击提示文字
+let comboAnnouncements = [];    // { text, x, y, timer, color }
+
+// 击杀特效粒子
+let killParticles = [];
 
 // 攻击动画状态
 let attackAnimTimer = 0;      // 攻击动画计时器
@@ -3269,6 +3481,9 @@ function attackMonsters() {
         killCount++;
         comboCount++;
 
+        // 触发击杀反馈效果
+        onKill(m, m.isBoss);
+
         // 更新成就统计
         gameStats.totalKills++;
         if (comboCount > gameStats.bestCombo) {
@@ -3335,6 +3550,470 @@ function attackMonsters() {
     attackAnimTimer = attackAnimDuration;
   }
 }
+
+// ==================== 爽感反馈系统 ====================
+
+// 触发屏幕震动
+function triggerScreenShake(intensity, duration) {
+  screenShakeIntensity = Math.max(screenShakeIntensity, intensity);
+  screenShakeTimer = Math.max(screenShakeTimer, duration);
+}
+
+// 触发时间缩放（慢动作）
+function triggerTimeScale(scale, duration) {
+  timeScale = scale;
+  timeScaleTimer = duration;
+}
+
+// 更新屏幕震动
+function updateScreenShake(dt) {
+  if (screenShakeTimer > 0) {
+    screenShakeTimer -= dt;
+    const intensity = screenShakeIntensity * (screenShakeTimer / 0.3);
+    screenShakeX = (Math.random() - 0.5) * intensity * W * 0.02;
+    screenShakeY = (Math.random() - 0.5) * intensity * H * 0.02;
+  } else {
+    screenShakeX = 0;
+    screenShakeY = 0;
+    screenShakeIntensity = 0;
+  }
+}
+
+// 更新时间缩放
+function updateTimeScale(dt) {
+  if (timeScaleTimer > 0) {
+    timeScaleTimer -= dt;
+  } else {
+    timeScale = 1;
+  }
+}
+
+// 添加连击提示
+function addComboAnnouncement(text, color = '#FFD700') {
+  comboAnnouncements.push({
+    text: text,
+    x: W / 2,
+    y: H * 0.3,
+    timer: 1.5,
+    color: color,
+    scale: 2.0
+  });
+}
+
+// 创建击杀粒子效果
+function createKillParticles(x, y, color, count = 8) {
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
+    const speed = 0.3 + Math.random() * 0.3;
+    killParticles.push({
+      x: x,
+      y: y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      timer: 0.5 + Math.random() * 0.3,
+      color: color,
+      size: 3 + Math.random() * 4
+    });
+  }
+}
+
+// 处理击杀反馈（在击杀时调用）
+function onKill(monster, isBoss = false) {
+  // 重置连击计时
+  comboTimer = 2.0;
+
+  // 创建击杀粒子
+  createKillParticles(monster.x, monster.y, monster.color || '#FF4444', isBoss ? 20 : 8);
+
+  // 震动强度
+  if (isBoss) {
+    triggerScreenShake(1.5, 0.4);
+    triggerTimeScale(0.3, 0.3);
+    addComboAnnouncement('💀 BOSS击杀！', '#FF4500');
+  } else {
+    triggerScreenShake(0.3, 0.1);
+  }
+
+  // 连击播报
+  const milestones = [5, 10, 20, 30, 50, 75, 100, 150, 200];
+  for (const m of milestones) {
+    if (comboCount >= m && lastComboAnnounce < m) {
+      lastComboAnnounce = m;
+      let text, color;
+      if (m >= 100) {
+        text = `🔥 ${m} COMBO! 无双！`;
+        color = '#FF0000';
+        triggerScreenShake(1.0, 0.3);
+      } else if (m >= 50) {
+        text = `⚡ ${m} COMBO! 狂暴！`;
+        color = '#FF4500';
+        triggerScreenShake(0.7, 0.2);
+      } else if (m >= 20) {
+        text = `💥 ${m} COMBO! 连斩！`;
+        color = '#FFD700';
+        triggerScreenShake(0.5, 0.15);
+      } else {
+        text = `✨ ${m} COMBO!`;
+        color = '#00FF00';
+      }
+      addComboAnnouncement(text, color);
+      playSound('skill');
+      break;
+    }
+  }
+}
+
+// 更新连击计时
+function updateComboTimer(dt) {
+  if (comboTimer > 0) {
+    comboTimer -= dt;
+    if (comboTimer <= 0) {
+      // 连击中断
+      if (comboCount >= 10) {
+        addComboAnnouncement(`连击结束: ${comboCount}`, '#888888');
+      }
+      comboCount = 0;
+      lastComboAnnounce = 0;
+    }
+  }
+}
+
+// 更新连击提示
+function updateComboAnnouncements(dt) {
+  for (let i = comboAnnouncements.length - 1; i >= 0; i--) {
+    const a = comboAnnouncements[i];
+    a.timer -= dt;
+    a.y -= dt * 30; // 上升
+    a.scale = Math.max(1.0, a.scale - dt * 2); // 缩小
+    if (a.timer <= 0) {
+      comboAnnouncements.splice(i, 1);
+    }
+  }
+}
+
+// 更新击杀粒子
+function updateKillParticles(dt) {
+  for (let i = killParticles.length - 1; i >= 0; i--) {
+    const p = killParticles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += dt * 0.5; // 重力
+    p.timer -= dt;
+    if (p.timer <= 0) {
+      killParticles.splice(i, 1);
+    }
+  }
+}
+
+// 绘制连击提示
+function drawComboAnnouncements() {
+  for (const a of comboAnnouncements) {
+    const alpha = Math.min(1, a.timer / 0.3);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = a.color;
+    ctx.font = `bold ${Math.floor(24 * a.scale)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 描边
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    ctx.strokeText(a.text, a.x, a.y);
+    ctx.fillText(a.text, a.x, a.y);
+
+    ctx.restore();
+  }
+}
+
+// 绘制击杀粒子
+function drawKillParticles() {
+  for (const p of killParticles) {
+    const alpha = p.timer / 0.8;
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(p.x * W, p.y * H, p.size * (1 + (1 - alpha) * 0.5), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// 绘制连击计数（HUD）
+function drawComboCounter() {
+  if (comboCount >= 3) {
+    const x = 10;
+    const y = H - 80;
+    const pulse = 1 + Math.sin(Date.now() / 100) * 0.1;
+
+    ctx.save();
+    ctx.fillStyle = comboCount >= 50 ? '#FF4500' : (comboCount >= 20 ? '#FFD700' : '#00FF00');
+    ctx.font = `bold ${Math.floor(20 * pulse)}px sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.strokeText(`${comboCount} COMBO`, x, y);
+    ctx.fillText(`${comboCount} COMBO`, x, y);
+
+    // 连击条
+    const barWidth = 60;
+    const barHeight = 4;
+    const progress = comboTimer / 2.0;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(x, y + 15, barWidth, barHeight);
+    ctx.fillStyle = comboCount >= 20 ? '#FFD700' : '#00FF00';
+    ctx.fillRect(x, y + 15, barWidth * progress, barHeight);
+
+    ctx.restore();
+  }
+}
+
+// ==================== 战绩分享系统 ====================
+
+// 计算战斗评级
+function calculateBattleRating() {
+  const killScore = killCount * 10;
+  const timeScore = Math.floor(adventureTime) * 5;
+  const comboScore = gameStats.bestCombo * 3;
+  const bossScore = bossCount * 100;
+  const levelScore = playerLevel * 50;
+  const goldScore = goldCollected * 2;
+
+  const totalScore = killScore + timeScore + comboScore + bossScore + levelScore + goldScore;
+
+  if (totalScore >= 5000) return { grade: 'SSS', color: '#FFD700', desc: '传说级' };
+  if (totalScore >= 3000) return { grade: 'SS', color: '#FF6600', desc: '史诗级' };
+  if (totalScore >= 2000) return { grade: 'S', color: '#FF00FF', desc: '卓越' };
+  if (totalScore >= 1200) return { grade: 'A', color: '#00FF00', desc: '优秀' };
+  if (totalScore >= 600) return { grade: 'B', color: '#00BFFF', desc: '良好' };
+  if (totalScore >= 300) return { grade: 'C', color: '#FFFFFF', desc: '普通' };
+  return { grade: 'D', color: '#888888', desc: '新手' };
+}
+
+// 生成分享文案
+function generateShareText() {
+  const rating = calculateBattleRating();
+  const palace = Object.keys(PALACE_BONUS).find(p => selectedPalace === p) || '未知';
+  const skills = playerSkills.map(s => s.name).join('、') || '无';
+
+  let text = `【八卦立方体】战绩分享\n`;
+  text += `━━━━━━━━━━━━━\n`;
+  text += `🎖️ 评级: ${rating.grade} (${rating.desc})\n`;
+  text += `☯️ 宫位: ${palace}宫\n`;
+  text += `━━━━━━━━━━━━━\n`;
+  text += `⚔️ 击杀: ${killCount}只\n`;
+  text += `⏱️ 存活: ${Math.floor(adventureTime)}秒\n`;
+  text += `🔥 最高连击: ${gameStats.bestCombo}\n`;
+  text += `💀 Boss击杀: ${bossCount}\n`;
+  text += `📊 等级: Lv.${playerLevel}\n`;
+  text += `💰 金币: ${goldCollected}\n`;
+  text += `━━━━━━━━━━━━━\n`;
+  text += `🌟 技能: ${skills}\n`;
+  text += `━━━━━━━━━━━━━\n`;
+  text += `来挑战我的记录吧！`;
+
+  return text;
+}
+
+// 分享战绩（微信小游戏）
+function shareBattleResult() {
+  const rating = calculateBattleRating();
+
+  try {
+    wx.shareAppMessage({
+      title: `【${rating.grade}级】我在八卦立方体击杀了${killCount}只怪物，存活${Math.floor(adventureTime)}秒！`,
+      query: `kill=${killCount}&time=${Math.floor(adventureTime)}&grade=${rating.grade}`,
+      imageUrl: '' // 可以后续添加自定义分享图
+    });
+  } catch (e) {
+    console.log('分享功能不可用');
+  }
+}
+
+// 绘制战绩结算屏幕
+function drawBattleResultScreen() {
+  // 背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 标题
+  ctx.fillStyle = '#FF4444';
+  ctx.font = 'bold 32px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('💀 战斗结束', W / 2, 45);
+
+  // 评级展示
+  const rating = calculateBattleRating();
+  const ratingY = 95;
+
+  // 评级背景光晕
+  const glowIntensity = 0.5 + Math.sin(Date.now() / 300) * 0.3;
+  ctx.shadowColor = rating.color;
+  ctx.shadowBlur = 20 * glowIntensity;
+
+  ctx.fillStyle = rating.color;
+  ctx.font = 'bold 48px sans-serif';
+  ctx.fillText(rating.grade, W / 2, ratingY);
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#AAAAAA';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(rating.desc, W / 2, ratingY + 30);
+
+  // 战绩面板
+  const panelY = 145;
+  const panelH = 180;
+
+  ctx.fillStyle = 'rgba(40, 40, 60, 0.9)';
+  ctx.fillRect(20, panelY, W - 40, panelH);
+  ctx.strokeStyle = rating.color;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(20, panelY, W - 40, panelH);
+
+  // 战绩数据 - 左列
+  ctx.textAlign = 'left';
+  ctx.font = '14px sans-serif';
+  const leftX = 40;
+  let y = panelY + 25;
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(`⚔️ 击杀数`, leftX, y);
+  ctx.fillStyle = '#00FF00';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${killCount}`, W / 2 - 20, y);
+
+  y += 28;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(`⏱️ 存活时间`, leftX, y);
+  ctx.fillStyle = '#00BFFF';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${Math.floor(adventureTime)}秒`, W / 2 - 20, y);
+
+  y += 28;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(`🔥 最高连击`, leftX, y);
+  ctx.fillStyle = '#FF6600';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${gameStats.bestCombo}`, W / 2 - 20, y);
+
+  // 战绩数据 - 右列
+  const rightX = W / 2 + 20;
+  y = panelY + 25;
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(`💀 Boss击杀`, rightX, y);
+  ctx.fillStyle = '#FF4500';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${bossCount}`, W - 40, y);
+
+  y += 28;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(`📊 达到等级`, rightX, y);
+  ctx.fillStyle = '#FFD700';
+  ctx.textAlign = 'right';
+  ctx.fillText(`Lv.${playerLevel}`, W - 40, y);
+
+  y += 28;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(`💰 获得金币`, rightX, y);
+  ctx.fillStyle = '#FFD700';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${goldCollected}`, W - 40, y);
+
+  // 宫位和技能
+  y = panelY + panelH - 35;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#888888';
+  ctx.font = '12px sans-serif';
+  const palace = selectedPalace || '未选择';
+  const trigramSymbols = { '乾': '☰', '坤': '☷', '震': '☳', '巽': '☴', '坎': '☵', '离': '☲', '艮': '☶', '兑': '☱' };
+  ctx.fillText(`${trigramSymbols[palace] || ''} ${palace}宫 | 技能: ${playerSkills.length}个`, W / 2, y);
+
+  // 历史最佳提示
+  const newRecords = [];
+  if (killCount > 0 && killCount >= gameStats.totalKills / Math.max(1, gameStats.totalRuns) * 1.5) {
+    newRecords.push('击杀');
+  }
+  if (adventureTime >= gameStats.bestTime) {
+    newRecords.push('存活');
+  }
+  if (goldCollected >= gameStats.bestGold) {
+    newRecords.push('金币');
+  }
+
+  if (newRecords.length > 0) {
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(`🎉 新纪录: ${newRecords.join('、')}`, W / 2, panelY + panelH + 15);
+  }
+
+  // 按钮区域
+  const btnY = panelY + panelH + 35;
+  const btnW = 100;
+  const btnH = 42;
+  const btnGap = 15;
+
+  // 分享按钮
+  const shareBtnX = (W - btnW * 2 - btnGap) / 2;
+  ctx.fillStyle = 'rgba(0, 120, 200, 0.9)';
+  ctx.fillRect(shareBtnX, btnY, btnW, btnH);
+  ctx.strokeStyle = '#00BFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(shareBtnX, btnY, btnW, btnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('📤 分享', shareBtnX + btnW / 2, btnY + btnH / 2);
+
+  // 返回按钮
+  const returnBtnX = shareBtnX + btnW + btnGap;
+  ctx.fillStyle = 'rgba(50, 150, 50, 0.9)';
+  ctx.fillRect(returnBtnX, btnY, btnW, btnH);
+  ctx.strokeStyle = '#00FF00';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(returnBtnX, btnY, btnW, btnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('🏠 返回', returnBtnX + btnW / 2, btnY + btnH / 2);
+
+  // 再来一局按钮
+  const retryBtnY = btnY + btnH + 10;
+  const retryBtnW = btnW * 2 + btnGap;
+  ctx.fillStyle = 'rgba(200, 50, 50, 0.9)';
+  ctx.fillRect(shareBtnX, retryBtnY, retryBtnW, btnH);
+  ctx.strokeStyle = '#FF4444';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(shareBtnX, retryBtnY, retryBtnW, btnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('⚔️ 再来一局', W / 2, retryBtnY + btnH / 2);
+
+  // 小提示
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '10px sans-serif';
+  ctx.fillText('分享给好友，挑战你的记录！', W / 2, retryBtnY + btnH + 20);
+
+  // 保存按钮位置用于点击检测
+  battleResultButtons = {
+    share: { x: shareBtnX, y: btnY, w: btnW, h: btnH },
+    return: { x: returnBtnX, y: btnY, w: btnW, h: btnH },
+    retry: { x: shareBtnX, y: retryBtnY, w: retryBtnW, h: btnH }
+  };
+}
+
+// 战绩按钮位置
+let battleResultButtons = null;
 
 // 创建攻击特效
 function createAttackEffect(targetX, targetY, damage, isCrit) {
@@ -4504,9 +5183,10 @@ function hitTest(px, py) {
 
 // ==================== 主绘制函数 ====================
 function draw() {
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // 应用屏幕震动偏移
+  ctx.setTransform(DPR, 0, 0, DPR, screenShakeX * DPR, screenShakeY * DPR);
   ctx.fillStyle = COLOR_BG;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(-screenShakeX, -screenShakeY, W + Math.abs(screenShakeX) * 2, H + Math.abs(screenShakeY) * 2);
 
   updateProjCache();
   const frontBits = getFrontBits();
@@ -4775,6 +5455,15 @@ function draw() {
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(`${Math.ceil(bossWarningTimer)}秒后出现...`, W / 2, H / 2 + 40);
     }
+
+    // 绘制击杀粒子
+    drawKillParticles();
+
+    // 绘制连击计数器
+    drawComboCounter();
+
+    // 绘制连击提示
+    drawComboAnnouncements();
   }
 
   // 暂停菜单（最高优先级显示）
@@ -4782,41 +5471,9 @@ function draw() {
     drawPauseMenu();
   }
 
-  // 游戏结束UI
+  // 游戏结束UI - 增强版战绩分享
   if (gameState === 'gameover') {
-    // 游戏结束画面
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = '#FF4444';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('游戏结束', W / 2, H / 2 - 60);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = '18px sans-serif';
-    ctx.fillText(`击杀数: ${killCount}`, W / 2, H / 2 - 20);
-    ctx.fillStyle = '#FFD700';
-    ctx.fillText(`金币: ${goldCollected}`, W / 2, H / 2 + 10);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(`存活时间: ${Math.floor(adventureTime)}秒`, W / 2, H / 2 + 40);
-
-    // 重新开始按钮
-    const btnW = 120;
-    const btnH = 45;
-    const btnX = (W - btnW) / 2;
-    const btnY = H / 2 + 80;
-
-    ctx.fillStyle = 'rgba(50, 150, 50, 0.9)';
-    ctx.fillRect(btnX, btnY, btnW, btnH);
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(btnX, btnY, btnW, btnH);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('返回', btnX + btnW / 2, btnY + btnH / 2);
+    drawBattleResultScreen();
   }
 
   // 技能HUD - 显示已获得的技能和冷却
@@ -5304,37 +5961,69 @@ function drawSkillSelectionUI() {
 
     // 卡片背景
     const isPassive = skill.type === 'passive';
-    const canSelect = isPassive || playerSkills.length < 4;
+    const isEvolved = skill.type === 'evolved';
+    const canSelect = isPassive || isEvolved || playerSkills.length < 4;
 
-    ctx.fillStyle = canSelect ? 'rgba(40, 40, 60, 0.95)' : 'rgba(40, 40, 40, 0.7)';
-    ctx.fillRect(x, y, cardW, cardH);
+    // 进化技能特殊背景
+    if (isEvolved) {
+      // 金色渐变背景
+      const gradient = ctx.createLinearGradient(x, y, x + cardW, y + cardH);
+      gradient.addColorStop(0, 'rgba(80, 60, 20, 0.95)');
+      gradient.addColorStop(0.5, 'rgba(100, 80, 30, 0.95)');
+      gradient.addColorStop(1, 'rgba(80, 60, 20, 0.95)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, cardW, cardH);
 
-    // 边框颜色
-    ctx.strokeStyle = isPassive ? '#FFD700' : skill.color || '#FFFFFF';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x, y, cardW, cardH);
+      // 闪光边框
+      const glowIntensity = 0.5 + Math.sin(Date.now() / 200) * 0.3;
+      ctx.shadowColor = '#FFD700';
+      ctx.shadowBlur = 15 * glowIntensity;
+      ctx.strokeStyle = '#FFD700';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(x, y, cardW, cardH);
+      ctx.shadowBlur = 0;
+
+      // 进化标签
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText('⬆️ 技能进化！', x + cardW / 2, y + 12);
+    } else {
+      ctx.fillStyle = canSelect ? 'rgba(40, 40, 60, 0.95)' : 'rgba(40, 40, 40, 0.7)';
+      ctx.fillRect(x, y, cardW, cardH);
+
+      // 边框颜色
+      ctx.strokeStyle = isPassive ? '#FFD700' : skill.color || '#FFFFFF';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, cardW, cardH);
+    }
 
     // 技能图标
-    ctx.font = '36px sans-serif';
+    ctx.font = isEvolved ? '40px sans-serif' : '36px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(skill.icon, x + cardW / 2, y + 35);
+    ctx.fillText(skill.icon, x + cardW / 2, y + (isEvolved ? 40 : 35));
 
     // 技能名称
-    ctx.fillStyle = skill.color || '#FFFFFF';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.fillText(skill.name, x + cardW / 2, y + 60);
+    ctx.fillStyle = isEvolved ? '#FFD700' : (skill.color || '#FFFFFF');
+    ctx.font = isEvolved ? 'bold 16px sans-serif' : 'bold 14px sans-serif';
+    ctx.fillText(skill.name, x + cardW / 2, y + (isEvolved ? 68 : 60));
 
     // 卦象
-    ctx.fillStyle = '#888888';
+    ctx.fillStyle = isEvolved ? '#FFAA00' : '#888888';
     ctx.font = '11px sans-serif';
     const trigramSymbols = { '乾': '☰', '坤': '☷', '震': '☳', '巽': '☴', '坎': '☵', '离': '☲', '艮': '☶', '兑': '☱' };
     const trigramText = skill.trigram ? `${trigramSymbols[skill.trigram] || ''} ${skill.trigram}卦` : '';
-    ctx.fillText(trigramText, x + cardW / 2, y + 78);
+    ctx.fillText(trigramText, x + cardW / 2, y + (isEvolved ? 86 : 78));
 
     // 类型标签
-    ctx.fillStyle = isPassive ? '#FFD700' : '#00BFFF';
-    ctx.font = '10px sans-serif';
-    ctx.fillText(isPassive ? '⭐ 被动' : `⚔️ 主动 CD:${skill.cooldown}s`, x + cardW / 2, y + 95);
+    if (isEvolved) {
+      ctx.fillStyle = '#FF6600';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(`🌟 终极技能 CD:${skill.cooldown}s`, x + cardW / 2, y + 103);
+    } else {
+      ctx.fillStyle = isPassive ? '#FFD700' : '#00BFFF';
+      ctx.font = '10px sans-serif';
+      ctx.fillText(isPassive ? '⭐ 被动' : `⚔️ 主动 CD:${skill.cooldown}s`, x + cardW / 2, y + 95);
+    }
 
     // 描述
     ctx.fillStyle = '#CCCCCC';
@@ -5394,31 +6083,44 @@ let lastTime = Date.now();
 
 function gameLoop() {
   const now = Date.now();
-  const dt = Math.min((now - lastTime) / 1000, 0.1); // 最大0.1秒，防止跳帧
+  let dt = Math.min((now - lastTime) / 1000, 0.1); // 最大0.1秒，防止跳帧
   lastTime = now;
+
+  // 更新时间缩放
+  updateTimeScale(dt);
+
+  // 应用时间缩放到游戏逻辑（慢动作效果）
+  const scaledDt = dt * timeScale;
 
   // 暂停时只更新动画时间，不更新游戏逻辑
   if (!isPaused) {
-    walkTime += dt;
+    walkTime += scaledDt;
     stickManSpeed += (targetSpeed - stickManSpeed) * SPEED_LERP;
     sceneOffset += BASE_SCENE_SPEED * stickManSpeed;
 
     // 更新冒险逻辑
-    updateAdventure(dt);
+    updateAdventure(scaledDt);
 
     // 冒险模式下自动攻击和技能
     if (gameState === 'adventure') {
       attackMonsters();
       // 更新攻击特效
-      updateAttackEffects(dt);
+      updateAttackEffects(scaledDt);
       // 更新技能冷却和自动释放（技能/职业选择时暂停）
       if (!isSelectingSkill && !isSelectingClass) {
-        updateSkillCooldowns(dt);
+        updateSkillCooldowns(scaledDt);
         autoUseSkills();
       }
-      updateSkillEffects(dt);
+      updateSkillEffects(scaledDt);
+      // 更新连击计时
+      updateComboTimer(scaledDt);
     }
   }
+
+  // 更新反馈效果（始终更新）
+  updateScreenShake(dt);
+  updateComboAnnouncements(dt);
+  updateKillParticles(dt);
 
   // 更新成就通知（始终更新）
   updateAchievementNotification(dt);
@@ -5704,17 +6406,40 @@ wx.onTouchEnd((e) => {
     return;
   }
 
-  // 游戏结束状态 - 检查返回按钮
-  if (gameState === 'gameover') {
-    const btnW = 120;
-    const btnH = 45;
-    const btnX = (W - btnW) / 2;
-    const btnY = H / 2 + 80;
-    if (tx >= btnX && tx <= btnX + btnW && ty >= btnY && ty <= btnY + btnH) {
+  // 游戏结束状态 - 检查战绩界面按钮
+  if (gameState === 'gameover' && battleResultButtons) {
+    const btns = battleResultButtons;
+
+    // 分享按钮
+    if (tx >= btns.share.x && tx <= btns.share.x + btns.share.w &&
+        ty >= btns.share.y && ty <= btns.share.y + btns.share.h) {
+      shareBattleResult();
+      touchStart = null;
+      return;
+    }
+
+    // 返回按钮
+    if (tx >= btns.return.x && tx <= btns.return.x + btns.return.w &&
+        ty >= btns.return.y && ty <= btns.return.y + btns.return.h) {
       returnToIdle();
       touchStart = null;
       return;
     }
+
+    // 再来一局按钮
+    if (tx >= btns.retry.x && tx <= btns.retry.x + btns.retry.w &&
+        ty >= btns.retry.y && ty <= btns.retry.y + btns.retry.h) {
+      returnToIdle();
+      // 短暂延迟后开始新游戏
+      setTimeout(() => {
+        if (gameState === 'idle') {
+          startAdventure();
+        }
+      }, 100);
+      touchStart = null;
+      return;
+    }
+
     touchStart = null;
     return;
   }
