@@ -160,6 +160,168 @@ function toggleSound() {
   return soundEnabled;
 }
 
+// ==================== 程序化背景音乐系统 ====================
+let musicEnabled = true;
+let musicVolume = 0.15;
+let currentMusicMode = 'idle'; // 'idle' | 'combat'
+let musicScheduler = null;
+let musicNodes = [];
+let nextNoteTime = 0;
+let currentBeat = 0;
+
+// 五声音阶 - 宫商角徵羽 (更有东方韵味)
+const PENTATONIC_IDLE = [261.63, 293.66, 329.63, 392.00, 440.00]; // C D E G A
+const PENTATONIC_COMBAT = [329.63, 392.00, 440.00, 523.25, 587.33]; // E G A C5 D5
+
+// 待机模式节奏模式（16拍循环，0=休止，1-5=音阶位置）
+const IDLE_PATTERN = [
+  1, 0, 3, 0, 2, 0, 5, 0, 4, 0, 3, 0, 2, 0, 1, 0,
+  3, 0, 5, 0, 4, 0, 2, 0, 3, 0, 1, 0, 2, 0, 3, 0
+];
+
+// 战斗模式节奏模式（更快更紧张）
+const COMBAT_PATTERN = [
+  1, 3, 0, 2, 4, 0, 3, 5, 1, 0, 4, 2, 0, 3, 5, 1,
+  2, 4, 1, 3, 0, 5, 2, 4, 1, 3, 5, 0, 2, 4, 1, 3
+];
+
+// 低音伴奏模式
+const BASS_IDLE = [1, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 5, 0, 0, 0];
+const BASS_COMBAT = [1, 0, 1, 0, 3, 0, 1, 0, 2, 0, 2, 0, 4, 0, 2, 0];
+
+// 播放音乐音符
+function playMusicNote(freq, duration, volume, type = 'sine', detune = 0) {
+  if (!audioContext || !musicEnabled) return null;
+
+  const osc = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  osc.type = type;
+  osc.frequency.value = freq;
+  osc.detune.value = detune;
+
+  // 柔和的 ADSR 包络
+  const now = audioContext.currentTime;
+  const attackTime = 0.02;
+  const decayTime = 0.1;
+  const sustainLevel = volume * 0.6;
+  const releaseTime = duration * 0.3;
+
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(volume, now + attackTime);
+  gain.gain.linearRampToValueAtTime(sustainLevel, now + attackTime + decayTime);
+  gain.gain.setValueAtTime(sustainLevel, now + duration - releaseTime);
+  gain.gain.linearRampToValueAtTime(0.001, now + duration);
+
+  osc.connect(gain);
+  gain.connect(audioContext.destination);
+  osc.start(now);
+  osc.stop(now + duration + 0.05);
+
+  return { osc, gain };
+}
+
+// 调度下一个音符
+function scheduleNextNote() {
+  if (!audioContext || !musicEnabled) return;
+
+  const pattern = currentMusicMode === 'combat' ? COMBAT_PATTERN : IDLE_PATTERN;
+  const scale = currentMusicMode === 'combat' ? PENTATONIC_COMBAT : PENTATONIC_IDLE;
+  const bassPattern = currentMusicMode === 'combat' ? BASS_COMBAT : BASS_IDLE;
+  const tempo = currentMusicMode === 'combat' ? 0.15 : 0.25; // 每拍时长
+
+  const patternIndex = currentBeat % pattern.length;
+  const noteValue = pattern[patternIndex];
+  const bassValue = bassPattern[patternIndex % bassPattern.length];
+
+  // 主旋律
+  if (noteValue > 0) {
+    const freq = scale[noteValue - 1];
+    // 添加轻微随机变化
+    const variation = 1 + (Math.random() - 0.5) * 0.02;
+    playMusicNote(freq * variation, tempo * 0.8, musicVolume, 'sine', Math.random() * 5);
+  }
+
+  // 低音伴奏（每4拍一次）
+  if (bassValue > 0 && patternIndex % 4 === 0) {
+    const bassFreq = scale[bassValue - 1] / 2; // 低八度
+    playMusicNote(bassFreq, tempo * 1.5, musicVolume * 0.5, 'triangle');
+  }
+
+  // 战斗模式添加鼓点
+  if (currentMusicMode === 'combat' && patternIndex % 4 === 0) {
+    playNoise(0.05, musicVolume * 0.3);
+  }
+
+  currentBeat++;
+  nextNoteTime += tempo;
+}
+
+// 音乐调度循环
+function musicLoop() {
+  if (!musicEnabled || !audioContext) {
+    musicScheduler = null;
+    return;
+  }
+
+  // 确保音频上下文运行
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+
+  // 提前调度音符以保持流畅
+  while (nextNoteTime < audioContext.currentTime + 0.1) {
+    scheduleNextNote();
+  }
+
+  musicScheduler = setTimeout(musicLoop, 50);
+}
+
+// 开始播放音乐
+function startMusic(mode = 'idle') {
+  if (!audioContext) {
+    initAudio();
+  }
+  if (!audioContext) return;
+
+  currentMusicMode = mode;
+
+  if (!musicScheduler) {
+    nextNoteTime = audioContext.currentTime;
+    currentBeat = 0;
+    musicLoop();
+  }
+}
+
+// 停止音乐
+function stopMusic() {
+  if (musicScheduler) {
+    clearTimeout(musicScheduler);
+    musicScheduler = null;
+  }
+  currentBeat = 0;
+}
+
+// 切换音乐模式
+function setMusicMode(mode) {
+  if (currentMusicMode !== mode) {
+    currentMusicMode = mode;
+    // 模式切换时重置节拍，让音乐自然过渡
+    currentBeat = 0;
+  }
+}
+
+// 切换音乐开关
+function toggleMusic() {
+  musicEnabled = !musicEnabled;
+  if (musicEnabled) {
+    startMusic(currentMusicMode);
+  } else {
+    stopMusic();
+  }
+  return musicEnabled;
+}
+
 function getNodeColor(bits) {
   let ones = 0;
   for (const c of bits) if (c === '1') ones++;
@@ -1975,6 +2137,9 @@ loadGameData();
 loadAchievements();
 checkTutorial();
 
+// 音乐会在首次用户交互时启动（浏览器音频策略）
+let musicInitialized = false;
+
 // 获取当前角色信息
 function getCurrentCharacter() {
   // 10级后才能使用职业
@@ -2825,6 +2990,8 @@ function drawMonsterHPBar(len, headY, headR, monster) {
 function startAdventure() {
   initAudio();  // 确保音频初始化
   playSound('start');
+  setMusicMode('combat');  // 切换到战斗音乐
+  startMusic('combat');     // 确保音乐开始播放
   gameState = 'adventure';
   isPaused = false;
   adventureTime = 0;
@@ -2879,6 +3046,7 @@ function startAdventure() {
 function endAdventure() {
   gameState = 'gameover';
   playSound('death');
+  setMusicMode('idle');  // 死亡后切换到待机音乐
 
   // 更新成就统计
   gameStats.totalRuns++;
@@ -2905,6 +3073,7 @@ function returnToIdle() {
   expToNext = 60;
   currentClass = 'none';
   saveGameData();
+  setMusicMode('idle');  // 切换到待机音乐
   console.log('数据已重置，从1级重新开始');
 }
 
@@ -2951,26 +3120,53 @@ function drawPauseButton() {
   return { x: btnX, y: btnY, size: btnSize };
 }
 
-// 绘制音效按钮
+// 绘制音频控制按钮（音效+音乐）
 function drawSoundButton() {
   const btnSize = 36;
-  const btnX = W - btnSize - 10;
-  const btnY = 10;
+  const gap = 8;
 
-  // 按钮背景
+  // 音效按钮
+  const soundBtnX = W - btnSize - 10;
+  const soundBtnY = 10;
+
   ctx.fillStyle = soundEnabled ? 'rgba(0, 100, 0, 0.6)' : 'rgba(100, 0, 0, 0.6)';
   ctx.beginPath();
-  ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
+  ctx.arc(soundBtnX + btnSize / 2, soundBtnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
   ctx.fill();
 
-  // 音效图标
   ctx.fillStyle = '#FFFFFF';
   ctx.font = '18px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(soundEnabled ? '🔊' : '🔇', btnX + btnSize / 2, btnY + btnSize / 2);
+  ctx.fillText(soundEnabled ? '🔊' : '🔇', soundBtnX + btnSize / 2, soundBtnY + btnSize / 2);
 
-  return { x: btnX, y: btnY, size: btnSize };
+  // 音乐按钮（在音效按钮左边）
+  const musicBtnX = soundBtnX - btnSize - gap;
+  const musicBtnY = 10;
+
+  ctx.fillStyle = musicEnabled ? 'rgba(80, 50, 150, 0.6)' : 'rgba(60, 60, 60, 0.6)';
+  ctx.beginPath();
+  ctx.arc(musicBtnX + btnSize / 2, musicBtnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '18px sans-serif';
+  ctx.fillText(musicEnabled ? '🎵' : '🎵', musicBtnX + btnSize / 2, musicBtnY + btnSize / 2);
+
+  // 音乐关闭时显示删除线
+  if (!musicEnabled) {
+    ctx.strokeStyle = '#FF4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(musicBtnX + 8, musicBtnY + btnSize - 8);
+    ctx.lineTo(musicBtnX + btnSize - 8, musicBtnY + 8);
+    ctx.stroke();
+  }
+
+  return {
+    sound: { x: soundBtnX, y: soundBtnY, size: btnSize },
+    music: { x: musicBtnX, y: musicBtnY, size: btnSize }
+  };
 }
 
 // 绘制暂停菜单
@@ -5283,6 +5479,13 @@ function screenToGround(sx, sy) {
 }
 
 wx.onTouchStart((e) => {
+  // 首次触摸时初始化音乐（浏览器音频策略要求用户交互）
+  if (!musicInitialized) {
+    initAudio();
+    startMusic('idle');
+    musicInitialized = true;
+  }
+
   if (e.touches.length > 0) {
     const tx = e.touches[0].clientX;
     const ty = e.touches[0].clientY;
@@ -5398,15 +5601,30 @@ wx.onTouchEnd((e) => {
     return;
   }
 
-  // 检查音效按钮（所有状态下都可用）
-  const soundBtnSize = 36;
-  const soundBtnX = W - soundBtnSize - 10;
+  // 检查音频按钮（所有状态下都可用）
+  const audioBtnSize = 36;
+  const gap = 8;
+
+  // 音效按钮
+  const soundBtnX = W - audioBtnSize - 10;
   const soundBtnY = 10;
-  const soundCenterX = soundBtnX + soundBtnSize / 2;
-  const soundCenterY = soundBtnY + soundBtnSize / 2;
+  const soundCenterX = soundBtnX + audioBtnSize / 2;
+  const soundCenterY = soundBtnY + audioBtnSize / 2;
   const soundDist = Math.sqrt((tx - soundCenterX) ** 2 + (ty - soundCenterY) ** 2);
-  if (soundDist <= soundBtnSize / 2 + 5) {
+  if (soundDist <= audioBtnSize / 2 + 5) {
     toggleSound();
+    touchStart = null;
+    return;
+  }
+
+  // 音乐按钮
+  const musicBtnX = soundBtnX - audioBtnSize - gap;
+  const musicBtnY = 10;
+  const musicCenterX = musicBtnX + audioBtnSize / 2;
+  const musicCenterY = musicBtnY + audioBtnSize / 2;
+  const musicDist = Math.sqrt((tx - musicCenterX) ** 2 + (ty - musicCenterY) ** 2);
+  if (musicDist <= audioBtnSize / 2 + 5) {
+    toggleMusic();
     touchStart = null;
     return;
   }
