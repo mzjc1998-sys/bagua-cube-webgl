@@ -1785,6 +1785,7 @@ function getPlayerStats() {
 
 // ==================== 冒险系统 ====================
 let gameState = 'idle'; // 'idle' | 'adventure' | 'gameover'
+let isPaused = false;   // 暂停状态
 let adventureTime = 0;
 let killCount = 0;
 let playerHP = 100;
@@ -2486,6 +2487,7 @@ function drawMonsterHPBar(len, headY, headR, monster) {
 // 开始冒险
 function startAdventure() {
   gameState = 'adventure';
+  isPaused = false;
   adventureTime = 0;
   killCount = 0;
   const stats = getPlayerStats();
@@ -2539,6 +2541,7 @@ function endAdventure() {
 // 返回待机（死亡后重置所有数据）
 function returnToIdle() {
   gameState = 'idle';
+  isPaused = false;
   monsters = [];
   // 死亡后重置所有进度
   playerLevel = 1;
@@ -2547,6 +2550,100 @@ function returnToIdle() {
   currentClass = 'none';
   saveGameData();
   console.log('数据已重置，从1级重新开始');
+}
+
+// 暂停游戏
+function pauseGame() {
+  if (gameState === 'adventure') {
+    isPaused = true;
+    console.log('游戏已暂停');
+  }
+}
+
+// 继续游戏
+function resumeGame() {
+  isPaused = false;
+  console.log('游戏继续');
+}
+
+// 放弃当前冒险（从暂停菜单退出）
+function quitAdventure() {
+  isPaused = false;
+  returnToIdle();
+}
+
+// 绘制暂停按钮
+function drawPauseButton() {
+  const btnSize = 36;
+  const btnX = W - btnSize - 10;
+  const btnY = 60;
+
+  // 按钮背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.beginPath();
+  ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 暂停图标（两条竖线）
+  ctx.fillStyle = '#FFFFFF';
+  const barW = 6;
+  const barH = 16;
+  const gap = 4;
+  ctx.fillRect(btnX + btnSize / 2 - barW - gap / 2, btnY + (btnSize - barH) / 2, barW, barH);
+  ctx.fillRect(btnX + btnSize / 2 + gap / 2, btnY + (btnSize - barH) / 2, barW, barH);
+
+  return { x: btnX, y: btnY, size: btnSize };
+}
+
+// 绘制暂停菜单
+function drawPauseMenu() {
+  // 半透明遮罩
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  ctx.fillRect(0, 0, W, H);
+
+  // 暂停标题
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 32px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('⏸️ 游戏暂停', W / 2, H / 2 - 80);
+
+  // 当前状态
+  ctx.font = '14px sans-serif';
+  ctx.fillStyle = '#AAAAAA';
+  ctx.fillText(`Lv.${playerLevel}  击杀: ${killCount}  时间: ${Math.floor(adventureTime)}s`, W / 2, H / 2 - 40);
+
+  // 继续按钮
+  const btnW = 140;
+  const btnH = 45;
+  const btnX = (W - btnW) / 2;
+  const resumeBtnY = H / 2;
+
+  ctx.fillStyle = 'rgba(50, 150, 50, 0.9)';
+  ctx.fillRect(btnX, resumeBtnY, btnW, btnH);
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(btnX, resumeBtnY, btnW, btnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('▶ 继续游戏', btnX + btnW / 2, resumeBtnY + btnH / 2);
+
+  // 退出按钮
+  const quitBtnY = H / 2 + 60;
+  ctx.fillStyle = 'rgba(150, 50, 50, 0.9)';
+  ctx.fillRect(btnX, quitBtnY, btnW, btnH);
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(btnX, quitBtnY, btnW, btnH);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText('✕ 放弃冒险', btnX + btnW / 2, quitBtnY + btnH / 2);
+
+  return {
+    resumeBtn: { x: btnX, y: resumeBtnY, w: btnW, h: btnH },
+    quitBtn: { x: btnX, y: quitBtnY, w: btnW, h: btnH }
+  };
 }
 
 // 攻击怪物
@@ -3937,11 +4034,19 @@ function draw() {
     ctx.fillStyle = '#00BCD4';
     ctx.fillText(`时间: ${Math.floor(adventureTime)}s`, W - 10, 54);
 
+    // 暂停按钮（右上角，战斗信息下方）
+    drawPauseButton();
+
     // 操作提示（顶部中央）
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('点击头像查看详细属性', W / 2, 25);
+  }
+
+  // 暂停菜单（最高优先级显示）
+  if (isPaused && gameState === 'adventure') {
+    drawPauseMenu();
   }
 
   // 游戏结束UI
@@ -4548,24 +4653,27 @@ function gameLoop() {
   const dt = Math.min((now - lastTime) / 1000, 0.1); // 最大0.1秒，防止跳帧
   lastTime = now;
 
-  walkTime += dt;
-  stickManSpeed += (targetSpeed - stickManSpeed) * SPEED_LERP;
-  sceneOffset += BASE_SCENE_SPEED * stickManSpeed;
+  // 暂停时只更新动画时间，不更新游戏逻辑
+  if (!isPaused) {
+    walkTime += dt;
+    stickManSpeed += (targetSpeed - stickManSpeed) * SPEED_LERP;
+    sceneOffset += BASE_SCENE_SPEED * stickManSpeed;
 
-  // 更新冒险逻辑
-  updateAdventure(dt);
+    // 更新冒险逻辑
+    updateAdventure(dt);
 
-  // 冒险模式下自动攻击和技能
-  if (gameState === 'adventure') {
-    attackMonsters();
-    // 更新攻击特效
-    updateAttackEffects(dt);
-    // 更新技能冷却和自动释放（技能选择时暂停）
-    if (!isSelectingSkill) {
-      updateSkillCooldowns(dt);
-      autoUseSkills();
+    // 冒险模式下自动攻击和技能
+    if (gameState === 'adventure') {
+      attackMonsters();
+      // 更新攻击特效
+      updateAttackEffects(dt);
+      // 更新技能冷却和自动释放（技能/职业选择时暂停）
+      if (!isSelectingSkill && !isSelectingClass) {
+        updateSkillCooldowns(dt);
+        autoUseSkills();
+      }
+      updateSkillEffects(dt);
     }
-    updateSkillEffects(dt);
   }
 
   draw();
@@ -4679,7 +4787,49 @@ wx.onTouchEnd((e) => {
     return;
   }
 
-  // 职业选择状态 - 最高优先级
+  // 暂停菜单状态 - 最高优先级
+  if (isPaused && gameState === 'adventure') {
+    const btnW = 140;
+    const btnH = 45;
+    const btnX = (W - btnW) / 2;
+    const resumeBtnY = H / 2;
+    const quitBtnY = H / 2 + 60;
+
+    // 检查继续按钮
+    if (tx >= btnX && tx <= btnX + btnW && ty >= resumeBtnY && ty <= resumeBtnY + btnH) {
+      resumeGame();
+      touchStart = null;
+      return;
+    }
+
+    // 检查退出按钮
+    if (tx >= btnX && tx <= btnX + btnW && ty >= quitBtnY && ty <= quitBtnY + btnH) {
+      quitAdventure();
+      touchStart = null;
+      return;
+    }
+
+    touchStart = null;
+    return;
+  }
+
+  // 冒险模式中检查暂停按钮
+  if (gameState === 'adventure' && !isPaused && !isSelectingSkill && !isSelectingClass) {
+    const btnSize = 36;
+    const pauseBtnX = W - btnSize - 10;
+    const pauseBtnY = 60;
+    const centerX = pauseBtnX + btnSize / 2;
+    const centerY = pauseBtnY + btnSize / 2;
+    const dist = Math.sqrt((tx - centerX) ** 2 + (ty - centerY) ** 2);
+
+    if (dist <= btnSize / 2 + 5) { // 稍微增大点击区域
+      pauseGame();
+      touchStart = null;
+      return;
+    }
+  }
+
+  // 职业选择状态
   if (isSelectingClass) {
     const classKeys = Object.keys(CLASS_TYPES);
     const cardW = 100;
