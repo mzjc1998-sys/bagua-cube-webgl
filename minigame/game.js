@@ -17,7 +17,51 @@ canvas.height = H * DPR;
 
 // ==================== 工具函数 ====================
 
-// 绘制按钮（通用）
+// 美术风格配置
+const STYLE = {
+  // 主色调
+  primary: '#6366f1',      // 靛蓝
+  secondary: '#8b5cf6',    // 紫色
+  accent: '#f59e0b',       // 琥珀
+  danger: '#ef4444',       // 红色
+  success: '#22c55e',      // 绿色
+
+  // 背景色
+  bgDark: '#0f0f1a',
+  bgPanel: 'rgba(15, 15, 30, 0.95)',
+
+  // 发光色
+  glowBlue: '#60a5fa',
+  glowPurple: '#a78bfa',
+  glowGold: '#fbbf24'
+};
+
+// 绘制发光效果
+function drawGlow(x, y, radius, color, intensity = 1) {
+  const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  gradient.addColorStop(0, color + Math.floor(intensity * 80).toString(16).padStart(2, '0'));
+  gradient.addColorStop(0.5, color + Math.floor(intensity * 30).toString(16).padStart(2, '0'));
+  gradient.addColorStop(1, 'transparent');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+}
+
+// 绘制圆角矩形
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// 绘制按钮（增强版）
 function drawButton(x, y, w, h, text, options = {}) {
   const {
     bgColor = 'rgba(80, 80, 80, 0.9)',
@@ -26,33 +70,123 @@ function drawButton(x, y, w, h, text, options = {}) {
     fontSize = 14,
     fontWeight = 'bold',
     disabled = false,
-    gradient = null
+    gradient = null,
+    glow = false,
+    pulse = false,
+    rounded = 4
   } = options;
 
+  ctx.save();
+
+  // 脉冲动画
+  const pulseScale = pulse && !disabled ? 1 + Math.sin(Date.now() / 300) * 0.02 : 1;
+  const pulseAlpha = pulse && !disabled ? 0.8 + Math.sin(Date.now() / 300) * 0.2 : 1;
+
+  // 发光效果
+  if (glow && !disabled) {
+    ctx.shadowColor = borderColor;
+    ctx.shadowBlur = 15 + Math.sin(Date.now() / 200) * 5;
+  }
+
   // 背景
-  if (gradient) {
-    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+  roundRect(x, y, w * pulseScale, h, rounded);
+  if (gradient && !disabled) {
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
     grad.addColorStop(0, gradient[0]);
     grad.addColorStop(1, gradient[1]);
-    ctx.fillStyle = disabled ? 'rgba(80,80,80,0.5)' : grad;
+    ctx.fillStyle = grad;
   } else {
-    ctx.fillStyle = disabled ? 'rgba(80,80,80,0.5)' : bgColor;
+    ctx.fillStyle = disabled ? 'rgba(60,60,70,0.7)' : bgColor;
   }
-  ctx.fillRect(x, y, w, h);
+  ctx.fill();
+
+  // 顶部高光
+  if (!disabled) {
+    roundRect(x, y, w, h / 2, rounded);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fill();
+  }
 
   // 边框
-  ctx.strokeStyle = disabled ? '#666666' : borderColor;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, w, h);
+  roundRect(x, y, w, h, rounded);
+  ctx.strokeStyle = disabled ? '#444455' : borderColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 
-  // 文字
-  ctx.fillStyle = disabled ? '#888888' : textColor;
+  ctx.shadowBlur = 0;
+
+  // 文字阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
   ctx.font = `${fontWeight} ${fontSize}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2 + 1, y + h / 2 + 1);
+
+  // 文字
+  ctx.fillStyle = disabled ? '#666677' : textColor;
+  ctx.globalAlpha = pulseAlpha;
   ctx.fillText(text, x + w / 2, y + h / 2);
 
+  ctx.restore();
   return { x, y, w, h };
+}
+
+// 绘制面板背景
+function drawPanel(x, y, w, h, options = {}) {
+  const { rounded = 8, borderColor = '#333355', glow = false } = options;
+
+  ctx.save();
+
+  if (glow) {
+    ctx.shadowColor = borderColor;
+    ctx.shadowBlur = 20;
+  }
+
+  // 背景渐变
+  roundRect(x, y, w, h, rounded);
+  const grad = ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, 'rgba(25, 25, 45, 0.98)');
+  grad.addColorStop(1, 'rgba(15, 15, 30, 0.98)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 边框
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // 内部高光边
+  roundRect(x + 1, y + 1, w - 2, h - 2, rounded - 1);
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// 绘制标题文字（带光效）
+function drawTitle(text, x, y, options = {}) {
+  const { fontSize = 24, color = '#FFFFFF', glow = true, glowColor = STYLE.glowBlue } = options;
+
+  ctx.save();
+
+  if (glow) {
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 20;
+  }
+
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // 外发光文字
+  ctx.fillStyle = glowColor + '40';
+  ctx.fillText(text, x, y);
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+
+  ctx.restore();
 }
 
 // 绘制文本（通用）
@@ -63,20 +197,81 @@ function drawText(text, x, y, options = {}) {
     fontWeight = '',
     align = 'center',
     baseline = 'middle',
-    shadow = false
+    shadow = false,
+    glow = false,
+    glowColor = null
   } = options;
 
+  ctx.save();
   ctx.font = `${fontWeight} ${fontSize}px sans-serif`.trim();
   ctx.textAlign = align;
   ctx.textBaseline = baseline;
 
+  if (glow && glowColor) {
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 10;
+  }
+
   if (shadow) {
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillText(text, x + 1, y + 1);
+    ctx.shadowBlur = 0;
   }
 
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+// 绘制进度条
+function drawProgressBar(x, y, w, h, progress, options = {}) {
+  const { bgColor = '#1a1a2e', fillColor = STYLE.primary, glowColor = STYLE.glowBlue, showGlow = true } = options;
+
+  ctx.save();
+
+  // 背景
+  roundRect(x, y, w, h, h / 2);
+  ctx.fillStyle = bgColor;
+  ctx.fill();
+
+  // 填充
+  if (progress > 0) {
+    const fillW = Math.max(h, w * Math.min(1, progress));
+    roundRect(x, y, fillW, h, h / 2);
+
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, fillColor);
+    grad.addColorStop(1, shadeColor(fillColor, -30));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // 高光
+    roundRect(x, y, fillW, h / 2, h / 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fill();
+
+    // 发光
+    if (showGlow) {
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = 10;
+      roundRect(x, y, fillW, h, h / 2);
+      ctx.strokeStyle = glowColor + '60';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+// 颜色变暗/变亮
+function shadeColor(color, percent) {
+  const num = parseInt(color.replace('#', ''), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+  const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
+  const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
+  return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
 }
 
 // 检查游戏状态
@@ -2441,7 +2636,7 @@ function updateSkillEffects(dt) {
   }
 }
 
-// 绘制技能特效
+// 绘制技能特效 - 增强版
 function drawSkillEffects(groundQuad) {
   for (const effect of skillEffects) {
     // 转换到屏幕坐标
@@ -2451,76 +2646,161 @@ function drawSkillEffects(groundQuad) {
     if (screenX < 0 || screenX > 1 || screenY < 0 || screenY > 1) continue;
 
     const pt = getGroundPoint(groundQuad, screenX, screenY);
+    const progress = 1 - effect.timer / effect.duration;
 
     ctx.save();
 
     switch (effect.type) {
       case 'dash':
+        // 冲刺残影效果
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 15;
         ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 5;
         ctx.globalAlpha = effect.timer / effect.duration;
+        ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(pt.x, pt.y);
-        ctx.lineTo(pt.x + Math.cos(effect.angle) * 30, pt.y + Math.sin(effect.angle) * 30);
+        ctx.lineTo(pt.x + Math.cos(effect.angle) * 40, pt.y + Math.sin(effect.angle) * 40);
         ctx.stroke();
-        break;
-
-      case 'shield':
-        ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = 0.6;
-        const shieldR = 25 * pt.scale;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y - 20, shieldR, 0, Math.PI * 2);
-        ctx.stroke();
-        break;
-
-      case 'light_burst':
-      case 'electric_burst':
-        ctx.fillStyle = effect.color;
-        ctx.globalAlpha = effect.timer / effect.duration * 0.5;
-        const burstR = effect.radius * 200 * pt.scale;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, burstR, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-
-      case 'laser':
-        ctx.strokeStyle = effect.color;
-        ctx.lineWidth = effect.width * 200 * pt.scale;
-        ctx.globalAlpha = effect.timer / effect.duration;
-        ctx.beginPath();
-        ctx.moveTo(pt.x, pt.y);
-        const laserLen = 150;
-        ctx.lineTo(pt.x + Math.cos(effect.angle) * laserLen, pt.y + Math.sin(effect.angle) * laserLen);
-        ctx.stroke();
-        // 光晕
-        ctx.lineWidth = effect.width * 300 * pt.scale;
-        ctx.globalAlpha = effect.timer / effect.duration * 0.3;
-        ctx.stroke();
-        break;
-
-      case 'spin':
-        ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = 0.7;
-        const spinR = effect.radius * 200 * pt.scale;
-        const spinAngle = walkTime * 10;
-        for (let i = 0; i < 4; i++) {
-          const a = spinAngle + (i * Math.PI / 2);
+        // 拖尾
+        for (let i = 1; i <= 3; i++) {
+          ctx.globalAlpha = (effect.timer / effect.duration) * (0.3 / i);
+          ctx.lineWidth = 5 - i;
           ctx.beginPath();
-          ctx.moveTo(pt.x, pt.y - 15);
-          ctx.lineTo(pt.x + Math.cos(a) * spinR, pt.y - 15 + Math.sin(a) * spinR * 0.5);
+          ctx.moveTo(pt.x - Math.cos(effect.angle) * i * 10, pt.y - Math.sin(effect.angle) * i * 10);
+          ctx.lineTo(pt.x + Math.cos(effect.angle) * (40 - i * 8), pt.y + Math.sin(effect.angle) * (40 - i * 8));
           ctx.stroke();
         }
         break;
 
-      case 'cone':
-        ctx.fillStyle = effect.color;
-        ctx.globalAlpha = effect.timer / effect.duration * 0.6;
+      case 'shield':
+        // 护盾 - 能量波纹
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 20;
+        const shieldR = 25 * pt.scale;
+        const pulseR = shieldR * (1 + Math.sin(Date.now() * 0.01) * 0.1);
+        // 外圈
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 4;
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - 20, pulseR, 0, Math.PI * 2);
+        ctx.stroke();
+        // 内圈能量
+        const innerGrad = ctx.createRadialGradient(pt.x, pt.y - 20, 0, pt.x, pt.y - 20, pulseR);
+        innerGrad.addColorStop(0, effect.color + '00');
+        innerGrad.addColorStop(0.7, effect.color + '20');
+        innerGrad.addColorStop(1, effect.color + '60');
+        ctx.fillStyle = innerGrad;
+        ctx.fill();
+        break;
+
+      case 'light_burst':
+      case 'electric_burst':
+        // 爆发光波 - 多层渐变
+        const burstR = effect.radius * 200 * pt.scale;
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 25;
+        // 外圈
+        const burstGrad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, burstR);
+        burstGrad.addColorStop(0, effect.color);
+        burstGrad.addColorStop(0.5, effect.color + '80');
+        burstGrad.addColorStop(1, effect.color + '00');
+        ctx.fillStyle = burstGrad;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.7;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, burstR, 0, Math.PI * 2);
+        ctx.fill();
+        // 闪电效果（电系）
+        if (effect.type === 'electric_burst') {
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 2;
+          for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 + Date.now() * 0.005;
+            ctx.beginPath();
+            ctx.moveTo(pt.x, pt.y);
+            let lx = pt.x, ly = pt.y;
+            for (let j = 0; j < 4; j++) {
+              lx += Math.cos(angle + (Math.random() - 0.5)) * burstR * 0.25;
+              ly += Math.sin(angle + (Math.random() - 0.5)) * burstR * 0.25;
+              ctx.lineTo(lx, ly);
+            }
+            ctx.stroke();
+          }
+        }
+        break;
+
+      case 'laser':
+        // 激光 - 多层光束
+        const laserLen = 150;
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 30;
+        // 核心光束
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = effect.width * 100 * pt.scale;
+        ctx.globalAlpha = effect.timer / effect.duration;
+        ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x + Math.cos(effect.angle) * laserLen, pt.y + Math.sin(effect.angle) * laserLen);
+        ctx.stroke();
+        // 外层光晕
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = effect.width * 250 * pt.scale;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.5;
+        ctx.stroke();
+        // 最外层
+        ctx.lineWidth = effect.width * 400 * pt.scale;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.2;
+        ctx.stroke();
+        break;
+
+      case 'spin':
+        // 旋风斩 - 刀光效果
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 15;
+        const spinR = effect.radius * 200 * pt.scale;
+        const spinAngle = walkTime * 12;
+        // 旋转刀光
+        for (let i = 0; i < 4; i++) {
+          const a = spinAngle + (i * Math.PI / 2);
+          const trailLen = 0.4;
+          // 刀光渐变
+          ctx.globalAlpha = 0.8;
+          ctx.strokeStyle = effect.color;
+          ctx.lineWidth = 4;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(pt.x + Math.cos(a - trailLen) * spinR * 0.3, pt.y - 15 + Math.sin(a - trailLen) * spinR * 0.15);
+          ctx.quadraticCurveTo(
+            pt.x + Math.cos(a) * spinR, pt.y - 15 + Math.sin(a) * spinR * 0.5,
+            pt.x + Math.cos(a + trailLen) * spinR * 0.3, pt.y - 15 + Math.sin(a + trailLen) * spinR * 0.15
+          );
+          ctx.stroke();
+        }
+        // 中心漩涡
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y - 15, spinR * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = effect.color + '40';
+        ctx.fill();
+        break;
+
+      case 'cone':
+        // 锥形攻击 - 渐变扇形
         const coneR = effect.range * 200 * pt.scale;
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 20;
+        // 渐变填充
+        const coneGrad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, coneR);
+        coneGrad.addColorStop(0, effect.color);
+        coneGrad.addColorStop(0.6, effect.color + 'AA');
+        coneGrad.addColorStop(1, effect.color + '00');
+        ctx.fillStyle = coneGrad;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
         ctx.arc(pt.x, pt.y, coneR, effect.angle - effect.spread / 2, effect.angle + effect.spread / 2);
         ctx.closePath();
         ctx.fill();
@@ -2528,64 +2808,141 @@ function drawSkillEffects(groundQuad) {
 
       case 'missile':
       case 'projectile':
-        ctx.fillStyle = effect.color;
+        // 飞弹 - 带拖尾
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 15;
+        ctx.fillStyle = '#FFFFFF';
         ctx.globalAlpha = effect.timer / effect.duration;
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
         ctx.fill();
+        // 外圈
+        ctx.fillStyle = effect.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 10, 0, Math.PI * 2);
+        ctx.globalAlpha = effect.timer / effect.duration * 0.5;
+        ctx.fill();
+        // 拖尾
+        if (effect.vx !== undefined) {
+          const trailAngle = Math.atan2(-effect.vy, -effect.vx);
+          ctx.globalAlpha = effect.timer / effect.duration * 0.3;
+          for (let i = 1; i <= 4; i++) {
+            ctx.beginPath();
+            ctx.arc(pt.x + Math.cos(trailAngle) * i * 6, pt.y + Math.sin(trailAngle) * i * 6, 6 - i, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
         break;
 
       case 'strike':
       case 'bounce_hit':
+        // 打击波纹 - 多重扩散
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 15;
+        const strikeR = 20 * progress;
         ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3 * (1 - progress);
         ctx.globalAlpha = effect.timer / effect.duration;
-        const strikeR = 15 * (1 - effect.timer / effect.duration);
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, strikeR, 0, Math.PI * 2);
+        ctx.stroke();
+        // 第二层波纹
+        ctx.globalAlpha = effect.timer / effect.duration * 0.5;
+        ctx.lineWidth = 2 * (1 - progress);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, strikeR * 1.5, 0, Math.PI * 2);
         ctx.stroke();
         break;
 
       case 'blink_start':
       case 'blink_end':
-        ctx.fillStyle = effect.color;
-        ctx.globalAlpha = effect.timer / effect.duration * 0.7;
+        // 传送效果 - 能量漩涡
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 25;
+        const blinkR = 25 * progress;
+        // 漩涡
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.8;
+        for (let i = 0; i < 3; i++) {
+          const angle = Date.now() * 0.01 + i * Math.PI * 2 / 3;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, blinkR * (0.5 + i * 0.25), angle, angle + Math.PI);
+          ctx.stroke();
+        }
+        // 中心光点
+        ctx.fillStyle = '#FFFFFF';
+        ctx.globalAlpha = effect.timer / effect.duration;
         ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 20 * (1 - effect.timer / effect.duration), 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 5 * (1 - progress), 0, Math.PI * 2);
         ctx.fill();
         break;
 
       case 'hook':
-        ctx.strokeStyle = effect.color;
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = effect.timer / effect.duration;
+        // 钩索 - 带光链
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 10;
         const startPt = getGroundPoint(groundQuad, effect.startX - playerX + 0.5, effect.startY - playerY + 0.5);
         const endPt = getGroundPoint(groundQuad, effect.endX - playerX + 0.5, effect.endY - playerY + 0.5);
+        // 主链
+        ctx.strokeStyle = effect.color;
+        ctx.lineWidth = 4;
+        ctx.globalAlpha = effect.timer / effect.duration;
         ctx.beginPath();
         ctx.moveTo(startPt.x, startPt.y);
         ctx.lineTo(endPt.x, endPt.y);
         ctx.stroke();
+        // 光点
+        const hookProgress = 1 - effect.timer / effect.duration;
+        const hpx = startPt.x + (endPt.x - startPt.x) * hookProgress;
+        const hpy = startPt.y + (endPt.y - startPt.y) * hookProgress;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(hpx, hpy, 6, 0, Math.PI * 2);
+        ctx.fill();
         break;
 
       case 'trap':
         if (!effect.triggered) {
-          ctx.font = `${20 * pt.scale}px sans-serif`;
+          ctx.shadowColor = '#FF6600';
+          ctx.shadowBlur = 10 + Math.sin(Date.now() * 0.01) * 5;
+          ctx.font = `${22 * pt.scale}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.fillText(effect.icon || '💣', pt.x, pt.y);
         }
         break;
 
       case 'explosion':
-        ctx.fillStyle = effect.color;
-        ctx.globalAlpha = effect.timer / effect.duration * 0.8;
-        const expR = 30 * (1 - effect.timer / effect.duration) * pt.scale;
+        // 爆炸 - 多层波纹
+        ctx.shadowColor = effect.color;
+        ctx.shadowBlur = 30;
+        const expR = 40 * progress * pt.scale;
+        // 内核
+        const expGrad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, expR);
+        expGrad.addColorStop(0, '#FFFFFF');
+        expGrad.addColorStop(0.3, effect.color);
+        expGrad.addColorStop(1, effect.color + '00');
+        ctx.fillStyle = expGrad;
+        ctx.globalAlpha = effect.timer / effect.duration * 0.9;
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, expR, 0, Math.PI * 2);
         ctx.fill();
+        // 碎片
+        for (let i = 0; i < 8; i++) {
+          const fragAngle = (i / 8) * Math.PI * 2;
+          const fragDist = expR * (0.8 + Math.random() * 0.4);
+          ctx.fillStyle = effect.color;
+          ctx.globalAlpha = effect.timer / effect.duration * 0.6;
+          ctx.beginPath();
+          ctx.arc(pt.x + Math.cos(fragAngle) * fragDist, pt.y + Math.sin(fragAngle) * fragDist, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
         break;
 
       case 'generic':
-        ctx.font = `${30 * pt.scale}px sans-serif`;
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 15;
+        ctx.font = `${32 * pt.scale}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.globalAlpha = effect.timer / effect.duration;
         ctx.fillText(effect.icon || '✨', pt.x, pt.y - 20);
@@ -4222,16 +4579,38 @@ function drawBossType(x, y, scale, monster, time, info) {
   ctx.restore();
 }
 
-// 绘制怪物血条（通用）
+// 绘制怪物血条（通用）- 增强版
 function drawMonsterHPBar(len, headY, headR, monster) {
   if (monster.hp < monster.maxHp) {
-    const barW = len * 2;
-    const barH = 3;
-    const barY = headY - headR - 8;
-    ctx.fillStyle = '#333';
-    ctx.fillRect(-barW / 2, barY, barW, barH);
-    ctx.fillStyle = '#E53935';
-    ctx.fillRect(-barW / 2, barY, barW * (monster.hp / monster.maxHp), barH);
+    const barW = len * 2.2;
+    const barH = 4;
+    const barY = headY - headR - 10;
+    const hpRatio = Math.max(0, monster.hp / monster.maxHp);
+
+    // 背景条 - 圆角
+    ctx.fillStyle = 'rgba(20, 15, 25, 0.8)';
+    ctx.beginPath();
+    ctx.roundRect(-barW / 2, barY, barW, barH, barH / 2);
+    ctx.fill();
+
+    // 血条 - 根据血量变色
+    if (hpRatio > 0) {
+      const hpColor = hpRatio > 0.5 ? '#4CAF50' : (hpRatio > 0.25 ? '#FFC107' : '#E53935');
+      ctx.shadowColor = hpColor;
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = hpColor;
+      ctx.beginPath();
+      ctx.roundRect(-barW / 2 + 1, barY + 1, Math.max(0, (barW - 2) * hpRatio), barH - 2, (barH - 2) / 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // 边框
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.roundRect(-barW / 2, barY, barW, barH, barH / 2);
+    ctx.stroke();
   }
 }
 
@@ -4546,45 +4925,125 @@ function drawSettingsPanel() {
 
 // 绘制暂停菜单
 function drawPauseMenu() {
-  // 半透明遮罩
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  const time = Date.now() * 0.001;
+
+  // 渐变遮罩
+  const overlayGrad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.7);
+  overlayGrad.addColorStop(0, 'rgba(15, 15, 30, 0.85)');
+  overlayGrad.addColorStop(1, 'rgba(5, 5, 15, 0.95)');
+  ctx.fillStyle = overlayGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // 暂停标题
+  // 背景网格动画
+  ctx.save();
+  ctx.strokeStyle = 'rgba(100, 100, 200, 0.1)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 30) {
+    ctx.beginPath();
+    ctx.moveTo(x + Math.sin(time + x * 0.01) * 5, 0);
+    ctx.lineTo(x + Math.sin(time + x * 0.01) * 5, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 30) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + Math.cos(time + y * 0.01) * 5);
+    ctx.lineTo(W, y + Math.cos(time + y * 0.01) * 5);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 面板背景
+  const panelW = 200;
+  const panelH = 250;
+  const panelX = (W - panelW) / 2;
+  const panelY = (H - panelH) / 2 - 20;
+
+  ctx.save();
+  ctx.shadowColor = STYLE.glowPurple;
+  ctx.shadowBlur = 30;
+  roundRect(panelX, panelY, panelW, panelH, 16);
+  const panelGrad = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+  panelGrad.addColorStop(0, 'rgba(30, 28, 55, 0.98)');
+  panelGrad.addColorStop(1, 'rgba(20, 18, 40, 0.98)');
+  ctx.fillStyle = panelGrad;
+  ctx.fill();
+
+  // 面板边框
+  ctx.shadowBlur = 0;
+  roundRect(panelX, panelY, panelW, panelH, 16);
+  const borderGrad = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
+  borderGrad.addColorStop(0, STYLE.primary);
+  borderGrad.addColorStop(0.5, STYLE.glowPurple);
+  borderGrad.addColorStop(1, STYLE.secondary);
+  ctx.strokeStyle = borderGrad;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+
+  // 暂停标题 - 发光效果
+  ctx.save();
+  ctx.shadowColor = STYLE.glowBlue;
+  ctx.shadowBlur = 20;
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 32px sans-serif';
+  ctx.font = 'bold 28px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('⏸️ 游戏暂停', W / 2, H / 2 - 80);
+  ctx.fillText('⏸ 游戏暂停', W / 2, panelY + 40);
+  ctx.restore();
 
-  // 当前状态
-  ctx.font = '14px sans-serif';
-  ctx.fillStyle = '#AAAAAA';
-  ctx.fillText(`Lv.${playerLevel}  击杀: ${killCount}  时间: ${Math.floor(adventureTime)}s`, W / 2, H / 2 - 40);
+  // 当前状态 - 带图标
+  ctx.font = '13px sans-serif';
+  ctx.fillStyle = STYLE.glowBlue;
+  ctx.textAlign = 'center';
+  ctx.fillText(`⚔ Lv.${playerLevel}  💀 ${killCount}  ⏱ ${Math.floor(adventureTime)}s`, W / 2, panelY + 80);
+
+  // 分割线
+  ctx.beginPath();
+  ctx.moveTo(panelX + 20, panelY + 100);
+  ctx.lineTo(panelX + panelW - 20, panelY + 100);
+  ctx.strokeStyle = 'rgba(100, 100, 200, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
   // 继续按钮
-  const btnW = 140;
-  const btnH = 45;
+  const btnW = 160;
+  const btnH = 48;
   const btnX = (W - btnW) / 2;
-  const resumeBtnY = H / 2;
+  const resumeBtnY = panelY + 120;
 
-  ctx.fillStyle = 'rgba(50, 150, 50, 0.9)';
-  ctx.fillRect(btnX, resumeBtnY, btnW, btnH);
-  ctx.strokeStyle = '#FFFFFF';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(btnX, resumeBtnY, btnW, btnH);
+  ctx.save();
+  ctx.shadowColor = STYLE.success;
+  ctx.shadowBlur = 15;
+  roundRect(btnX, resumeBtnY, btnW, btnH, 10);
+  const resumeGrad = ctx.createLinearGradient(btnX, resumeBtnY, btnX, resumeBtnY + btnH);
+  resumeGrad.addColorStop(0, 'rgba(34, 197, 94, 0.9)');
+  resumeGrad.addColorStop(1, 'rgba(22, 163, 74, 0.9)');
+  ctx.fillStyle = resumeGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 
   ctx.fillStyle = '#FFFFFF';
   ctx.font = 'bold 16px sans-serif';
   ctx.fillText('▶ 继续游戏', btnX + btnW / 2, resumeBtnY + btnH / 2);
 
   // 退出按钮
-  const quitBtnY = H / 2 + 60;
-  ctx.fillStyle = 'rgba(150, 50, 50, 0.9)';
-  ctx.fillRect(btnX, quitBtnY, btnW, btnH);
-  ctx.strokeStyle = '#FFFFFF';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(btnX, quitBtnY, btnW, btnH);
+  const quitBtnY = panelY + 185;
+  ctx.save();
+  ctx.shadowColor = STYLE.danger;
+  ctx.shadowBlur = 15;
+  roundRect(btnX, quitBtnY, btnW, btnH, 10);
+  const quitGrad = ctx.createLinearGradient(btnX, quitBtnY, btnX, quitBtnY + btnH);
+  quitGrad.addColorStop(0, 'rgba(239, 68, 68, 0.9)');
+  quitGrad.addColorStop(1, 'rgba(185, 28, 28, 0.9)');
+  ctx.fillStyle = quitGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 
   ctx.fillStyle = '#FFFFFF';
   ctx.fillText('✕ 放弃冒险', btnX + btnW / 2, quitBtnY + btnH / 2);
@@ -6952,44 +7411,87 @@ function draw() {
     ctx.textAlign = 'center';
     ctx.fillText('点击头像查看详细属性', W / 2, 25);
 
-    // Boss血条（顶部中央）
+    // Boss血条（顶部中央）- 增强版
     if (currentBoss) {
-      const barW = W * 0.6;
-      const barH = 20;
+      const barW = W * 0.65;
+      const barH = 22;
       const barX = (W - barW) / 2;
-      const barY = 40;
+      const barY = 42;
+      const time = Date.now() * 0.001;
 
-      // 背景
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      ctx.fillRect(barX - 5, barY - 5, barW + 10, barH + 25);
+      ctx.save();
 
-      // Boss名称和图标
+      // 背景面板 - 带发光
+      ctx.shadowColor = currentBoss.color;
+      ctx.shadowBlur = 20;
+      roundRect(barX - 10, barY - 10, barW + 20, barH + 35, 10);
+      const bgGrad = ctx.createLinearGradient(barX, barY, barX, barY + barH + 35);
+      bgGrad.addColorStop(0, 'rgba(30, 20, 40, 0.95)');
+      bgGrad.addColorStop(1, 'rgba(15, 10, 25, 0.95)');
+      ctx.fillStyle = bgGrad;
+      ctx.fill();
+
+      // 边框
+      ctx.shadowBlur = 0;
+      roundRect(barX - 10, barY - 10, barW + 20, barH + 35, 10);
+      const borderGrad = ctx.createLinearGradient(barX, barY, barX + barW, barY);
+      borderGrad.addColorStop(0, currentBoss.color + '80');
+      borderGrad.addColorStop(0.5, currentBoss.color);
+      borderGrad.addColorStop(1, currentBoss.color + '80');
+      ctx.strokeStyle = borderGrad;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Boss名称和图标 - 发光效果
+      ctx.shadowColor = currentBoss.color;
+      ctx.shadowBlur = 15;
       ctx.fillStyle = currentBoss.color;
-      ctx.font = 'bold 12px sans-serif';
+      ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(`${currentBoss.icon} ${currentBoss.name}`, W / 2, barY + 5);
+      ctx.shadowBlur = 0;
 
       // 血条背景
-      ctx.fillStyle = '#333333';
-      ctx.fillRect(barX, barY + 12, barW, barH);
+      roundRect(barX, barY + 14, barW, barH, barH / 2);
+      ctx.fillStyle = 'rgba(20, 15, 30, 0.9)';
+      ctx.fill();
 
-      // 血条
+      // 血条 - 渐变 + 脉冲
       const hpRatio = Math.max(0, currentBoss.hp / currentBoss.maxHp);
-      const gradient = ctx.createLinearGradient(barX, 0, barX + barW * hpRatio, 0);
-      gradient.addColorStop(0, '#FF0000');
-      gradient.addColorStop(1, currentBoss.color);
-      ctx.fillStyle = gradient;
-      ctx.fillRect(barX, barY + 12, barW * hpRatio, barH);
+      if (hpRatio > 0) {
+        const pulseIntensity = hpRatio < 0.3 ? (1 + Math.sin(time * 6) * 0.2) : 1;
+
+        ctx.shadowColor = currentBoss.color;
+        ctx.shadowBlur = 12 * pulseIntensity;
+        roundRect(barX + 2, barY + 16, Math.max(0, (barW - 4) * hpRatio), barH - 4, (barH - 4) / 2);
+        const hpGrad = ctx.createLinearGradient(barX, barY + 14, barX, barY + 14 + barH);
+        hpGrad.addColorStop(0, shadeColor(currentBoss.color, 30));
+        hpGrad.addColorStop(0.5, currentBoss.color);
+        hpGrad.addColorStop(1, shadeColor(currentBoss.color, -20));
+        ctx.fillStyle = hpGrad;
+        ctx.fill();
+
+        // 高光
+        ctx.shadowBlur = 0;
+        roundRect(barX + 4, barY + 17, Math.max(0, (barW - 8) * hpRatio), (barH - 4) / 3, (barH - 4) / 6);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fill();
+      }
 
       // 血条边框
-      ctx.strokeStyle = currentBoss.color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(barX, barY + 12, barW, barH);
+      roundRect(barX, barY + 14, barW, barH, barH / 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
       // HP数值
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillText(`${currentBoss.hp} / ${currentBoss.maxHp}`, W / 2, barY + 24);
+      ctx.font = 'bold 12px sans-serif';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowBlur = 4;
+      ctx.fillText(`${Math.ceil(currentBoss.hp)} / ${currentBoss.maxHp}`, W / 2, barY + 27);
+
+      ctx.restore();
     }
 
     // Boss警告
@@ -7096,32 +7598,61 @@ function draw() {
 
 // 环境粒子系统
 let ambientParticles = [];
-const MAX_AMBIENT_PARTICLES = 30;
+const MAX_AMBIENT_PARTICLES = 40;
 
 // 后处理效果
 function drawPostProcessing() {
   // 暗角效果 (Vignette) - 增加氛围
   if (isInGame()) {
-    const vignetteGradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.85);
+    // 动态暗角 - 根据血量变化
+    const healthRatio = playerHP / playerMaxHP;
+    const dangerTint = healthRatio < 0.3 ? (0.3 - healthRatio) * 2 : 0;
+
+    const vignetteGradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.9);
     vignetteGradient.addColorStop(0, 'rgba(0,0,0,0)');
-    vignetteGradient.addColorStop(0.7, 'rgba(0,0,0,0.15)');
-    vignetteGradient.addColorStop(1, 'rgba(0,0,0,0.5)');
+    vignetteGradient.addColorStop(0.5, `rgba(${Math.floor(dangerTint * 50)},0,0,0.1)`);
+    vignetteGradient.addColorStop(0.8, `rgba(${Math.floor(dangerTint * 100)},0,0,0.3)`);
+    vignetteGradient.addColorStop(1, `rgba(0,0,0,0.6)`);
     ctx.fillStyle = vignetteGradient;
     ctx.fillRect(0, 0, W, H);
+
+    // 低血量脉冲警告
+    if (healthRatio < 0.3) {
+      const pulse = Math.sin(Date.now() / 200) * 0.15 + 0.15;
+      ctx.fillStyle = `rgba(255,0,0,${pulse * (0.3 - healthRatio) * 3})`;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
 
-  // 地牢模式额外暗角
+  // 地牢模式 - 更暗更神秘
   if (gameState === 'dungeon') {
-    const dungeonVignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.7);
-    dungeonVignette.addColorStop(0, 'rgba(30,20,40,0)');
-    dungeonVignette.addColorStop(1, 'rgba(30,20,40,0.4)');
+    // 紫色调暗角
+    const dungeonVignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.75);
+    dungeonVignette.addColorStop(0, 'rgba(20,10,30,0)');
+    dungeonVignette.addColorStop(0.6, 'rgba(20,10,30,0.2)');
+    dungeonVignette.addColorStop(1, 'rgba(10,5,20,0.5)');
     ctx.fillStyle = dungeonVignette;
     ctx.fillRect(0, 0, W, H);
+
+    // 微弱的扫描线效果
+    ctx.fillStyle = 'rgba(0,0,0,0.03)';
+    for (let y = 0; y < H; y += 3) {
+      ctx.fillRect(0, y, W, 1);
+    }
   }
 
   // 环境粒子（漂浮的光点）
   if (isInGame() || gameState === 'idle') {
     updateAndDrawAmbientParticles();
+  }
+
+  // 顶部渐变遮罩（让UI更突出）
+  if (gameState === 'idle') {
+    const topGrad = ctx.createLinearGradient(0, 0, 0, 80);
+    topGrad.addColorStop(0, 'rgba(0,0,0,0.3)');
+    topGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = topGrad;
+    ctx.fillRect(0, 0, W, 80);
   }
 }
 
@@ -7235,25 +7766,55 @@ function drawCharacterStatusPanel(character, stats) {
 
 // 绘制状态条
 function drawStatusBar(x, y, width, height, ratio, fgColor, bgColor, label) {
-  // 背景
-  ctx.fillStyle = bgColor;
-  ctx.fillRect(x, y, width, height);
+  ctx.save();
 
-  // 前景
-  ctx.fillStyle = fgColor;
-  ctx.fillRect(x, y, width * ratio, height);
+  // 圆角参数
+  const r = height / 2;
+
+  // 背景 - 深色渐变
+  roundRect(x, y, width, height, r);
+  const bgGrad = ctx.createLinearGradient(x, y, x, y + height);
+  bgGrad.addColorStop(0, 'rgba(10, 10, 20, 0.9)');
+  bgGrad.addColorStop(1, 'rgba(20, 20, 35, 0.9)');
+  ctx.fillStyle = bgGrad;
+  ctx.fill();
+
+  // 前景 - 渐变填充
+  if (ratio > 0) {
+    ctx.shadowColor = fgColor;
+    ctx.shadowBlur = 8;
+    roundRect(x + 1, y + 1, Math.max(0, (width - 2) * ratio), height - 2, r - 1);
+    const fgGrad = ctx.createLinearGradient(x, y, x, y + height);
+    fgGrad.addColorStop(0, fgColor);
+    fgGrad.addColorStop(0.5, shadeColor(fgColor, 20));
+    fgGrad.addColorStop(1, fgColor);
+    ctx.fillStyle = fgGrad;
+    ctx.fill();
+
+    // 高光效果
+    ctx.shadowBlur = 0;
+    roundRect(x + 2, y + 2, Math.max(0, (width - 4) * ratio), height / 3, r / 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.fill();
+  }
 
   // 边框
-  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.shadowBlur = 0;
+  roundRect(x, y, width, height, r);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, width, height);
+  ctx.stroke();
 
-  // 标签
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '8px sans-serif';
+  // 标签 - 带阴影
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.font = 'bold 8px sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, x + 2, y + height / 2);
+  ctx.fillText(label, x + 4 + 1, y + height / 2 + 1);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(label, x + 4, y + height / 2);
+
+  ctx.restore();
 }
 
 // 绘制头像中的小人头
@@ -8784,65 +9345,150 @@ function checkRoomCleared() {
 
 // 绘制剧情界面
 function drawStoryUI() {
-  // 黑色背景
-  ctx.fillStyle = `rgba(0, 0, 0, ${0.9 + storyFadeAlpha * 0.1})`;
+  // 渐变黑色背景
+  const bgGrad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W * 0.8);
+  bgGrad.addColorStop(0, `rgba(20, 15, 30, ${0.85 + storyFadeAlpha * 0.1})`);
+  bgGrad.addColorStop(1, `rgba(5, 5, 15, ${0.95 + storyFadeAlpha * 0.05})`);
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, W, H);
+
+  // 添加微光粒子背景
+  const time = Date.now() * 0.001;
+  ctx.save();
+  for (let i = 0; i < 30; i++) {
+    const px = (Math.sin(time * 0.3 + i * 1.7) * 0.5 + 0.5) * W;
+    const py = (Math.cos(time * 0.2 + i * 2.3) * 0.5 + 0.5) * H;
+    const alpha = Math.sin(time + i) * 0.3 + 0.4;
+    ctx.fillStyle = `rgba(100, 100, 180, ${alpha * 0.3})`;
+    ctx.beginPath();
+    ctx.arc(px, py, 2 + Math.sin(time + i) * 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 
   if (storyDialogue.length === 0) return;
 
   const currentDialogue = storyDialogue[storyDialogueIndex];
   if (!currentDialogue) return;
 
-  // 对话框
-  const boxH = 120;
-  const boxY = H - boxH - 20;
+  // 对话框 - 增强视觉
+  const boxH = 140;
+  const boxY = H - boxH - 30;
+  const boxX = 25;
+  const boxW = W - 50;
 
-  ctx.fillStyle = 'rgba(30, 30, 50, 0.95)';
-  ctx.fillRect(20, boxY, W - 40, boxH);
-  ctx.strokeStyle = '#666688';
+  ctx.save();
+
+  // 外发光
+  ctx.shadowColor = STYLE.glowPurple;
+  ctx.shadowBlur = 25;
+
+  // 绘制圆角对话框背景
+  roundRect(boxX, boxY, boxW, boxH, 12);
+  const boxGrad = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxH);
+  boxGrad.addColorStop(0, 'rgba(35, 30, 60, 0.97)');
+  boxGrad.addColorStop(0.5, 'rgba(25, 22, 45, 0.98)');
+  boxGrad.addColorStop(1, 'rgba(20, 18, 35, 0.99)');
+  ctx.fillStyle = boxGrad;
+  ctx.fill();
+
+  // 边框渐变
+  ctx.shadowBlur = 0;
+  roundRect(boxX, boxY, boxW, boxH, 12);
+  const borderGrad = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY + boxH);
+  borderGrad.addColorStop(0, STYLE.secondary);
+  borderGrad.addColorStop(0.5, STYLE.glowPurple);
+  borderGrad.addColorStop(1, STYLE.primary);
+  ctx.strokeStyle = borderGrad;
   ctx.lineWidth = 2;
-  ctx.strokeRect(20, boxY, W - 40, boxH);
+  ctx.stroke();
 
-  // 说话者名称
+  // 顶部装饰线
+  ctx.beginPath();
+  ctx.moveTo(boxX + 30, boxY);
+  ctx.lineTo(boxX + boxW - 30, boxY);
+  ctx.strokeStyle = `rgba(167, 139, 250, 0.5)`;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 说话者名称 - 带发光效果
   if (currentDialogue.speaker) {
-    ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 14px sans-serif';
+    ctx.save();
+    ctx.shadowColor = STYLE.glowGold;
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = STYLE.glowGold;
+    ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(currentDialogue.speaker, 35, boxY + 15);
+    ctx.fillText(currentDialogue.speaker, boxX + 20, boxY + 18);
+    ctx.restore();
+
+    // 名字下划线
+    ctx.font = 'bold 16px sans-serif';
+    ctx.beginPath();
+    ctx.moveTo(boxX + 20, boxY + 40);
+    ctx.lineTo(boxX + 20 + ctx.measureText(currentDialogue.speaker).width + 10, boxY + 40);
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
-  // 对话内容
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '14px sans-serif';
-  const textY = currentDialogue.speaker ? boxY + 40 : boxY + 25;
-  ctx.fillText(currentDialogue.text, 35, textY);
+  // 对话内容 - 带阴影
+  ctx.fillStyle = '#E8E8F0';
+  ctx.font = '15px sans-serif';
+  ctx.textAlign = 'left';
+  const textY = currentDialogue.speaker ? boxY + 55 : boxY + 30;
 
-  // 提示继续
-  ctx.fillStyle = '#888888';
-  ctx.font = '12px sans-serif';
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  ctx.shadowBlur = 4;
+  ctx.fillText(currentDialogue.text, boxX + 20, textY);
+  ctx.restore();
+
+  // 提示继续 - 呼吸动画
+  const promptAlpha = 0.5 + Math.sin(time * 3) * 0.3;
+  ctx.fillStyle = `rgba(150, 150, 200, ${promptAlpha})`;
+  ctx.font = '13px sans-serif';
   ctx.textAlign = 'center';
-  const prompt = storyDialogueIndex < storyDialogue.length - 1 ? '点击继续...' : '点击开始';
-  ctx.fillText(prompt, W / 2, boxY + boxH - 15);
+  const prompt = storyDialogueIndex < storyDialogue.length - 1 ? '▼ 点击继续 ▼' : '✦ 点击开始 ✦';
+  ctx.fillText(prompt, W / 2, boxY + boxH - 18);
 }
 
 // 绘制地牢界面
 function drawDungeonUI() {
-  // 房间类型标题
-  const roomNames = {
-    [ROOM_TYPES.NORMAL]: '🗡️ 战斗房',
-    [ROOM_TYPES.TREASURE]: '💎 宝藏房',
-    [ROOM_TYPES.SHOP]: '🛒 商店',
-    [ROOM_TYPES.BOSS]: '💀 BOSS房',
-    [ROOM_TYPES.START]: '🚪 起始房',
-    [ROOM_TYPES.SECRET]: '❓ 秘密房'
+  // 房间类型配置（带颜色）
+  const roomConfig = {
+    [ROOM_TYPES.NORMAL]: { name: '战斗房', icon: '⚔', color: STYLE.danger },
+    [ROOM_TYPES.TREASURE]: { name: '宝藏房', icon: '💎', color: STYLE.glowGold },
+    [ROOM_TYPES.SHOP]: { name: '商店', icon: '🛒', color: STYLE.glowBlue },
+    [ROOM_TYPES.BOSS]: { name: 'BOSS房', icon: '💀', color: '#FF3333' },
+    [ROOM_TYPES.START]: { name: '起始房', icon: '🚪', color: STYLE.success },
+    [ROOM_TYPES.SECRET]: { name: '秘密房', icon: '❓', color: STYLE.secondary }
   };
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 14px sans-serif';
+  const config = roomConfig[currentRoom?.type] || { name: '未知', icon: '?', color: '#888' };
+
+  // 顶部标题栏背景
+  ctx.save();
+  const titleGrad = ctx.createLinearGradient(0, 0, W, 0);
+  titleGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  titleGrad.addColorStop(0.3, 'rgba(15, 15, 30, 0.9)');
+  titleGrad.addColorStop(0.7, 'rgba(15, 15, 30, 0.9)');
+  titleGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = titleGrad;
+  ctx.fillRect(0, 0, W, 40);
+
+  // 标题文字发光
+  ctx.shadowColor = config.color;
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = config.color;
+  ctx.font = 'bold 16px sans-serif';
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`地牢 第${dungeonFloor}层 - ${roomNames[currentRoom?.type] || '未知'}`, W / 2, 10);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${config.icon} 地牢 第${dungeonFloor}层 - ${config.name}`, W / 2, 22);
+  ctx.restore();
 
   // 小地图
   drawMiniMap();
@@ -8855,50 +9501,120 @@ function drawDungeonUI() {
 
 // 绘制小地图
 function drawMiniMap() {
-  const mapX = W - 80;
-  const mapY = 40;
-  const cellSize = 12;
+  const mapX = W - 85;
+  const mapY = 45;
+  const cellSize = 13;
+  const mapW = 75;
+  const mapH = 75;
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  ctx.fillRect(mapX - 5, mapY - 5, 70, 70);
+  ctx.save();
+
+  // 小地图背景
+  ctx.shadowColor = STYLE.glowPurple;
+  ctx.shadowBlur = 10;
+  roundRect(mapX - 8, mapY - 8, mapW + 6, mapH + 6, 8);
+  const mapBg = ctx.createLinearGradient(mapX, mapY, mapX, mapY + mapH);
+  mapBg.addColorStop(0, 'rgba(20, 18, 35, 0.95)');
+  mapBg.addColorStop(1, 'rgba(10, 10, 20, 0.95)');
+  ctx.fillStyle = mapBg;
+  ctx.fill();
+
+  // 边框
+  ctx.shadowBlur = 0;
+  roundRect(mapX - 8, mapY - 8, mapW + 6, mapH + 6, 8);
+  ctx.strokeStyle = 'rgba(100, 100, 150, 0.5)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.restore();
 
   // 绘制已探索的房间
   for (const room of dungeonRooms) {
     const rx = mapX + 30 + room.x * cellSize;
     const ry = mapY + 30 + room.y * cellSize;
 
-    // 房间颜色
-    let color = '#444444';
-    if (room.id === currentRoomIndex) color = '#00FF00';
-    else if (room.cleared) color = '#666666';
-    else if (room.type === ROOM_TYPES.BOSS) color = '#FF0000';
-    else if (room.type === ROOM_TYPES.TREASURE) color = '#FFD700';
-    else if (room.type === ROOM_TYPES.SHOP) color = '#00FFFF';
+    // 房间颜色配置
+    const roomColors = {
+      current: { fill: STYLE.success, glow: true },
+      cleared: { fill: '#555566', glow: false },
+      boss: { fill: '#FF4444', glow: true },
+      treasure: { fill: STYLE.glowGold, glow: true },
+      shop: { fill: STYLE.glowBlue, glow: false },
+      normal: { fill: '#666677', glow: false }
+    };
 
-    ctx.fillStyle = color;
-    ctx.fillRect(rx - cellSize / 2, ry - cellSize / 2, cellSize - 1, cellSize - 1);
+    let style;
+    if (room.id === currentRoomIndex) style = roomColors.current;
+    else if (room.cleared) style = roomColors.cleared;
+    else if (room.type === ROOM_TYPES.BOSS) style = roomColors.boss;
+    else if (room.type === ROOM_TYPES.TREASURE) style = roomColors.treasure;
+    else if (room.type === ROOM_TYPES.SHOP) style = roomColors.shop;
+    else style = roomColors.normal;
+
+    ctx.save();
+    if (style.glow) {
+      ctx.shadowColor = style.fill;
+      ctx.shadowBlur = 6;
+    }
+
+    // 绘制圆角小方块
+    roundRect(rx - cellSize / 2, ry - cellSize / 2, cellSize - 2, cellSize - 2, 2);
+    ctx.fillStyle = style.fill;
+    ctx.fill();
+
+    ctx.restore();
   }
 }
 
 // 绘制房间出口
 function drawRoomExits() {
-  for (const exit of roomExits) {
-    // 闪烁效果
-    const flash = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+  const time = Date.now() * 0.001;
 
-    ctx.fillStyle = `rgba(0, 255, 0, ${flash * 0.5})`;
-    ctx.strokeStyle = `rgba(0, 255, 0, ${flash})`;
-    ctx.lineWidth = 2;
+  for (const exit of roomExits) {
+    // 脉冲效果
+    const pulse = Math.sin(time * 4) * 0.3 + 0.7;
 
     // 根据方向绘制出口
-    let ex, ey, ew, eh;
-    if (exit.dir === 'up') { ex = W * 0.4; ey = 5; ew = W * 0.2; eh = 15; }
-    else if (exit.dir === 'down') { ex = W * 0.4; ey = H - 20; ew = W * 0.2; eh = 15; }
-    else if (exit.dir === 'left') { ex = 5; ey = H * 0.4; ew = 15; eh = H * 0.2; }
-    else { ex = W - 20; ey = H * 0.4; ew = 15; eh = H * 0.2; }
+    let ex, ey, ew, eh, arrowDir;
+    if (exit.dir === 'up') {
+      ex = W * 0.4; ey = 5; ew = W * 0.2; eh = 18; arrowDir = '▲';
+    } else if (exit.dir === 'down') {
+      ex = W * 0.4; ey = H - 23; ew = W * 0.2; eh = 18; arrowDir = '▼';
+    } else if (exit.dir === 'left') {
+      ex = 5; ey = H * 0.4; ew = 18; eh = H * 0.2; arrowDir = '◀';
+    } else {
+      ex = W - 23; ey = H * 0.4; ew = 18; eh = H * 0.2; arrowDir = '▶';
+    }
 
-    ctx.fillRect(ex, ey, ew, eh);
-    ctx.strokeRect(ex, ey, ew, eh);
+    ctx.save();
+
+    // 外发光
+    ctx.shadowColor = STYLE.success;
+    ctx.shadowBlur = 15 * pulse;
+
+    // 渐变填充
+    roundRect(ex, ey, ew, eh, 4);
+    const exitGrad = ctx.createLinearGradient(ex, ey, ex + ew, ey + eh);
+    exitGrad.addColorStop(0, `rgba(34, 197, 94, ${0.3 * pulse})`);
+    exitGrad.addColorStop(0.5, `rgba(34, 197, 94, ${0.5 * pulse})`);
+    exitGrad.addColorStop(1, `rgba(34, 197, 94, ${0.3 * pulse})`);
+    ctx.fillStyle = exitGrad;
+    ctx.fill();
+
+    // 边框
+    roundRect(ex, ey, ew, eh, 4);
+    ctx.strokeStyle = `rgba(34, 197, 94, ${pulse})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 箭头指示
+    ctx.fillStyle = `rgba(255, 255, 255, ${pulse})`;
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(arrowDir, ex + ew / 2, ey + eh / 2);
+
+    ctx.restore();
   }
 }
 
