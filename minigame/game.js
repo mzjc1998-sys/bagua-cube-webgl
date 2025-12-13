@@ -5986,6 +5986,100 @@ function drawWeapon(weaponType, handX, handY, scale, angle, facingRight) {
   ctx.restore();
 }
 
+// 绘制玩家自定义武器
+function drawCustomWeapon(handX, handY, scale, angle, facingRight, attackProgress) {
+  if (!customWeapon || !customWeapon.normalizedPoints || customWeapon.normalizedPoints.length < 2) {
+    return;
+  }
+
+  const s = scale * 0.8;
+  const flip = facingRight;
+  const weaponScale = BASE_UNIT * 0.7 * s; // 武器缩放
+
+  ctx.save();
+  ctx.translate(handX, handY);
+  ctx.rotate(angle - Math.PI * 0.1); // 稍微旋转使武器看起来被握住
+  ctx.scale(flip, 1);
+
+  // 获取武器效果颜色
+  const effectColors = {
+    burn: '#FF6600',
+    freeze: '#00FFFF',
+    stun: '#FFFF00',
+    lifesteal: '#00FF00',
+    pierce: '#FF00FF',
+    none: '#00FFFF'
+  };
+  const weaponColor = effectColors[customWeapon.effect] || '#00FFFF';
+
+  // 攻击时的发光效果
+  if (attackProgress > 0) {
+    ctx.shadowColor = weaponColor;
+    ctx.shadowBlur = 15 * attackProgress;
+  }
+
+  // 绘制武器轮廓
+  ctx.strokeStyle = weaponColor;
+  ctx.lineWidth = Math.max(2, 3 * s);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const points = customWeapon.normalizedPoints;
+  ctx.beginPath();
+  let started = false;
+  for (const pt of points) {
+    // 归一化坐标转为实际坐标，Y轴向上（负方向）
+    const px = pt.x * weaponScale;
+    const py = -pt.y * weaponScale - weaponScale * 0.5; // 偏移使武器在手上方
+
+    if (pt.newStroke || !started) {
+      ctx.moveTo(px, py);
+      started = true;
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.stroke();
+
+  // 添加内部发光效果
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.beginPath();
+  started = false;
+  for (const pt of points) {
+    const px = pt.x * weaponScale;
+    const py = -pt.y * weaponScale - weaponScale * 0.5;
+    if (pt.newStroke || !started) {
+      ctx.moveTo(px, py);
+      started = true;
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.stroke();
+
+  // 武器效果粒子
+  if (customWeapon.effect && customWeapon.effect !== 'none') {
+    const time = Date.now() / 1000;
+    ctx.globalAlpha = 0.6;
+    for (let i = 0; i < 3; i++) {
+      const angle = time * 2 + i * Math.PI * 0.67;
+      const dist = weaponScale * 0.3 + Math.sin(time * 3 + i) * weaponScale * 0.1;
+      const px = Math.cos(angle) * dist * 0.3;
+      const py = -weaponScale * 0.5 + Math.sin(angle) * dist;
+
+      ctx.fillStyle = weaponColor;
+      ctx.beginPath();
+      ctx.arc(px, py, 2 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
 // 绘制护甲效果
 function drawArmor(armorType, x, shoulderY, bodyLen, bodyW, headR, scale, classColor) {
   const s = scale;
@@ -6195,14 +6289,17 @@ function drawStickMan(x, y, scale, time, groundQuad) {
     drawArmor(character.armor, 0, shoulderY, bodyLen, bodyW, headR, scale, character.color);
   }
 
-  // 绘制武器（只有有武器时才绘制）
-  if (character.weapon && character.weapon !== 'none') {
-    const weaponAngle = Math.sin(t) * 0.3; // 武器随走路摆动
-    if (drawRightFirst) {
-      drawWeapon(character.weapon, lHandX, lHandY, scale, weaponAngle, facingRight);
-    } else {
-      drawWeapon(character.weapon, rHandX, rHandY, scale, weaponAngle, facingRight);
-    }
+  // 绘制武器（优先绘制自定义武器）
+  const weaponAngle = Math.sin(t) * 0.3; // 武器随走路摆动
+  const handX = drawRightFirst ? lHandX : rHandX;
+  const handY = drawRightFirst ? lHandY : rHandY;
+
+  if (customWeapon && customWeapon.normalizedPoints && customWeapon.normalizedPoints.length > 1) {
+    // 绘制玩家自定义武器
+    drawCustomWeapon(handX, handY, scale, weaponAngle, facingRight, attackProgress);
+  } else if (character.weapon && character.weapon !== 'none') {
+    // 绘制职业默认武器
+    drawWeapon(character.weapon, handX, handY, scale, weaponAngle, facingRight);
   }
 
   ctx.restore();
@@ -7761,9 +7858,39 @@ function applyGeneratedWeapon(weaponData) {
 function equipCustomWeapon() {
   if (!generatedWeaponData) return;
 
+  // 计算绘制区域边界（用于归一化武器图形）
+  const points = weaponDrawingPoints;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const pt of points) {
+    minX = Math.min(minX, pt.x);
+    maxX = Math.max(maxX, pt.x);
+    minY = Math.min(minY, pt.y);
+    maxY = Math.max(maxY, pt.y);
+  }
+
+  // 画布区域（与drawWeaponDrawingCanvas一致）
+  const canvasX = 20;
+  const canvasY = 80;
+  const canvasW = W - 40;
+  const canvasH = H - 200;
+
+  // 归一化点坐标到 -1 ~ 1 范围
+  const drawW = maxX - minX || 1;
+  const drawH = maxY - minY || 1;
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  const normalizedPoints = points.map(pt => ({
+    x: (pt.x - centerX) / Math.max(drawW, drawH) * 2,
+    y: (pt.y - centerY) / Math.max(drawW, drawH) * 2,
+    newStroke: pt.newStroke
+  }));
+
   customWeapon = {
     ...generatedWeaponData,
     drawingPoints: [...weaponDrawingPoints],
+    normalizedPoints: normalizedPoints,
+    bounds: { minX, maxX, minY, maxY, width: drawW, height: drawH },
     createdAt: Date.now()
   };
 
