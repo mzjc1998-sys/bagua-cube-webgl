@@ -1643,8 +1643,165 @@ function resetGameData() {
   }
 }
 
+// ==================== 新手引导系统 ====================
+const TUTORIAL_KEY = 'bagua_tutorial_done';
+
+// 检查是否需要显示新手引导
+function checkTutorial() {
+  try {
+    const done = wx.getStorageSync(TUTORIAL_KEY);
+    if (!done) {
+      showTutorial = true;
+      tutorialStep = 0;
+    }
+  } catch (e) {
+    console.log('检查新手引导失败:', e);
+  }
+}
+
+// 完成新手引导
+function completeTutorial() {
+  try {
+    wx.setStorageSync(TUTORIAL_KEY, true);
+    showTutorial = false;
+    tutorialStep = 0;
+  } catch (e) {
+    console.log('保存新手引导状态失败:', e);
+  }
+}
+
+// 新手引导内容
+const TUTORIAL_PAGES = [
+  {
+    title: '欢迎来到八卦冒险！',
+    icon: '☯️',
+    lines: [
+      '这是一款基于八卦的Roguelike游戏',
+      '火柴人会自动战斗，你只需要...',
+      '',
+      '• 选择宫位获得不同加成',
+      '• 升级解锁新技能',
+      '• 尽可能存活更久！'
+    ]
+  },
+  {
+    title: '八卦宫位系统',
+    icon: '☰',
+    lines: [
+      '点击立方体顶点切换宫位视角',
+      '',
+      '每个宫位提供不同属性加成：',
+      '☰ 乾宫：伤害+20%',
+      '☷ 坤宫：生命+30%',
+      '☳ 震宫：攻速+20%',
+      '... 更多宫位等你探索！'
+    ]
+  },
+  {
+    title: '战斗与成长',
+    icon: '⚔️',
+    lines: [
+      '• 击杀怪物获得经验升级',
+      '• 每次升级可选择新技能',
+      '• 10级后可选择职业',
+      '',
+      '死亡会重置等级，但别担心',
+      '每次冒险都是新的开始！'
+    ]
+  },
+  {
+    title: '操作说明',
+    icon: '👆',
+    lines: [
+      '🔊 右上角：音效开关',
+      '⏸️ 战斗中右上角：暂停',
+      '',
+      '火柴人会自动移动和攻击',
+      '你可以专注于策略选择！',
+      '',
+      '点击"开始冒险"开始游戏'
+    ]
+  }
+];
+
+// 绘制新手引导界面
+function drawTutorial() {
+  // 半透明背景
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+  ctx.fillRect(0, 0, W, H);
+
+  const page = TUTORIAL_PAGES[tutorialStep];
+  const centerX = W / 2;
+  const centerY = H / 2;
+
+  // 标题图标
+  ctx.font = '48px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(page.icon, centerX, centerY - 120);
+
+  // 标题
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillStyle = '#FFD700';
+  ctx.fillText(page.title, centerX, centerY - 60);
+
+  // 内容
+  ctx.font = '14px sans-serif';
+  ctx.fillStyle = '#DDDDDD';
+  let lineY = centerY - 20;
+  for (const line of page.lines) {
+    ctx.fillText(line, centerX, lineY);
+    lineY += 24;
+  }
+
+  // 页码指示器
+  ctx.fillStyle = '#666666';
+  let dotX = centerX - (TUTORIAL_PAGES.length - 1) * 10;
+  for (let i = 0; i < TUTORIAL_PAGES.length; i++) {
+    ctx.beginPath();
+    ctx.arc(dotX + i * 20, H - 100, i === tutorialStep ? 6 : 4, 0, Math.PI * 2);
+    ctx.fillStyle = i === tutorialStep ? '#FFD700' : '#666666';
+    ctx.fill();
+  }
+
+  // 按钮
+  const btnW = 120;
+  const btnH = 44;
+  const btnY = H - 60;
+
+  if (tutorialStep < TUTORIAL_PAGES.length - 1) {
+    // 下一步按钮
+    const nextBtnX = centerX - btnW / 2;
+    ctx.fillStyle = '#4CAF50';
+    ctx.fillRect(nextBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('下一步 →', centerX, btnY + btnH / 2);
+
+    // 跳过按钮
+    ctx.fillStyle = '#888888';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('跳过引导', centerX, btnY + btnH + 20);
+  } else {
+    // 开始游戏按钮
+    const startBtnX = centerX - btnW / 2;
+    ctx.fillStyle = '#FF5722';
+    ctx.fillRect(startBtnX, btnY, btnW, btnH);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('开始游戏！', centerX, btnY + btnH / 2);
+  }
+
+  return {
+    nextBtn: { x: centerX - btnW / 2, y: btnY, w: btnW, h: btnH },
+    skipY: btnY + btnH + 10
+  };
+}
+
 // 游戏启动时加载数据
 loadGameData();
+checkTutorial();
 
 // 获取当前角色信息
 function getCurrentCharacter() {
@@ -1692,6 +1849,8 @@ function getPlayerStats() {
 // ==================== 冒险系统 ====================
 let gameState = 'idle'; // 'idle' | 'adventure' | 'gameover'
 let isPaused = false;   // 暂停状态
+let showTutorial = false;  // 新手引导状态
+let tutorialStep = 0;      // 引导步骤
 let adventureTime = 0;
 let killCount = 0;
 let playerHP = 100;
@@ -4054,6 +4213,11 @@ function draw() {
   if (isSelectingClass) {
     drawClassSelectionUI();
   }
+
+  // 新手引导（最高优先级）
+  if (showTutorial && gameState === 'idle') {
+    drawTutorial();
+  }
 }
 
 // 角色头像点击区域
@@ -4740,6 +4904,40 @@ wx.onTouchEnd((e) => {
 
   // 如果正在显示技能提示，松开后不执行其他操作
   if (wasShowingTooltip) {
+    touchStart = null;
+    return;
+  }
+
+  // 新手引导 - 最高优先级
+  if (showTutorial && gameState === 'idle') {
+    const centerX = W / 2;
+    const btnW = 120;
+    const btnH = 44;
+    const btnY = H - 60;
+    const btnX = centerX - btnW / 2;
+
+    // 检查下一步/开始游戏按钮
+    if (tx >= btnX && tx <= btnX + btnW && ty >= btnY && ty <= btnY + btnH) {
+      if (tutorialStep < TUTORIAL_PAGES.length - 1) {
+        tutorialStep++;
+      } else {
+        completeTutorial();
+      }
+      touchStart = null;
+      return;
+    }
+
+    // 检查跳过按钮（在最后一页之前可见）
+    if (tutorialStep < TUTORIAL_PAGES.length - 1) {
+      const skipY = btnY + btnH + 10;
+      if (ty >= skipY && ty <= skipY + 30 && tx >= centerX - 50 && tx <= centerX + 50) {
+        completeTutorial();
+        touchStart = null;
+        return;
+      }
+    }
+
+    // 新手引导期间阻止其他操作
     touchStart = null;
     return;
   }
