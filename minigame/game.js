@@ -2799,9 +2799,9 @@ function calculateMoveDirection() {
   let nearestMonster = null;
   let nearestMonsterDist = Infinity;
   let dangerCount = 0; // 危险范围内的怪物数量
-  const dangerZone = 0.25; // 危险距离（多怪物时需要躲避）
+  const dangerZone = 0.06; // 危险距离（只有非常近才算危险）
   const attackRange = stats.range; // 使用职业攻击范围
-  const comfortZone = stats.range * 0.8; // 战斗舒适区
+  const optimalRange = stats.range * 0.7; // 最佳战斗距离
 
   for (const m of monsters) {
     const dx = playerX - m.x;
@@ -2818,47 +2818,42 @@ function calculateMoveDirection() {
     }
   }
 
-  // 战斗AI逻辑：
-  // 1. 多个怪物靠近时 -> 逃跑
-  // 2. 只有1个怪物时 -> 保持在攻击距离战斗
-  // 3. 没有怪物时 -> 寻找物品或随机移动
+  // 战斗AI逻辑：主动进攻！
+  // 1. 只有被围攻（3个以上近身）才考虑后退
+  // 2. 正常情况主动接近并攻击敌人
+  // 3. 没有怪物时寻找物品或随机移动
 
-  if (dangerCount >= 2) {
-    // 多个怪物，需要逃跑
+  if (dangerCount >= 3) {
+    // 被围攻，轻微后撤但不完全逃跑
     for (const m of monsters) {
       const dx = playerX - m.x;
       const dy = playerY - m.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 0.35 && dist > 0.001) {
-        const force = (0.35 - dist) / 0.35;
-        dirX += (dx / dist) * force * 2.5;
-        dirY += (dy / dist) * force * 2.5;
+      if (dist < 0.1 && dist > 0.001) {
+        const force = (0.1 - dist) / 0.1;
+        dirX += (dx / dist) * force * 0.8; // 降低逃跑力度
+        dirY += (dy / dist) * force * 0.8;
       }
     }
-  } else if (nearestMonster && nearestMonsterDist < 0.5) {
-    // 只有0-1个怪物在附近，可以战斗
+  } else if (nearestMonster) {
+    // 主动接近并攻击敌人！
     const dx = nearestMonster.x - playerX;
     const dy = nearestMonster.y - playerY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist > 0.01) {
-      if (dist > attackRange) {
-        // 太远了，接近敌人
-        const approachForce = 1.0;
+      if (dist > optimalRange) {
+        // 不在攻击范围内，积极接近敌人
+        const approachForce = 1.5; // 增加接近力度
         dirX += (dx / dist) * approachForce;
         dirY += (dy / dist) * approachForce;
-      } else if (dist < comfortZone) {
-        // 太近了，稍微后退保持距离
-        const retreatForce = 0.5;
-        dirX -= (dx / dist) * retreatForce;
-        dirY -= (dy / dist) * retreatForce;
       }
-      // 在舒适区内时不移动，专心攻击
+      // 在攻击范围内时站定攻击，不后退！
 
-      // 添加轻微的环绕移动（让战斗更生动）
+      // 轻微环绕移动（让战斗更生动）
       const perpX = -dy / dist;
       const perpY = dx / dist;
-      const circleForce = Math.sin(walkTime * 2) * 0.3;
+      const circleForce = Math.sin(walkTime * 3) * 0.15;
       dirX += perpX * circleForce;
       dirY += perpY * circleForce;
     }
