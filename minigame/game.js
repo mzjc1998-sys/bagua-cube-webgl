@@ -6048,8 +6048,8 @@ function drawStickMan(x, y, scale, time, groundQuad) {
   if (gameState === 'adventure') {
     const glowIntensity = 0.4 + Math.sin(time * 3) * 0.15;
     const glowRadius = BASE_UNIT * 2 * scale;
-    const character = CLASS_DATA[selectedClass];
-    const glowColor = character ? character.color : '#FFFFFF';
+    const character = getCurrentCharacter();
+    const glowColor = character.color || '#FFFFFF';
 
     ctx.save();
     ctx.globalAlpha = glowIntensity * 0.3;
