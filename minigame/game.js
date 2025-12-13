@@ -3188,7 +3188,7 @@ function getPlayerStats() {
 }
 
 // ==================== 冒险系统 ====================
-let gameState = 'idle'; // 'idle' | 'adventure' | 'gameover'
+let gameState = 'idle'; // 'idle' | 'adventure' | 'gameover' | 'story' | 'dungeon' | 'boss_intro'
 let isPaused = false;   // 暂停状态
 let showTutorial = false;  // 新手引导状态
 let tutorialStep = 0;      // 引导步骤
@@ -3212,6 +3212,34 @@ let smoothDirY = 0;
 let comboCount = 0;
 let comboTimer = 0;            // 连击计时（2秒内无击杀则重置）
 let lastComboAnnounce = 0;     // 上次连击播报的击杀数
+
+// ==================== 剧情系统 ====================
+let storyProgress = 0;         // 剧情进度: 0=新手, 1=武器完成, 2=Boss战, 3=战败入狱, 4=地牢开始
+let storyDialogue = [];        // 当前对话内容
+let storyDialogueIndex = 0;    // 当前对话索引
+let storyFadeAlpha = 0;        // 过场淡入淡出
+let storyBossHP = 0;           // 剧情Boss血量
+let storyBossMaxHP = 0;
+let isFirstWeaponCreation = true; // 是否第一次创建武器
+
+// ==================== 地牢系统 ====================
+let dungeonFloor = 1;          // 当前地牢层数
+let dungeonRooms = [];         // 房间数据
+let currentRoom = null;        // 当前房间
+let currentRoomIndex = 0;      // 当前房间索引
+let roomCleared = false;       // 当前房间是否清理完毕
+let dungeonMap = {};           // 已探索的房间地图
+let roomExits = [];            // 当前房间的出口
+
+// 房间类型
+const ROOM_TYPES = {
+  NORMAL: 'normal',      // 普通战斗房
+  TREASURE: 'treasure',  // 宝藏房
+  SHOP: 'shop',          // 商店
+  BOSS: 'boss',          // Boss房
+  START: 'start',        // 起始房
+  SECRET: 'secret'       // 秘密房
+};
 
 // 屏幕震动系统
 let screenShakeX = 0;
@@ -5354,9 +5382,16 @@ function showFloatingText(text, color) {
 
 // 更新冒险逻辑
 function updateAdventure(dt) {
-  if (gameState !== 'adventure') return;
+  // 支持冒险模式、地牢模式和剧情Boss战
+  if (gameState !== 'adventure' && gameState !== 'dungeon' && gameState !== 'boss_intro') return;
 
   adventureTime += dt;
+
+  // 地牢模式特殊逻辑
+  if (gameState === 'dungeon') {
+    checkRoomCleared();
+    checkRoomExit();
+  }
 
   // 难度随时间增加（更缓慢的递进）
   if (adventureTime > 45) monsterSpawnInterval = 2.5;
@@ -6958,6 +6993,30 @@ function draw() {
     drawWeaponCreateUI();
   }
 
+  // 剧情界面（全屏覆盖）
+  if (gameState === 'story') {
+    drawStoryUI();
+  }
+
+  // 地牢模式UI
+  if (gameState === 'dungeon') {
+    drawDungeonUI();
+  }
+
+  // Boss战介绍
+  if (gameState === 'boss_intro') {
+    // 显示Boss战场景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#FF0000';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('💀 地牢守卫 💀', W / 2, 60);
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('逃跑是不可能的...', W / 2, 90);
+  }
+
   // ===== 后处理效果 =====
   drawPostProcessing();
 }
@@ -6969,7 +7028,7 @@ const MAX_AMBIENT_PARTICLES = 30;
 // 后处理效果
 function drawPostProcessing() {
   // 暗角效果 (Vignette) - 增加氛围
-  if (gameState === 'adventure') {
+  if (gameState === 'adventure' || gameState === 'dungeon' || gameState === 'boss_intro') {
     const vignetteGradient = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.85);
     vignetteGradient.addColorStop(0, 'rgba(0,0,0,0)');
     vignetteGradient.addColorStop(0.7, 'rgba(0,0,0,0.15)');
@@ -6978,8 +7037,17 @@ function drawPostProcessing() {
     ctx.fillRect(0, 0, W, H);
   }
 
+  // 地牢模式额外暗角
+  if (gameState === 'dungeon') {
+    const dungeonVignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.7);
+    dungeonVignette.addColorStop(0, 'rgba(30,20,40,0)');
+    dungeonVignette.addColorStop(1, 'rgba(30,20,40,0.4)');
+    ctx.fillStyle = dungeonVignette;
+    ctx.fillRect(0, 0, W, H);
+  }
+
   // 环境粒子（漂浮的光点）
-  if (gameState === 'adventure' || gameState === 'idle') {
+  if (gameState === 'adventure' || gameState === 'idle' || gameState === 'dungeon') {
     updateAndDrawAmbientParticles();
   }
 }
@@ -8025,7 +8093,23 @@ function equipCustomWeapon() {
     createdAt: Date.now()
   };
 
-  // 应用残缺品质的属性削减
+  // 第一次创建武器时，给予完美品质并触发剧情
+  if (isFirstWeaponCreation && storyProgress === 0) {
+    customWeapon.quality = 'perfect';  // 完美品质
+    applyWeaponQuality();
+    saveCustomWeapon();
+
+    isFirstWeaponCreation = false;
+    storyProgress = 1;
+    saveStoryProgress();
+
+    // 触发剧情Boss战
+    exitWeaponCreate();
+    startStoryBossFight();
+    return;
+  }
+
+  // 正常流程：应用残缺品质的属性削减
   applyWeaponQuality();
 
   // 保存到本地
@@ -8215,6 +8299,555 @@ function applyWeaponEffect(target, weaponBonus, damage) {
       }
       break;
   }
+}
+
+// ==================== 剧情和地牢系统 ====================
+
+// 保存剧情进度
+function saveStoryProgress() {
+  try {
+    wx.setStorageSync('storyProgress', storyProgress);
+    wx.setStorageSync('isFirstWeaponCreation', isFirstWeaponCreation);
+  } catch (e) {
+    console.error('保存剧情进度失败:', e);
+  }
+}
+
+// 加载剧情进度
+function loadStoryProgress() {
+  try {
+    const progress = wx.getStorageSync('storyProgress');
+    if (progress !== undefined && progress !== null) {
+      storyProgress = parseInt(progress) || 0;
+    }
+    const firstWeapon = wx.getStorageSync('isFirstWeaponCreation');
+    if (firstWeapon !== undefined && firstWeapon !== null) {
+      isFirstWeaponCreation = firstWeapon === 'true' || firstWeapon === true;
+    } else {
+      isFirstWeaponCreation = true;
+    }
+  } catch (e) {
+    console.error('加载剧情进度失败:', e);
+  }
+}
+
+// 剧情对话数据
+const STORY_DIALOGUES = {
+  // 武器完成后 -> Boss战前
+  preBoss: [
+    { speaker: '???', text: '你...终于锻造出了武器？' },
+    { speaker: '???', text: '愚蠢的囚徒，你以为这样就能逃出去？' },
+    { speaker: '地牢守卫', text: '来吧，让我看看你的实力！' }
+  ],
+  // Boss战败后
+  defeat: [
+    { speaker: '地牢守卫', text: '哈哈哈...就这？' },
+    { speaker: '地牢守卫', text: '你的武器...我收下了。' },
+    { speaker: '', text: '【武器碎裂的声音】' },
+    { speaker: '地牢守卫', text: '把这个废物丢回最底层的牢房！' },
+    { speaker: '', text: '你失去了意识...' }
+  ],
+  // 醒来后
+  awakening: [
+    { speaker: '', text: '......' },
+    { speaker: '', text: '你缓缓睁开眼睛...' },
+    { speaker: '', text: '这是...地牢最深处？' },
+    { speaker: '', text: '你的武器已经碎成了残片...' },
+    { speaker: '', text: '但是，求生的意志让你站了起来。' },
+    { speaker: '', text: '你决定从这个地牢中杀出一条路！' }
+  ]
+};
+
+// 开始剧情Boss战
+function startStoryBossFight() {
+  gameState = 'story';
+  storyDialogue = STORY_DIALOGUES.preBoss;
+  storyDialogueIndex = 0;
+  storyFadeAlpha = 0;
+
+  // Boss战准备
+  storyBossMaxHP = 9999;
+  storyBossHP = storyBossMaxHP;
+
+  playSound('boss');
+}
+
+// 开始实际的剧情Boss战斗
+function startActualBossFight() {
+  gameState = 'boss_intro';
+  storyProgress = 2;
+
+  // 重置玩家位置
+  playerX = 0.5;
+  playerY = 0.7;
+  playerHP = playerMaxHP;
+
+  // 清空怪物，添加剧情Boss
+  monsters = [];
+  monsters.push({
+    x: 0.5,
+    y: 0.2,
+    hp: storyBossHP,
+    maxHP: storyBossMaxHP,
+    damage: 999,        // 超高伤害确保玩家失败
+    speed: 0.08,
+    exp: 0,
+    scale: 2.5,
+    type: 'boss',
+    isBoss: true,
+    name: '地牢守卫',
+    attackCooldown: 0,
+    isStoryBoss: true   // 标记为剧情Boss
+  });
+
+  // 5秒后强制触发失败
+  setTimeout(() => {
+    if (gameState === 'boss_intro' || gameState === 'adventure') {
+      triggerStoryDefeat();
+    }
+  }, 5000);
+}
+
+// 触发剧情失败
+function triggerStoryDefeat() {
+  gameState = 'story';
+  storyProgress = 3;
+  storyDialogue = STORY_DIALOGUES.defeat;
+  storyDialogueIndex = 0;
+
+  playSound('gameover');
+}
+
+// 剧情：武器损坏，进入地牢
+function enterDungeonAfterDefeat() {
+  // 武器降级为残缺
+  if (customWeapon) {
+    customWeapon.quality = 'broken';
+    applyWeaponQuality();
+    saveCustomWeapon();
+  }
+
+  // 显示醒来剧情
+  gameState = 'story';
+  storyProgress = 4;
+  storyDialogue = STORY_DIALOGUES.awakening;
+  storyDialogueIndex = 0;
+}
+
+// 开始地牢探索
+function startDungeonExploration() {
+  gameState = 'dungeon';
+  storyProgress = 5;
+  saveStoryProgress();
+
+  // 初始化地牢
+  initDungeon();
+}
+
+// 初始化地牢
+function initDungeon() {
+  dungeonFloor = 1;
+  dungeonRooms = [];
+  dungeonMap = {};
+
+  // 生成地牢布局（以立方体6个面为基础）
+  generateDungeonFloor();
+
+  // 设置起始房间
+  currentRoomIndex = 0;
+  currentRoom = dungeonRooms[0];
+  enterRoom(currentRoom);
+}
+
+// 生成一层地牢
+function generateDungeonFloor() {
+  dungeonRooms = [];
+
+  // 房间数量随层数增加
+  const roomCount = 5 + dungeonFloor * 2;
+
+  // 创建起始房间
+  dungeonRooms.push({
+    id: 0,
+    type: ROOM_TYPES.START,
+    x: 0, y: 0,
+    enemies: [],
+    items: [],
+    cleared: true,
+    exits: {}
+  });
+
+  // 生成普通房间
+  const positions = [[0, 0]];
+  const directions = [
+    { dx: 1, dy: 0, dir: 'right', opposite: 'left' },
+    { dx: -1, dy: 0, dir: 'left', opposite: 'right' },
+    { dx: 0, dy: 1, dir: 'down', opposite: 'up' },
+    { dx: 0, dy: -1, dir: 'up', opposite: 'down' }
+  ];
+
+  for (let i = 1; i < roomCount - 1; i++) {
+    // 从已有房间随机选择一个扩展
+    const parentIdx = Math.floor(Math.random() * positions.length);
+    const parent = positions[parentIdx];
+    const dir = directions[Math.floor(Math.random() * directions.length)];
+
+    const newX = parent[0] + dir.dx;
+    const newY = parent[1] + dir.dy;
+
+    // 检查是否已有房间在这个位置
+    const exists = positions.some(p => p[0] === newX && p[1] === newY);
+    if (!exists) {
+      // 决定房间类型
+      let roomType = ROOM_TYPES.NORMAL;
+      if (Math.random() < 0.15) roomType = ROOM_TYPES.TREASURE;
+      else if (Math.random() < 0.1) roomType = ROOM_TYPES.SHOP;
+
+      const newRoom = {
+        id: dungeonRooms.length,
+        type: roomType,
+        x: newX, y: newY,
+        enemies: [],
+        items: [],
+        cleared: false,
+        exits: {}
+      };
+
+      // 连接房间
+      newRoom.exits[dir.opposite] = parentIdx;
+      dungeonRooms[parentIdx].exits[dir.dir] = newRoom.id;
+
+      dungeonRooms.push(newRoom);
+      positions.push([newX, newY]);
+    }
+  }
+
+  // 添加Boss房（在最远的位置）
+  let farthest = { idx: 0, dist: 0 };
+  positions.forEach((pos, idx) => {
+    const dist = Math.abs(pos[0]) + Math.abs(pos[1]);
+    if (dist > farthest.dist) {
+      farthest = { idx, dist, pos };
+    }
+  });
+
+  // 在最远房间旁边添加Boss房
+  const bossDir = directions[Math.floor(Math.random() * directions.length)];
+  const bossRoom = {
+    id: dungeonRooms.length,
+    type: ROOM_TYPES.BOSS,
+    x: farthest.pos[0] + bossDir.dx,
+    y: farthest.pos[1] + bossDir.dy,
+    enemies: [],
+    items: [],
+    cleared: false,
+    exits: {},
+    bossName: `第${dungeonFloor}层守卫`
+  };
+  bossRoom.exits[bossDir.opposite] = farthest.idx;
+  dungeonRooms[farthest.idx].exits[bossDir.dir] = bossRoom.id;
+  dungeonRooms.push(bossRoom);
+}
+
+// 进入房间
+function enterRoom(room) {
+  currentRoom = room;
+  roomCleared = room.cleared;
+
+  // 重置玩家位置
+  playerX = 0.5;
+  playerY = 0.5;
+
+  // 清空现有怪物
+  monsters = [];
+  collectibles = [];
+
+  if (!room.cleared) {
+    // 生成房间内容
+    if (room.type === ROOM_TYPES.NORMAL) {
+      spawnRoomEnemies(2 + dungeonFloor);
+    } else if (room.type === ROOM_TYPES.BOSS) {
+      spawnBossForRoom();
+    } else if (room.type === ROOM_TYPES.TREASURE) {
+      spawnTreasure();
+    } else if (room.type === ROOM_TYPES.SHOP) {
+      spawnShopItems();
+    }
+  }
+
+  // 设置房间出口
+  updateRoomExits();
+}
+
+// 生成房间敌人
+function spawnRoomEnemies(count) {
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const dist = 0.25;
+    monsters.push({
+      x: 0.5 + Math.cos(angle) * dist,
+      y: 0.5 + Math.sin(angle) * dist,
+      hp: 30 + dungeonFloor * 15,
+      maxHP: 30 + dungeonFloor * 15,
+      damage: 5 + dungeonFloor * 2,
+      speed: 0.03 + dungeonFloor * 0.005,
+      exp: 10 + dungeonFloor * 5,
+      scale: 0.8 + Math.random() * 0.4,
+      type: 'normal'
+    });
+  }
+}
+
+// 生成Boss
+function spawnBossForRoom() {
+  monsters.push({
+    x: 0.5,
+    y: 0.3,
+    hp: 200 + dungeonFloor * 100,
+    maxHP: 200 + dungeonFloor * 100,
+    damage: 15 + dungeonFloor * 5,
+    speed: 0.04 + dungeonFloor * 0.01,
+    exp: 100 + dungeonFloor * 50,
+    scale: 2.0,
+    type: 'boss',
+    isBoss: true,
+    name: currentRoom.bossName || `第${dungeonFloor}层守卫`
+  });
+}
+
+// 生成宝藏
+function spawnTreasure() {
+  collectibles.push({
+    x: 0.5,
+    y: 0.5,
+    type: 'chest',
+    value: 50 + dungeonFloor * 20
+  });
+  roomCleared = true;
+  currentRoom.cleared = true;
+}
+
+// 生成商店物品
+function spawnShopItems() {
+  const shopItems = [
+    { x: 0.3, y: 0.4, type: 'shop_heal', price: 30, value: 50 },
+    { x: 0.5, y: 0.4, type: 'shop_damage', price: 50, value: 5 },
+    { x: 0.7, y: 0.4, type: 'shop_fragment', price: 100, value: 1 }
+  ];
+  collectibles = shopItems;
+  roomCleared = true;
+  currentRoom.cleared = true;
+}
+
+// 更新房间出口
+function updateRoomExits() {
+  roomExits = [];
+  const exits = currentRoom.exits;
+
+  if (exits.up !== undefined) roomExits.push({ dir: 'up', x: 0.5, y: 0.05, targetRoom: exits.up });
+  if (exits.down !== undefined) roomExits.push({ dir: 'down', x: 0.5, y: 0.95, targetRoom: exits.down });
+  if (exits.left !== undefined) roomExits.push({ dir: 'left', x: 0.05, y: 0.5, targetRoom: exits.left });
+  if (exits.right !== undefined) roomExits.push({ dir: 'right', x: 0.95, y: 0.5, targetRoom: exits.right });
+}
+
+// 检查玩家是否到达出口
+function checkRoomExit() {
+  if (!roomCleared) return;
+
+  for (const exit of roomExits) {
+    const dx = playerX - exit.x;
+    const dy = playerY - exit.y;
+    if (Math.sqrt(dx * dx + dy * dy) < 0.08) {
+      // 进入下一个房间
+      const nextRoom = dungeonRooms[exit.targetRoom];
+      if (nextRoom) {
+        enterRoom(nextRoom);
+        currentRoomIndex = exit.targetRoom;
+
+        // 设置进入位置（从对面进入）
+        if (exit.dir === 'up') playerY = 0.85;
+        else if (exit.dir === 'down') playerY = 0.15;
+        else if (exit.dir === 'left') playerX = 0.85;
+        else if (exit.dir === 'right') playerX = 0.15;
+
+        playSound('start');
+      }
+      break;
+    }
+  }
+}
+
+// 检查房间是否清理完毕
+function checkRoomCleared() {
+  if (currentRoom && !currentRoom.cleared && monsters.length === 0) {
+    currentRoom.cleared = true;
+    roomCleared = true;
+
+    // Boss房清理后进入下一层或胜利
+    if (currentRoom.type === ROOM_TYPES.BOSS) {
+      dungeonFloor++;
+      showFloatingText(`第${dungeonFloor - 1}层通关！`, '#FFD700');
+
+      // 掉落武器碎片
+      const fragmentDrop = 2 + dungeonFloor;
+      weaponFragments += fragmentDrop;
+      saveWeaponFragments();
+      showFloatingText(`+${fragmentDrop} 武器碎片`, '#FFD700');
+
+      // 3秒后生成下一层
+      setTimeout(() => {
+        if (gameState === 'dungeon') {
+          generateDungeonFloor();
+          currentRoomIndex = 0;
+          currentRoom = dungeonRooms[0];
+          enterRoom(currentRoom);
+        }
+      }, 3000);
+    } else {
+      showFloatingText('房间已清理！', '#00FF00');
+    }
+  }
+}
+
+// 绘制剧情界面
+function drawStoryUI() {
+  // 黑色背景
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.9 + storyFadeAlpha * 0.1})`;
+  ctx.fillRect(0, 0, W, H);
+
+  if (storyDialogue.length === 0) return;
+
+  const currentDialogue = storyDialogue[storyDialogueIndex];
+  if (!currentDialogue) return;
+
+  // 对话框
+  const boxH = 120;
+  const boxY = H - boxH - 20;
+
+  ctx.fillStyle = 'rgba(30, 30, 50, 0.95)';
+  ctx.fillRect(20, boxY, W - 40, boxH);
+  ctx.strokeStyle = '#666688';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(20, boxY, W - 40, boxH);
+
+  // 说话者名称
+  if (currentDialogue.speaker) {
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(currentDialogue.speaker, 35, boxY + 15);
+  }
+
+  // 对话内容
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '14px sans-serif';
+  const textY = currentDialogue.speaker ? boxY + 40 : boxY + 25;
+  ctx.fillText(currentDialogue.text, 35, textY);
+
+  // 提示继续
+  ctx.fillStyle = '#888888';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  const prompt = storyDialogueIndex < storyDialogue.length - 1 ? '点击继续...' : '点击开始';
+  ctx.fillText(prompt, W / 2, boxY + boxH - 15);
+}
+
+// 绘制地牢界面
+function drawDungeonUI() {
+  // 房间类型标题
+  const roomNames = {
+    [ROOM_TYPES.NORMAL]: '🗡️ 战斗房',
+    [ROOM_TYPES.TREASURE]: '💎 宝藏房',
+    [ROOM_TYPES.SHOP]: '🛒 商店',
+    [ROOM_TYPES.BOSS]: '💀 BOSS房',
+    [ROOM_TYPES.START]: '🚪 起始房',
+    [ROOM_TYPES.SECRET]: '❓ 秘密房'
+  };
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`地牢 第${dungeonFloor}层 - ${roomNames[currentRoom?.type] || '未知'}`, W / 2, 10);
+
+  // 小地图
+  drawMiniMap();
+
+  // 房间出口指示
+  if (roomCleared) {
+    drawRoomExits();
+  }
+}
+
+// 绘制小地图
+function drawMiniMap() {
+  const mapX = W - 80;
+  const mapY = 40;
+  const cellSize = 12;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(mapX - 5, mapY - 5, 70, 70);
+
+  // 绘制已探索的房间
+  for (const room of dungeonRooms) {
+    const rx = mapX + 30 + room.x * cellSize;
+    const ry = mapY + 30 + room.y * cellSize;
+
+    // 房间颜色
+    let color = '#444444';
+    if (room.id === currentRoomIndex) color = '#00FF00';
+    else if (room.cleared) color = '#666666';
+    else if (room.type === ROOM_TYPES.BOSS) color = '#FF0000';
+    else if (room.type === ROOM_TYPES.TREASURE) color = '#FFD700';
+    else if (room.type === ROOM_TYPES.SHOP) color = '#00FFFF';
+
+    ctx.fillStyle = color;
+    ctx.fillRect(rx - cellSize / 2, ry - cellSize / 2, cellSize - 1, cellSize - 1);
+  }
+}
+
+// 绘制房间出口
+function drawRoomExits() {
+  for (const exit of roomExits) {
+    // 闪烁效果
+    const flash = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+
+    ctx.fillStyle = `rgba(0, 255, 0, ${flash * 0.5})`;
+    ctx.strokeStyle = `rgba(0, 255, 0, ${flash})`;
+    ctx.lineWidth = 2;
+
+    // 根据方向绘制出口
+    let ex, ey, ew, eh;
+    if (exit.dir === 'up') { ex = W * 0.4; ey = 5; ew = W * 0.2; eh = 15; }
+    else if (exit.dir === 'down') { ex = W * 0.4; ey = H - 20; ew = W * 0.2; eh = 15; }
+    else if (exit.dir === 'left') { ex = 5; ey = H * 0.4; ew = 15; eh = H * 0.2; }
+    else { ex = W - 20; ey = H * 0.4; ew = 15; eh = H * 0.2; }
+
+    ctx.fillRect(ex, ey, ew, eh);
+    ctx.strokeRect(ex, ey, ew, eh);
+  }
+}
+
+// 处理剧情点击
+function handleStoryClick() {
+  storyDialogueIndex++;
+
+  if (storyDialogueIndex >= storyDialogue.length) {
+    // 对话结束，根据进度决定下一步
+    if (storyProgress === 1) {
+      // 开始Boss战
+      startActualBossFight();
+    } else if (storyProgress === 3) {
+      // 进入地牢
+      enterDungeonAfterDefeat();
+    } else if (storyProgress === 4) {
+      // 开始地牢探索
+      startDungeonExploration();
+    }
+  }
+
+  playSound('click');
 }
 
 // 绘制武器创建界面
@@ -8637,9 +9270,10 @@ function handleWeaponCreateTouch(tx, ty, isStart, isEnd) {
   return false;
 }
 
-// 初始化时加载武器
+// 初始化时加载武器和剧情进度
 loadCustomWeapon();
 loadWeaponFragments();
+loadStoryProgress();
 
 // ==================== 游戏循环 ====================
 let lastTime = Date.now();
@@ -8819,6 +9453,13 @@ wx.onTouchEnd((e) => {
   // 武器创建模式优先处理
   if (isWeaponCreating) {
     handleWeaponCreateTouch(tx, ty, false, true);
+    touchStart = null;
+    return;
+  }
+
+  // 剧情模式 - 点击继续对话
+  if (gameState === 'story') {
+    handleStoryClick();
     touchStart = null;
     return;
   }
