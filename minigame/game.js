@@ -1053,6 +1053,11 @@ let playerSkills = []; // 最多4个主动技能
 let playerPassive = null; // 1个被动技能
 let skillCooldowns = {}; // 技能冷却计时器
 
+// 技能强化系统（卦象叠加）
+let skillEnhancements = {}; // 技能强化等级 { skillId: level } (0-3)
+const MAX_ENHANCEMENT_LEVEL = 3; // 最大强化等级
+const ENHANCEMENT_MULTIPLIERS = [1.0, 1.3, 1.7, 2.2]; // 各等级伤害倍率
+
 // 技能选择状态
 let isSelectingSkill = false;
 let skillChoices = []; // 4个待选技能
@@ -1188,11 +1193,71 @@ function generateSkillChoices() {
   return available.slice(0, Math.min(4, available.length));
 }
 
+// 检查技能槽是否已满
+function isSkillSlotsFull() {
+  return playerSkills.length >= 4 && playerPassive !== null;
+}
+
+// 获取技能强化等级
+function getSkillEnhancement(skillId) {
+  return skillEnhancements[skillId] || 0;
+}
+
+// 获取技能强化倍率
+function getSkillEnhancementMultiplier(skillId) {
+  const level = getSkillEnhancement(skillId);
+  return ENHANCEMENT_MULTIPLIERS[level] || 1.0;
+}
+
+// 生成强化选项（技能满后）
+function generateEnhancementChoices() {
+  const enhanceableSkills = [];
+
+  // 收集可强化的主动技能
+  for (const skill of playerSkills) {
+    const currentLevel = getSkillEnhancement(skill.id);
+    if (currentLevel < MAX_ENHANCEMENT_LEVEL) {
+      enhanceableSkills.push({
+        ...skill,
+        isEnhancement: true,
+        currentEnhanceLevel: currentLevel,
+        nextEnhanceLevel: currentLevel + 1
+      });
+    }
+  }
+
+  // 收集可强化的被动技能
+  if (playerPassive) {
+    const currentLevel = getSkillEnhancement(playerPassive.id);
+    if (currentLevel < MAX_ENHANCEMENT_LEVEL) {
+      enhanceableSkills.push({
+        ...playerPassive,
+        isEnhancement: true,
+        currentEnhanceLevel: currentLevel,
+        nextEnhanceLevel: currentLevel + 1
+      });
+    }
+  }
+
+  // 打乱并返回最多4个
+  for (let i = enhanceableSkills.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [enhanceableSkills[i], enhanceableSkills[j]] = [enhanceableSkills[j], enhanceableSkills[i]];
+  }
+
+  return enhanceableSkills.slice(0, Math.min(4, enhanceableSkills.length));
+}
+
 // 开始技能选择
 function startSkillSelection() {
   // 检查是否有进化可用
   const evolution = checkEvolutionAvailable();
-  if (evolution) {
+
+  // 检查技能槽是否已满
+  if (isSkillSlotsFull() && !evolution) {
+    // 技能已满，提供强化选项
+    skillChoices = generateEnhancementChoices();
+  } else if (evolution) {
     // 进化作为第一个选项
     skillChoices = [evolution, ...generateSkillChoices().slice(0, 2)];
   } else {
@@ -1210,8 +1275,22 @@ function selectSkill(index) {
 
   const skill = skillChoices[index];
 
+  // 如果选择的是强化选项
+  if (skill.isEnhancement) {
+    skillEnhancements[skill.id] = skill.nextEnhanceLevel;
+    playSound('levelup');
+
+    // 显示强化通知
+    const levelNames = ['', '叠一', '叠二', '叠三'];
+    const multiplier = ENHANCEMENT_MULTIPLIERS[skill.nextEnhanceLevel];
+    console.log(`技能强化！${skill.name} -> ${levelNames[skill.nextEnhanceLevel]} (${Math.floor(multiplier * 100)}%威力)`);
+
+    // 显示进化通知复用
+    showEvolutionNotice = true;
+    evolutionNoticeTimer = 1.5;
+  }
   // 如果选择的是进化技能
-  if (skill.type === 'evolved') {
+  else if (skill.type === 'evolved') {
     // 移除原技能
     const reqIds = skill.requires || [];
     playerSkills = playerSkills.filter(s => !reqIds.includes(s.id));
@@ -1285,86 +1364,101 @@ function useSkill(skill) {
   skillAnimTimer = 0.5;
   skillAnimName = skill.name;
 
-  // 创建技能释放特效
-  createSkillCastEffect(skill);
+  // 获取强化倍率
+  const enhanceMult = getSkillEnhancementMultiplier(skill.id);
+
+  // 创建强化后的技能对象
+  const enhancedSkill = {
+    ...skill,
+    damage: skill.damage ? Math.floor(skill.damage * enhanceMult) : skill.damage,
+    duration: skill.duration ? skill.duration * (1 + (enhanceMult - 1) * 0.3) : skill.duration
+  };
+
+  // 创建技能释放特效（使用强化后的技能）
+  createSkillCastEffect(enhancedSkill, enhanceMult);
 
   switch (skill.effect) {
     case 'dash_attack': // 亚索Q
-      createDashAttackEffect(skill);
+      createDashAttackEffect(enhancedSkill);
       break;
     case 'invincible': // 亚索W
-      createInvincibleEffect(skill);
+      createInvincibleEffect(enhancedSkill);
       break;
     case 'root_aoe': // 拉克丝Q
-      createRootAOEEffect(skill);
+      createRootAOEEffect(enhancedSkill);
       break;
     case 'laser_beam': // 拉克丝R
-      createLaserBeamEffect(skill);
+      createLaserBeamEffect(enhancedSkill);
       break;
     case 'spin_attack': // 德莱厄斯Q
     case 'spin_continuous': // 盖伦E
-      createSpinAttackEffect(skill);
+      createSpinAttackEffect(enhancedSkill);
       break;
     case 'cone_attack': // 阿卡丽Q
-      createConeAttackEffect(skill);
+      createConeAttackEffect(enhancedSkill);
       break;
     case 'missile_swarm': // 卡莎Q
-      createMissileSwarmEffect(skill);
+      createMissileSwarmEffect(enhancedSkill);
       break;
     case 'multi_strike': // 剑圣Q
-      createMultiStrikeEffect(skill);
+      createMultiStrikeEffect(enhancedSkill);
       break;
     case 'blink': // EZ E
-      createBlinkEffect(skill);
+      createBlinkEffect(enhancedSkill);
       break;
     case 'projectile_cdr': // EZ Q
-      createProjectileEffect(skill);
+      createProjectileEffect(enhancedSkill);
       break;
     case 'hook_pull': // 锤石Q
     case 'grab_pull': // 机器人Q
     case 'pull_harpoon': // 派克Q
-      createHookEffect(skill);
+      createHookEffect(enhancedSkill);
       break;
     case 'place_trap': // 金克丝E
     case 'poison_trap': // 提莫R
-      createTrapEffect(skill);
+      createTrapEffect(enhancedSkill);
       break;
     case 'bounce_shot': // MF Q
     case 'bouncing_blade': // 卡特Q
-      createBounceEffect(skill);
+      createBounceEffect(enhancedSkill);
       break;
     case 'aoe_silence': // 机器人R
-      createAOESilenceEffect(skill);
+      createAOESilenceEffect(enhancedSkill);
       break;
     default:
       // 默认AOE伤害
-      dealAOEDamage(skill.damage || 20, 0.2);
-      createGenericSkillEffect(skill);
+      dealAOEDamage(enhancedSkill.damage || 20, 0.2);
+      createGenericSkillEffect(enhancedSkill);
   }
 }
 
 // 创建技能释放特效
-function createSkillCastEffect(skill) {
-  // 技能名称显示
+function createSkillCastEffect(skill, enhanceMult = 1) {
+  // 强化等级标记
+  const enhanceLevel = enhanceMult > 1 ? Math.round((enhanceMult - 1) / 0.3) : 0;
+  const enhanceMarks = enhanceLevel > 0 ? '★'.repeat(enhanceLevel) : '';
+
+  // 技能名称显示（带强化标记）
   attackEffects.push({
     type: 'skill_name',
     x: playerX,
     y: playerY,
-    name: skill.name,
+    name: enhanceMarks ? `${skill.name} ${enhanceMarks}` : skill.name,
     icon: skill.icon,
-    color: skill.color,
+    color: enhanceMult > 1 ? '#FFD700' : skill.color, // 强化技能金色显示
     timer: 0.8,
     duration: 0.8
   });
 
-  // 技能光环
+  // 技能光环（强化技能光环更大更亮）
   attackEffects.push({
     type: 'skill_aura',
     x: playerX,
     y: playerY,
     color: skill.color,
-    timer: 0.4,
-    duration: 0.4
+    timer: 0.4 * enhanceMult,
+    duration: 0.4 * enhanceMult,
+    scale: enhanceMult
   });
 
   // 触发攻击动画
@@ -3515,6 +3609,7 @@ function startAdventure() {
   skillCooldowns = {};
   skillEffects = [];
   passiveStacks = {};
+  skillEnhancements = {}; // 重置技能强化等级
   isSelectingSkill = false;
   skillChoices = [];
   playerInvincible = 0;
@@ -6294,6 +6389,16 @@ function drawSkillHUD() {
       ctx.globalAlpha = 1;
     }
 
+    // 强化等级标记（右下角星星）
+    const enhanceLevel = getSkillEnhancement(skill.id);
+    if (enhanceLevel > 0) {
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('★'.repeat(enhanceLevel), x + skillSlotSize - 2, y + skillSlotSize - 2);
+    }
+
     // 边框
     ctx.strokeStyle = isReady ? '#FFFFFF' : '#666666';
     ctx.lineWidth = isReady ? 2 : 1;
@@ -6340,11 +6445,22 @@ function drawSkillHUD() {
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
+
+    // 显示强化等级
+    const passiveEnhance = getSkillEnhancement(playerPassive.id);
+    const passiveStars = passiveEnhance > 0 ? ' ' + '★'.repeat(passiveEnhance) : '';
     ctx.fillText(`${playerPassive.icon} ${playerPassive.name}`, passiveX + 4, passiveY + passiveH / 2);
 
-    // 金色边框
-    ctx.strokeStyle = '#FFD700';
-    ctx.lineWidth = 1.5;
+    // 强化标记（右侧）
+    if (passiveEnhance > 0) {
+      ctx.fillStyle = '#FFD700';
+      ctx.textAlign = 'right';
+      ctx.fillText('★'.repeat(passiveEnhance), passiveX + passiveW - 4, passiveY + passiveH / 2);
+    }
+
+    // 金色边框（强化后更亮）
+    ctx.strokeStyle = passiveEnhance > 0 ? '#FFAA00' : '#FFD700';
+    ctx.lineWidth = passiveEnhance > 0 ? 2 : 1.5;
     ctx.strokeRect(passiveX, passiveY, passiveW, passiveH);
   }
 
@@ -6444,16 +6560,23 @@ function drawSkillSelectionUI() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
   ctx.fillRect(0, 0, W, H);
 
+  // 检查是否是强化模式
+  const isEnhanceMode = skillChoices.length > 0 && skillChoices[0].isEnhancement;
+
   // 标题
-  ctx.fillStyle = '#FFD700';
+  ctx.fillStyle = isEnhanceMode ? '#FF6600' : '#FFD700';
   ctx.font = 'bold 24px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('🎁 选择技能', W / 2, 50);
+  ctx.fillText(isEnhanceMode ? '⬆️ 卦象叠加' : '🎁 选择技能', W / 2, 50);
 
   ctx.fillStyle = '#AAAAAA';
   ctx.font = '12px sans-serif';
-  ctx.fillText(`已拥有: ${playerSkills.length}/4 主动技能${playerPassive ? ' + 1被动' : ''}`, W / 2, 75);
+  if (isEnhanceMode) {
+    ctx.fillText('技能已满，选择一个技能进行强化！', W / 2, 75);
+  } else {
+    ctx.fillText(`已拥有: ${playerSkills.length}/4 主动技能${playerPassive ? ' + 1被动' : ''}`, W / 2, 75);
+  }
 
   // 技能选项（2x2布局）
   const cardW = W * 0.42;
@@ -6473,10 +6596,38 @@ function drawSkillSelectionUI() {
     // 卡片背景
     const isPassive = skill.type === 'passive';
     const isEvolved = skill.type === 'evolved';
-    const canSelect = isPassive || isEvolved || playerSkills.length < 4;
+    const isEnhancement = skill.isEnhancement === true;
+    const canSelect = isPassive || isEvolved || isEnhancement || playerSkills.length < 4;
 
+    // 强化选项特殊背景
+    if (isEnhancement) {
+      // 橙色渐变背景
+      const gradient = ctx.createLinearGradient(x, y, x + cardW, y + cardH);
+      gradient.addColorStop(0, 'rgba(100, 50, 20, 0.95)');
+      gradient.addColorStop(0.5, 'rgba(120, 70, 30, 0.95)');
+      gradient.addColorStop(1, 'rgba(100, 50, 20, 0.95)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, y, cardW, cardH);
+
+      // 闪光边框
+      const glowIntensity = 0.5 + Math.sin(Date.now() / 250) * 0.3;
+      ctx.shadowColor = '#FF6600';
+      ctx.shadowBlur = 12 * glowIntensity;
+      ctx.strokeStyle = '#FF6600';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, cardW, cardH);
+      ctx.shadowBlur = 0;
+
+      // 强化标签
+      const levelNames = ['', '叠一', '叠二', '叠三'];
+      const nextLevel = skill.nextEnhanceLevel;
+      const stars = '★'.repeat(nextLevel);
+      ctx.fillStyle = '#FF6600';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(`⬆️ 强化至 ${levelNames[nextLevel]} ${stars}`, x + cardW / 2, y + 12);
+    }
     // 进化技能特殊背景
-    if (isEvolved) {
+    else if (isEvolved) {
       // 金色渐变背景
       const gradient = ctx.createLinearGradient(x, y, x + cardW, y + cardH);
       gradient.addColorStop(0, 'rgba(80, 60, 20, 0.95)');
@@ -6526,7 +6677,14 @@ function drawSkillSelectionUI() {
     ctx.fillText(trigramText, x + cardW / 2, y + (isEvolved ? 86 : 78));
 
     // 类型标签
-    if (isEvolved) {
+    if (isEnhancement) {
+      // 显示强化效果
+      const currentMult = ENHANCEMENT_MULTIPLIERS[skill.currentEnhanceLevel];
+      const nextMult = ENHANCEMENT_MULTIPLIERS[skill.nextEnhanceLevel];
+      ctx.fillStyle = '#FF6600';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText(`威力: ${Math.floor(currentMult * 100)}% → ${Math.floor(nextMult * 100)}%`, x + cardW / 2, y + 95);
+    } else if (isEvolved) {
       ctx.fillStyle = '#FF6600';
       ctx.font = 'bold 10px sans-serif';
       ctx.fillText(`🌟 终极技能 CD:${skill.cooldown}s`, x + cardW / 2, y + 103);
@@ -6539,7 +6697,10 @@ function drawSkillSelectionUI() {
     // 描述
     ctx.fillStyle = '#CCCCCC';
     ctx.font = '11px sans-serif';
-    const desc = skill.description || '';
+    // 强化选项显示特殊描述
+    const desc = isEnhancement
+      ? `强化后${skill.type === 'passive' ? '效果' : '伤害/持续'}提升${Math.floor((ENHANCEMENT_MULTIPLIERS[skill.nextEnhanceLevel] - ENHANCEMENT_MULTIPLIERS[skill.currentEnhanceLevel]) * 100)}%`
+      : (skill.description || '');
     // 自动换行
     const maxLineWidth = cardW - 20;
     let line = '';
