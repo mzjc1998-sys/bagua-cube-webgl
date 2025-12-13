@@ -8094,16 +8094,6 @@ function drawSkillHUD() {
   }
 }
 
-// 颜色加深/变亮辅助函数
-function shadeColor(color, percent) {
-  const num = parseInt(color.replace('#', ''), 16);
-  const amt = Math.round(2.55 * percent);
-  const R = Math.max(0, Math.min(255, (num >> 16) + amt));
-  const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
-  const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
-  return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
-}
-
 // 绘制技能提示框
 function drawSkillTooltip(skill, tx, ty) {
   const tooltipW = 160;
