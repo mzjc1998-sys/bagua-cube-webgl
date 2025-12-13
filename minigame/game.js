@@ -2443,10 +2443,17 @@ function endAdventure() {
   console.log(`冒险结束！击杀: ${killCount}, 存活时间: ${Math.floor(adventureTime)}秒`);
 }
 
-// 返回待机
+// 返回待机（死亡后重置所有数据）
 function returnToIdle() {
   gameState = 'idle';
   monsters = [];
+  // 死亡后重置所有进度
+  playerLevel = 1;
+  playerExp = 0;
+  expToNext = 60;
+  currentClass = 'none';
+  saveGameData();
+  console.log('数据已重置，从1级重新开始');
 }
 
 // 攻击怪物
