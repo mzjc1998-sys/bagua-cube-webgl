@@ -3718,6 +3718,23 @@ let bossWarningTimer = 0;       // Boss警告显示时间
 let bossCount = 0;              // 已击杀Boss数量
 let currentBoss = null;         // 当前Boss引用
 
+// 波次事件系统
+let lastWaveMinute = 0;         // 上次触发波次的分钟数
+let waveWarningTimer = 0;       // 波次警告计时器
+let waveAnnouncement = '';      // 波次公告文本
+
+// 波次事件配置
+const WAVE_EVENTS = [
+  { minute: 1, name: '初始潮涌', count: 8, types: ['zombie', 'skeleton'] },
+  { minute: 2, name: '蝙蝠风暴', count: 15, types: ['bat', 'rat'] },
+  { minute: 3, name: '暗影来袭', count: 12, types: ['ghost', 'skeleton', 'archer'] },
+  { minute: 4, name: '法师之怒', count: 10, types: ['mage', 'demon'] },
+  { minute: 5, name: '精英入侵', count: 8, types: ['eliteZombie', 'darkKnight', 'golem'] },
+  { minute: 6, name: '爆炸狂潮', count: 12, types: ['exploder', 'slime'] },
+  { minute: 7, name: '暗影领主', count: 6, types: ['shadowLord', 'swarmQueen'] },
+  { minute: 8, name: '末日降临', count: 15, types: ['eliteZombie', 'darkKnight', 'shadowLord'] }
+];
+
 // 怪物类型定义（降低早期怪物伤害，提高生存能力）
 const MONSTER_TYPES = {
   // ========== 基础怪物 ==========
@@ -4112,9 +4129,18 @@ function selectMonsterByWeight(available) {
 
 // 计算怪物强化倍率（随时间增加）
 function getMonsterScaling() {
-  // 每30秒增加10%的属性
-  let scaleFactor = 1 + Math.floor(adventureTime / 30) * 0.1;
-  scaleFactor = Math.min(scaleFactor, 3.0); // 最多3倍
+  // 基础缩放：每20秒增加15%的属性
+  let scaleFactor = 1 + Math.floor(adventureTime / 20) * 0.15;
+
+  // 时间阶段加成
+  if (adventureTime > 60) scaleFactor += 0.3;   // 1分钟后+30%
+  if (adventureTime > 120) scaleFactor += 0.5;  // 2分钟后+50%
+  if (adventureTime > 180) scaleFactor += 0.7;  // 3分钟后+70%
+  if (adventureTime > 240) scaleFactor += 1.0;  // 4分钟后+100%
+  if (adventureTime > 300) scaleFactor += 1.5;  // 5分钟后+150%
+
+  // 最大5倍（防止过于夸张）
+  scaleFactor = Math.min(scaleFactor, 5.0);
 
   // 每日挑战：强化敌人修饰符
   if (isDailyChallenge && hasDailyModifier('monster_hp')) {
@@ -4122,6 +4148,56 @@ function getMonsterScaling() {
   }
 
   return scaleFactor;
+}
+
+// 获取当前难度等级信息
+function getDifficultyInfo() {
+  const minute = adventureTime / 60;
+
+  // 生成间隔：随时间减少（最低0.3秒）
+  let spawnInterval = 3.0;
+  if (minute >= 0.5) spawnInterval = 2.5;
+  if (minute >= 1) spawnInterval = 2.0;
+  if (minute >= 1.5) spawnInterval = 1.5;
+  if (minute >= 2) spawnInterval = 1.2;
+  if (minute >= 2.5) spawnInterval = 1.0;
+  if (minute >= 3) spawnInterval = 0.8;
+  if (minute >= 4) spawnInterval = 0.6;
+  if (minute >= 5) spawnInterval = 0.5;
+  if (minute >= 6) spawnInterval = 0.4;
+  if (minute >= 8) spawnInterval = 0.3;
+
+  // 每次生成的怪物数量
+  let spawnCount = 1;
+  if (minute >= 1) spawnCount = 2;
+  if (minute >= 2) spawnCount = 3;
+  if (minute >= 3) spawnCount = 4;
+  if (minute >= 4) spawnCount = 5;
+  if (minute >= 5) spawnCount = 6;
+  if (minute >= 7) spawnCount = 8;
+
+  // 最大怪物数量
+  let maxMonsters = 15;
+  if (minute >= 1) maxMonsters = 25;
+  if (minute >= 2) maxMonsters = 35;
+  if (minute >= 3) maxMonsters = 50;
+  if (minute >= 4) maxMonsters = 70;
+  if (minute >= 5) maxMonsters = 100;
+
+  // 精英怪出现概率（%）
+  let eliteChance = 0;
+  if (minute >= 1.5) eliteChance = 5;
+  if (minute >= 3) eliteChance = 10;
+  if (minute >= 5) eliteChance = 15;
+  if (minute >= 7) eliteChance = 20;
+
+  return {
+    spawnInterval,
+    spawnCount,
+    maxMonsters,
+    eliteChance,
+    minute
+  };
 }
 
 // 创建单个怪物实例
@@ -4178,29 +4254,70 @@ function createMonsterInstance(type, x, y, scaling, sizeVariation = 0.1) {
 
 // 创建怪物（在玩家周围的世界坐标生成）
 function spawnMonster() {
-  // 在玩家周围0.5-0.8距离处生成
-  const angle = Math.random() * Math.PI * 2;
-  const distance = 0.5 + Math.random() * 0.3;
-  const x = playerX + Math.cos(angle) * distance;
-  const y = playerY + Math.sin(angle) * distance;
+  const difficulty = getDifficultyInfo();
 
-  // 根据权重选择怪物类型
-  const available = getAvailableMonsterTypes();
-  const type = selectMonsterByWeight(available);
-  const info = MONSTER_TYPES[type];
-  const scaling = getMonsterScaling();
-
-  // 检查是否是群体怪
-  if (info.swarmSize && info.swarmSize > 1) {
-    // 生成一群怪物
-    spawnSwarm(type, x, y, info.swarmSize, scaling);
+  // 检查是否达到最大怪物数量
+  if (monsters.length >= difficulty.maxMonsters) {
     return;
   }
 
-  // 生成单个怪物
-  const monster = createMonsterInstance(type, x, y, scaling);
-  if (monster) {
-    monsters.push(monster);
+  const scaling = getMonsterScaling();
+  const available = getAvailableMonsterTypes();
+
+  // 根据难度生成多个怪物
+  const spawnCount = Math.min(difficulty.spawnCount, difficulty.maxMonsters - monsters.length);
+
+  for (let i = 0; i < spawnCount; i++) {
+    // 在玩家周围不同方向生成
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 0.4 + Math.random() * 0.4;
+    const x = playerX + Math.cos(angle) * distance;
+    const y = playerY + Math.sin(angle) * distance;
+
+    // 根据权重选择怪物类型
+    let type = selectMonsterByWeight(available);
+    const info = MONSTER_TYPES[type];
+
+    // 精英怪概率
+    if (difficulty.eliteChance > 0 && Math.random() * 100 < difficulty.eliteChance) {
+      // 将普通怪物升级为精英
+      if (type === 'zombie') type = 'eliteZombie';
+      else if (type === 'skeleton') type = 'darkKnight';
+    }
+
+    const monsterInfo = MONSTER_TYPES[type];
+
+    // 检查是否是群体怪
+    if (monsterInfo && monsterInfo.swarmSize && monsterInfo.swarmSize > 1) {
+      // 生成一群怪物
+      spawnSwarm(type, x, y, monsterInfo.swarmSize, scaling);
+    } else {
+      // 生成单个怪物
+      const monster = createMonsterInstance(type, x, y, scaling);
+      if (monster) {
+        monsters.push(monster);
+      }
+    }
+  }
+}
+
+// 生成一波怪物（用于特殊事件）
+function spawnWave(count, types = null) {
+  const difficulty = getDifficultyInfo();
+  const scaling = getMonsterScaling() * 1.2; // 波次怪物更强
+  const available = types ? { monsters: types.map(t => ({ type: t, weight: 50 })), totalWeight: types.length * 50 } : getAvailableMonsterTypes();
+
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const distance = 0.5 + Math.random() * 0.2;
+    const x = playerX + Math.cos(angle) * distance;
+    const y = playerY + Math.sin(angle) * distance;
+
+    const type = selectMonsterByWeight(available);
+    const monster = createMonsterInstance(type, x, y, scaling);
+    if (monster) {
+      monsters.push(monster);
+    }
   }
 }
 
@@ -5201,6 +5318,10 @@ function startAdventure() {
   bossWarningTimer = 0;
   currentBoss = null;
   comboCount = 0;
+  // 重置波次状态
+  lastWaveMinute = 0;
+  waveWarningTimer = 0;
+  waveAnnouncement = '';
   // 重置拾取物
   collectibles = [];
   collectibleSpawnTimer = 0;
@@ -6497,11 +6618,9 @@ function updateAdventure(dt) {
     checkRoomExit();
   }
 
-  // 难度随时间增加（更缓慢的递进）
-  if (adventureTime > 45) monsterSpawnInterval = 2.5;
-  if (adventureTime > 90) monsterSpawnInterval = 2.0;
-  if (adventureTime > 150) monsterSpawnInterval = 1.5;
-  if (adventureTime > 200) monsterSpawnInterval = 1.2;
+  // 难度随时间增加（使用难度系统）
+  const difficulty = getDifficultyInfo();
+  monsterSpawnInterval = difficulty.spawnInterval;
 
   // Boss系统计时
   bossTimer += dt;
@@ -6529,6 +6648,36 @@ function updateAdventure(dt) {
   // 检查Boss是否还存活
   if (currentBoss && currentBoss.hp <= 0) {
     currentBoss = null;
+  }
+
+  // 波次事件系统
+  const currentMinute = Math.floor(adventureTime / 60);
+  if (currentMinute > lastWaveMinute) {
+    // 检查是否有对应的波次事件
+    const waveEvent = WAVE_EVENTS.find(w => w.minute === currentMinute);
+    if (waveEvent) {
+      // 触发波次
+      lastWaveMinute = currentMinute;
+      waveAnnouncement = waveEvent.name;
+      waveWarningTimer = 2.0;
+
+      // 生成波次怪物
+      spawnWave(waveEvent.count, waveEvent.types);
+
+      // 屏幕震动
+      triggerScreenShake(0.3, 0.5);
+      playSound('skill');
+
+      console.log(`波次事件: ${waveEvent.name} - 生成 ${waveEvent.count} 只怪物`);
+    } else {
+      // 没有特定事件，也更新lastWaveMinute防止重复检测
+      lastWaveMinute = currentMinute;
+    }
+  }
+
+  // 波次公告计时
+  if (waveWarningTimer > 0) {
+    waveWarningTimer -= dt;
   }
 
   // 生成怪物（在玩家周围生成）
@@ -8452,6 +8601,45 @@ function draw() {
     ctx.fillText(`金币: ${goldCollected}`, W - 10, 38);
     ctx.fillStyle = '#00BCD4';
     ctx.fillText(`时间: ${Math.floor(adventureTime)}s`, W - 10, 54);
+
+    // 难度等级显示
+    const difficulty = getDifficultyInfo();
+    const diffLevel = Math.floor(difficulty.minute) + 1;
+    const diffColors = ['#4CAF50', '#8BC34A', '#CDDC39', '#FFEB3B', '#FFC107', '#FF9800', '#FF5722', '#F44336', '#E91E63', '#9C27B0'];
+    const diffColor = diffColors[Math.min(diffLevel - 1, diffColors.length - 1)];
+    ctx.fillStyle = diffColor;
+    ctx.fillText(`难度: Lv.${diffLevel}`, W - 10, 70);
+
+    // 怪物数量显示
+    ctx.fillStyle = monsters.length > difficulty.maxMonsters * 0.8 ? '#FF5722' : '#AAAAAA';
+    ctx.fillText(`怪物: ${monsters.length}/${difficulty.maxMonsters}`, W - 10, 86);
+
+    // 波次公告（屏幕中央）
+    if (waveWarningTimer > 0) {
+      const waveAlpha = Math.min(1, waveWarningTimer);
+      const waveScale = 1 + (2 - waveWarningTimer) * 0.1;
+
+      ctx.save();
+      ctx.globalAlpha = waveAlpha;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // 背景
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(W * 0.15, H * 0.35, W * 0.7, H * 0.12);
+
+      // 警告文字
+      ctx.fillStyle = '#FF4444';
+      ctx.font = `bold ${Math.floor(24 * waveScale)}px sans-serif`;
+      ctx.fillText('⚠ 波次来袭 ⚠', W / 2, H * 0.38);
+
+      // 波次名称
+      ctx.fillStyle = '#FFD700';
+      ctx.font = `bold ${Math.floor(20 * waveScale)}px sans-serif`;
+      ctx.fillText(waveAnnouncement, W / 2, H * 0.44);
+
+      ctx.restore();
+    }
 
     // 音效按钮和暂停按钮（右上角）
     drawSoundButton();
