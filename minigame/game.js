@@ -4587,11 +4587,9 @@ function drawMonsterHPBar(len, headY, headR, monster) {
     const barY = headY - headR - 10;
     const hpRatio = Math.max(0, monster.hp / monster.maxHp);
 
-    // 背景条 - 圆角
+    // 背景条
     ctx.fillStyle = 'rgba(20, 15, 25, 0.8)';
-    ctx.beginPath();
-    ctx.roundRect(-barW / 2, barY, barW, barH, barH / 2);
-    ctx.fill();
+    ctx.fillRect(-barW / 2, barY, barW, barH);
 
     // 血条 - 根据血量变色
     if (hpRatio > 0) {
@@ -4599,18 +4597,14 @@ function drawMonsterHPBar(len, headY, headR, monster) {
       ctx.shadowColor = hpColor;
       ctx.shadowBlur = 6;
       ctx.fillStyle = hpColor;
-      ctx.beginPath();
-      ctx.roundRect(-barW / 2 + 1, barY + 1, Math.max(0, (barW - 2) * hpRatio), barH - 2, (barH - 2) / 2);
-      ctx.fill();
+      ctx.fillRect(-barW / 2 + 1, barY + 1, Math.max(0, (barW - 2) * hpRatio), barH - 2);
       ctx.shadowBlur = 0;
     }
 
     // 边框
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
     ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.roundRect(-barW / 2, barY, barW, barH, barH / 2);
-    ctx.stroke();
+    ctx.strokeRect(-barW / 2, barY, barW, barH);
   }
 }
 
