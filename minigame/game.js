@@ -4218,10 +4218,26 @@ function createMonsterInstance(type, x, y, scaling, sizeVariation = 0.1) {
     hitTimer: 0,
     walkPhase: Math.random() * Math.PI * 2,
     floatPhase: Math.random() * Math.PI * 2,
+    // 控制效果计时器（必须初始化为0）
+    freezeTimer: 0,
+    stunTimer: 0,
+    slowTimer: 0,
+    slowAmount: 0,
+    burnTimer: 0,
+    burnDamage: 0,
+    rooted: 0,
     // 行为相关
     behavior: info.behavior || 'chase',
     behaviorTimer: 0,
     behaviorCooldown: 0,
+    attackCooldown: 0,
+    abilityCooldown: 0,
+    phaseTimer: 0,
+    chargeTimer: 0,
+    isPhasing: false,
+    isExploding: false,
+    explodeTimer: 0,
+    isEnraged: false,
     // 特殊属性
     isElite: info.isElite || false,
     abilities: info.abilities || [],
@@ -6771,7 +6787,7 @@ function updateAdventure(dt) {
           }
           break;
 
-        case 'ranged':
+        case 'ranged': {
           // 远程攻击 - 保持距离并射击
           const attackRange = info.attackRange || 0.3;
           const optimalDist = attackRange * 0.8;
@@ -6800,6 +6816,7 @@ function updateAdventure(dt) {
             m.attackCooldown = info.attackSpeed || 2.0;
           }
           break;
+        }
 
         case 'phase':
           // 幽灵 - 相位穿越
@@ -6828,7 +6845,7 @@ function updateAdventure(dt) {
           }
           break;
 
-        case 'charge':
+        case 'charge': {
           // 冲锋行为
           if (m.isCharging) {
             // 冲锋中
@@ -6858,8 +6875,9 @@ function updateAdventure(dt) {
             }
           }
           break;
+        }
 
-        case 'explode':
+        case 'explode': {
           // 爆炸怪 - 接近后自爆
           if (dist > 0.05) {
             // 快速接近
@@ -6884,6 +6902,7 @@ function updateAdventure(dt) {
             }
           }
           break;
+        }
 
         case 'tank':
           // 坦克 - 缓慢但坚韧
@@ -6893,7 +6912,7 @@ function updateAdventure(dt) {
           }
           break;
 
-        case 'summoner':
+        case 'summoner': {
           // 召唤师 - 保持距离，召唤小怪
           if (dist < 0.25) {
             // 太近，后退
@@ -6921,8 +6940,9 @@ function updateAdventure(dt) {
             m.abilityCooldown = info.summonCooldown || 5.0;
           }
           break;
+        }
 
-        case 'elite':
+        case 'elite': {
           // 精英怪 - 有特殊技能
           if (dist > 0.05) {
             m.x += (dx / dist) * m.speed * speedMult;
@@ -6987,6 +7007,7 @@ function updateAdventure(dt) {
             }
           }
           break;
+        }
 
         default:
           // 默认追击
