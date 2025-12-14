@@ -1,0 +1,1748 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>玄牢志 - 八卦地牢</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: #0a0a12;
+      overflow: hidden;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    #gameCanvas {
+      display: block;
+      margin: 0 auto;
+      background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+    }
+
+    /* 加载画面 */
+    #loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #0a0a12;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      transition: opacity 0.5s;
+    }
+
+    #loading.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #loading h1 {
+      color: #ffd700;
+      font-size: 48px;
+      margin-bottom: 20px;
+      text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+    }
+
+    #loading p {
+      color: #888;
+      font-size: 16px;
+    }
+
+    .loading-bar {
+      width: 200px;
+      height: 4px;
+      background: #333;
+      border-radius: 2px;
+      margin-top: 30px;
+      overflow: hidden;
+    }
+
+    .loading-bar-inner {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #ffd700, #ff6b6b);
+      animation: loading 1.5s ease-in-out infinite;
+    }
+
+    @keyframes loading {
+      0% { width: 0%; }
+      50% { width: 100%; }
+      100% { width: 0%; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <h1>玄牢志</h1>
+    <p>八卦地牢 · 命运轮回</p>
+    <div class="loading-bar">
+      <div class="loading-bar-inner"></div>
+    </div>
+  </div>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+// ==================== 游戏主程序 ====================
+
+(function() {
+  'use strict';
+
+  // ==================== 常量定义 ====================
+
+  const COLORS = {
+    // 主题色
+    primary: '#ffd700',
+    secondary: '#5ad6ff',
+    danger: '#ff4757',
+    success: '#2ed573',
+
+    // 五行颜色
+    metal: '#c0c0c0',
+    wood: '#2ed573',
+    water: '#5ad6ff',
+    fire: '#ff6b6b',
+    earth: '#d4a574',
+
+    // 卡牌颜色
+    attack: '#ff6b6b',
+    skill: '#5ad6ff',
+    power: '#a855f7',
+
+    // UI颜色
+    bg: '#1a1a2e',
+    bgLight: '#252542',
+    bgDark: '#0f0f1a',
+    text: '#ffffff',
+    textMuted: '#888888',
+    border: '#3a3a5a'
+  };
+
+  const CARD_WIDTH = 100;
+  const CARD_HEIGHT = 140;
+
+  // ==================== 游戏状态 ====================
+
+  const GameState = {
+    LOADING: 'loading',
+    MAIN_MENU: 'main_menu',
+    CHARACTER_SELECT: 'character_select',
+    MAP: 'map',
+    BATTLE: 'battle',
+    REWARD: 'reward',
+    GAME_OVER: 'game_over',
+    VICTORY: 'victory'
+  };
+
+  // ==================== 全局变量 ====================
+
+  let canvas, ctx;
+  let gameWidth, gameHeight;
+  let currentState = GameState.LOADING;
+  let animationId;
+  let lastTime = 0;
+  let deltaTime = 0;
+
+  // 输入状态
+  const input = {
+    mouseX: 0,
+    mouseY: 0,
+    isDown: false,
+    clicked: false,
+    clickX: 0,
+    clickY: 0
+  };
+
+  // 游戏数据
+  let game = null;
+
+  // 动画队列
+  let animations = [];
+
+  // 飘字效果
+  let floatingTexts = [];
+
+  // ==================== 卡牌数据 ====================
+
+  const CARDS = {
+    strike: {
+      id: 'strike',
+      name: '横劈',
+      type: 'attack',
+      cost: 1,
+      description: '造成 6 点伤害',
+      damage: 6
+    },
+    defend: {
+      id: 'defend',
+      name: '格挡',
+      type: 'skill',
+      cost: 1,
+      description: '获得 5 点护甲',
+      armor: 5
+    },
+    bash: {
+      id: 'bash',
+      name: '痛击',
+      type: 'attack',
+      cost: 2,
+      description: '造成 8 点伤害\n敌人获得 2 层易伤',
+      damage: 8,
+      vulnerable: 2
+    },
+    iron_wave: {
+      id: 'iron_wave',
+      name: '铁浪',
+      type: 'skill',
+      cost: 1,
+      description: '造成 5 点伤害\n获得 5 点护甲',
+      damage: 5,
+      armor: 5
+    },
+    cleave: {
+      id: 'cleave',
+      name: '横扫',
+      type: 'attack',
+      cost: 1,
+      description: '对所有敌人\n造成 8 点伤害',
+      damage: 8,
+      aoe: true
+    },
+    flex: {
+      id: 'flex',
+      name: '蓄力',
+      type: 'skill',
+      cost: 0,
+      description: '获得 2 点力量\n(本回合)',
+      tempStrength: 2
+    },
+    shrug: {
+      id: 'shrug',
+      name: '护身',
+      type: 'skill',
+      cost: 1,
+      description: '获得 8 点护甲',
+      armor: 8
+    },
+    heavy_blade: {
+      id: 'heavy_blade',
+      name: '重剑',
+      type: 'attack',
+      cost: 2,
+      description: '造成 14 点伤害\n力量效果 x3',
+      damage: 14,
+      strengthMult: 3
+    },
+    flame_strike: {
+      id: 'flame_strike',
+      name: '火焰斩',
+      type: 'attack',
+      cost: 2,
+      description: '造成 12 点火属性伤害\n敌人获得 2 层灼烧',
+      damage: 12,
+      element: 'fire',
+      burn: 2
+    },
+    meditation: {
+      id: 'meditation',
+      name: '冥想',
+      type: 'skill',
+      cost: 0,
+      description: '抽 1 张牌',
+      draw: 1
+    }
+  };
+
+  // ==================== 敌人数据 ====================
+
+  const ENEMIES = {
+    slime: {
+      id: 'slime',
+      name: '史莱姆',
+      hpMin: 12,
+      hpMax: 18,
+      element: 'water',
+      patterns: [
+        { type: 'attack', value: 5 },
+        { type: 'attack', value: 5 },
+        { type: 'defend', value: 4 }
+      ]
+    },
+    skeleton: {
+      id: 'skeleton',
+      name: '骷髅兵',
+      hpMin: 25,
+      hpMax: 32,
+      element: 'earth',
+      patterns: [
+        { type: 'attack', value: 8 },
+        { type: 'attack', value: 8 },
+        { type: 'defend', value: 6 }
+      ]
+    },
+    goblin: {
+      id: 'goblin',
+      name: '哥布林',
+      hpMin: 15,
+      hpMax: 22,
+      element: 'earth',
+      patterns: [
+        { type: 'attack', value: 4 },
+        { type: 'attack', value: 4 },
+        { type: 'buff', value: 2, buffType: 'strength' }
+      ]
+    },
+    fire_imp: {
+      id: 'fire_imp',
+      name: '火焰小鬼',
+      hpMin: 20,
+      hpMax: 28,
+      element: 'fire',
+      patterns: [
+        { type: 'attack', value: 7 },
+        { type: 'debuff', value: 2, debuffType: 'burn' },
+        { type: 'attack', value: 7 }
+      ]
+    },
+    stone_golem: {
+      id: 'stone_golem',
+      name: '石傀儡',
+      hpMin: 60,
+      hpMax: 80,
+      element: 'earth',
+      isElite: true,
+      patterns: [
+        { type: 'attack', value: 12 },
+        { type: 'defend', value: 10 },
+        { type: 'attack', value: 12 },
+        { type: 'buff', value: 2, buffType: 'strength' }
+      ]
+    }
+  };
+
+  // ==================== 角色数据 ====================
+
+  const CHARACTERS = {
+    swordsman: {
+      id: 'swordsman',
+      name: '剑客',
+      title: '青锋剑士',
+      hp: 80,
+      deck: ['strike', 'strike', 'strike', 'strike', 'strike',
+             'defend', 'defend', 'defend', 'defend', 'bash']
+    },
+    taoist: {
+      id: 'taoist',
+      name: '道士',
+      title: '太极真人',
+      hp: 75,
+      deck: ['strike', 'strike', 'strike', 'strike',
+             'defend', 'defend', 'defend', 'defend', 'meditation', 'flex'],
+      locked: true
+    }
+  };
+
+  // ==================== 工具函数 ====================
+
+  function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function shuffle(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  function easeOutBack(t) {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+
+  function pointInRect(px, py, x, y, w, h) {
+    return px >= x && px <= x + w && py >= y && py <= y + h;
+  }
+
+  // ==================== 绘制工具 ====================
+
+  function drawRoundRect(x, y, w, h, r, fill, stroke) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke) {
+      ctx.strokeStyle = stroke;
+      ctx.stroke();
+    }
+  }
+
+  function drawText(text, x, y, options = {}) {
+    const {
+      size = 16,
+      color = COLORS.text,
+      align = 'center',
+      baseline = 'middle',
+      shadow = false
+    } = options;
+
+    ctx.font = `${size}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+
+    if (shadow) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillText(text, x + 2, y + 2);
+    }
+
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
+  }
+
+  function drawButton(x, y, w, h, text, options = {}) {
+    const {
+      color = COLORS.primary,
+      textColor = '#000',
+      disabled = false,
+      hovered = false
+    } = options;
+
+    const isHover = hovered || pointInRect(input.mouseX, input.mouseY, x, y, w, h);
+
+    // 背景
+    const bgColor = disabled ? '#444' : (isHover ? lightenColor(color, 20) : color);
+    drawRoundRect(x, y, w, h, 8, bgColor);
+
+    // 边框光效
+    if (isHover && !disabled) {
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+      drawRoundRect(x, y, w, h, 8, null, color);
+      ctx.shadowBlur = 0;
+    }
+
+    // 文字
+    drawText(text, x + w/2, y + h/2, {
+      color: disabled ? '#888' : textColor,
+      size: 18
+    });
+
+    // 检测点击
+    if (input.clicked && isHover && !disabled) {
+      return true;
+    }
+    return false;
+  }
+
+  function lightenColor(color, percent) {
+    const num = parseInt(color.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return '#' + (0x1000000 +
+      (R < 255 ? (R < 1 ? 0 : R) : 255) * 0x10000 +
+      (G < 255 ? (G < 1 ? 0 : G) : 255) * 0x100 +
+      (B < 255 ? (B < 1 ? 0 : B) : 255)
+    ).toString(16).slice(1);
+  }
+
+  // ==================== 飘字效果 ====================
+
+  function addFloatingText(text, x, y, color = COLORS.danger) {
+    floatingTexts.push({
+      text,
+      x,
+      y,
+      color,
+      alpha: 1,
+      vy: -2,
+      life: 60
+    });
+  }
+
+  function updateFloatingTexts() {
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const ft = floatingTexts[i];
+      ft.y += ft.vy;
+      ft.life--;
+      ft.alpha = ft.life / 60;
+      if (ft.life <= 0) {
+        floatingTexts.splice(i, 1);
+      }
+    }
+  }
+
+  function drawFloatingTexts() {
+    for (const ft of floatingTexts) {
+      ctx.globalAlpha = ft.alpha;
+      drawText(ft.text, ft.x, ft.y, {
+        color: ft.color,
+        size: 24,
+        shadow: true
+      });
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ==================== 游戏类 ====================
+
+  class Game {
+    constructor() {
+      this.player = null;
+      this.enemies = [];
+      this.floor = 1;
+      this.gold = 99;
+      this.deck = [];
+      this.drawPile = [];
+      this.hand = [];
+      this.discardPile = [];
+      this.energy = 3;
+      this.maxEnergy = 3;
+      this.turn = 0;
+      this.isPlayerTurn = true;
+      this.selectedCard = null;
+      this.selectedCardIndex = -1;
+      this.hoveredCard = -1;
+      this.targetingMode = false;
+      this.battleLog = [];
+      this.map = null;
+      this.currentNode = null;
+    }
+
+    startNewGame(characterId) {
+      const char = CHARACTERS[characterId];
+
+      this.player = {
+        name: char.name,
+        hp: char.hp,
+        maxHp: char.hp,
+        armor: 0,
+        strength: 0,
+        dexterity: 0,
+        buffs: {}
+      };
+
+      this.deck = char.deck.map(id => this.createCard(id));
+      this.floor = 1;
+      this.gold = 99;
+
+      // 生成地图
+      this.generateMap();
+
+      currentState = GameState.MAP;
+    }
+
+    createCard(id) {
+      const data = CARDS[id];
+      return {
+        ...data,
+        uuid: Math.random().toString(36).substr(2, 9)
+      };
+    }
+
+    generateMap() {
+      // 简单的地图生成
+      this.map = {
+        nodes: [],
+        currentIndex: 0
+      };
+
+      // 生成 8 个节点
+      const types = ['battle', 'battle', 'battle', 'elite', 'rest', 'shop', 'event', 'boss'];
+      for (let i = 0; i < 8; i++) {
+        this.map.nodes.push({
+          index: i,
+          type: i === 7 ? 'boss' : types[i],
+          cleared: false,
+          available: i === 0
+        });
+      }
+    }
+
+    enterNode(index) {
+      const node = this.map.nodes[index];
+      if (!node.available || node.cleared) return;
+
+      this.currentNode = node;
+
+      switch (node.type) {
+        case 'battle':
+          this.startBattle(['slime', 'goblin']);
+          break;
+        case 'elite':
+          this.startBattle(['stone_golem']);
+          break;
+        case 'boss':
+          this.startBattle(['skeleton', 'skeleton', 'fire_imp']);
+          break;
+        case 'rest':
+          // 恢复 30% HP
+          const heal = Math.floor(this.player.maxHp * 0.3);
+          this.player.hp = Math.min(this.player.maxHp, this.player.hp + heal);
+          this.completeNode();
+          break;
+        case 'shop':
+        case 'event':
+          // 简化处理
+          this.gold += 20;
+          this.completeNode();
+          break;
+      }
+    }
+
+    completeNode() {
+      this.currentNode.cleared = true;
+
+      // 解锁下一个节点
+      const nextIndex = this.currentNode.index + 1;
+      if (nextIndex < this.map.nodes.length) {
+        this.map.nodes[nextIndex].available = true;
+      }
+
+      // 检查是否通关
+      if (this.currentNode.type === 'boss') {
+        currentState = GameState.VICTORY;
+        return;
+      }
+
+      currentState = GameState.MAP;
+    }
+
+    startBattle(enemyIds) {
+      this.enemies = enemyIds.map((id, i) => this.createEnemy(id, i));
+      this.turn = 0;
+      this.energy = this.maxEnergy;
+      this.drawPile = shuffle([...this.deck]);
+      this.hand = [];
+      this.discardPile = [];
+      this.player.armor = 0;
+      this.selectedCard = null;
+      this.targetingMode = false;
+
+      // 敌人决定意图
+      this.enemies.forEach(e => this.decideEnemyIntent(e));
+
+      // 开始玩家回合
+      this.startPlayerTurn();
+
+      currentState = GameState.BATTLE;
+    }
+
+    createEnemy(id, index) {
+      const data = ENEMIES[id];
+      const hp = randomInt(data.hpMin, data.hpMax);
+      return {
+        ...data,
+        index,
+        hp,
+        maxHp: hp,
+        armor: 0,
+        strength: 0,
+        buffs: {},
+        patternIndex: 0,
+        intent: null,
+        x: gameWidth * 0.5 + index * 150 - (1) * 75,
+        y: gameHeight * 0.3,
+        shake: 0
+      };
+    }
+
+    decideEnemyIntent(enemy) {
+      const pattern = enemy.patterns[enemy.patternIndex];
+      enemy.intent = { ...pattern };
+      enemy.patternIndex = (enemy.patternIndex + 1) % enemy.patterns.length;
+    }
+
+    startPlayerTurn() {
+      this.turn++;
+      this.isPlayerTurn = true;
+      this.energy = this.maxEnergy;
+
+      // 抽 5 张牌
+      this.drawCards(5);
+
+      // 清除临时力量
+      if (this.player.buffs.tempStrength) {
+        this.player.strength -= this.player.buffs.tempStrength;
+        delete this.player.buffs.tempStrength;
+      }
+    }
+
+    endPlayerTurn() {
+      if (!this.isPlayerTurn) return;
+
+      this.isPlayerTurn = false;
+      this.selectedCard = null;
+      this.targetingMode = false;
+
+      // 弃掉手牌
+      while (this.hand.length > 0) {
+        this.discardPile.push(this.hand.pop());
+      }
+
+      // 敌人回合
+      this.executeEnemyTurns();
+    }
+
+    async executeEnemyTurns() {
+      for (const enemy of this.enemies) {
+        if (enemy.hp <= 0) continue;
+
+        await this.delay(500);
+        this.executeEnemyAction(enemy);
+
+        if (this.player.hp <= 0) {
+          currentState = GameState.GAME_OVER;
+          return;
+        }
+      }
+
+      // 减少敌人护甲
+      this.enemies.forEach(e => e.armor = 0);
+
+      // 敌人决定下一轮意图
+      this.enemies.forEach(e => {
+        if (e.hp > 0) this.decideEnemyIntent(e);
+      });
+
+      // 减少玩家护甲
+      this.player.armor = 0;
+
+      // 开始新的玩家回合
+      this.startPlayerTurn();
+    }
+
+    executeEnemyAction(enemy) {
+      const intent = enemy.intent;
+
+      switch (intent.type) {
+        case 'attack':
+          let damage = intent.value + enemy.strength;
+
+          // 易伤增加伤害
+          if (this.player.buffs.vulnerable > 0) {
+            damage = Math.floor(damage * 1.5);
+          }
+
+          // 护甲减伤
+          if (this.player.armor >= damage) {
+            this.player.armor -= damage;
+            addFloatingText(`-${damage} 护甲`, gameWidth * 0.25, gameHeight * 0.5, COLORS.secondary);
+          } else {
+            const remainDamage = damage - this.player.armor;
+            this.player.armor = 0;
+            this.player.hp -= remainDamage;
+            addFloatingText(`-${remainDamage}`, gameWidth * 0.25, gameHeight * 0.5, COLORS.danger);
+          }
+          break;
+
+        case 'defend':
+          enemy.armor += intent.value;
+          addFloatingText(`+${intent.value} 护甲`, enemy.x, enemy.y, COLORS.secondary);
+          break;
+
+        case 'buff':
+          if (intent.buffType === 'strength') {
+            enemy.strength += intent.value;
+            addFloatingText(`+${intent.value} 力量`, enemy.x, enemy.y, COLORS.primary);
+          }
+          break;
+
+        case 'debuff':
+          if (intent.debuffType === 'burn') {
+            this.player.buffs.burn = (this.player.buffs.burn || 0) + intent.value;
+            addFloatingText(`+${intent.value} 灼烧`, gameWidth * 0.25, gameHeight * 0.5, COLORS.fire);
+          }
+          break;
+      }
+    }
+
+    drawCards(count) {
+      for (let i = 0; i < count; i++) {
+        if (this.hand.length >= 10) break;
+
+        if (this.drawPile.length === 0) {
+          if (this.discardPile.length === 0) break;
+          this.drawPile = shuffle(this.discardPile);
+          this.discardPile = [];
+        }
+
+        this.hand.push(this.drawPile.pop());
+      }
+    }
+
+    playCard(cardIndex, targetIndex = -1) {
+      if (!this.isPlayerTurn) return false;
+
+      const card = this.hand[cardIndex];
+      if (!card) return false;
+
+      if (this.energy < card.cost) return false;
+
+      // 需要目标的攻击牌
+      if (card.type === 'attack' && !card.aoe && targetIndex === -1) {
+        this.selectedCard = card;
+        this.selectedCardIndex = cardIndex;
+        this.targetingMode = true;
+        return false;
+      }
+
+      this.energy -= card.cost;
+      this.hand.splice(cardIndex, 1);
+      this.discardPile.push(card);
+
+      // 执行卡牌效果
+      this.executeCard(card, targetIndex);
+
+      this.selectedCard = null;
+      this.targetingMode = false;
+
+      // 检查战斗结束
+      this.checkBattleEnd();
+
+      return true;
+    }
+
+    executeCard(card, targetIndex) {
+      const player = this.player;
+
+      // 伤害
+      if (card.damage) {
+        let damage = card.damage + player.strength * (card.strengthMult || 1);
+
+        if (card.aoe) {
+          // AOE 伤害
+          this.enemies.forEach(enemy => {
+            if (enemy.hp > 0) {
+              this.dealDamageToEnemy(enemy, damage);
+            }
+          });
+        } else {
+          // 单体伤害
+          const enemy = this.enemies[targetIndex];
+          if (enemy && enemy.hp > 0) {
+            this.dealDamageToEnemy(enemy, damage);
+          }
+        }
+      }
+
+      // 护甲
+      if (card.armor) {
+        let armor = card.armor + player.dexterity;
+        player.armor += armor;
+        addFloatingText(`+${armor} 护甲`, gameWidth * 0.25, gameHeight * 0.6, COLORS.secondary);
+      }
+
+      // 易伤
+      if (card.vulnerable) {
+        const enemy = this.enemies[targetIndex];
+        if (enemy) {
+          enemy.buffs.vulnerable = (enemy.buffs.vulnerable || 0) + card.vulnerable;
+        }
+      }
+
+      // 灼烧
+      if (card.burn) {
+        const enemy = this.enemies[targetIndex];
+        if (enemy) {
+          enemy.buffs.burn = (enemy.buffs.burn || 0) + card.burn;
+        }
+      }
+
+      // 临时力量
+      if (card.tempStrength) {
+        player.strength += card.tempStrength;
+        player.buffs.tempStrength = (player.buffs.tempStrength || 0) + card.tempStrength;
+        addFloatingText(`+${card.tempStrength} 力量`, gameWidth * 0.25, gameHeight * 0.5, COLORS.primary);
+      }
+
+      // 抽牌
+      if (card.draw) {
+        this.drawCards(card.draw);
+      }
+    }
+
+    dealDamageToEnemy(enemy, baseDamage) {
+      let damage = baseDamage;
+
+      // 易伤
+      if (enemy.buffs.vulnerable > 0) {
+        damage = Math.floor(damage * 1.5);
+      }
+
+      // 护甲减伤
+      if (enemy.armor >= damage) {
+        enemy.armor -= damage;
+        addFloatingText(`-${damage}`, enemy.x, enemy.y, COLORS.secondary);
+      } else {
+        const remainDamage = damage - enemy.armor;
+        enemy.armor = 0;
+        enemy.hp -= remainDamage;
+        enemy.shake = 10;
+        addFloatingText(`-${remainDamage}`, enemy.x, enemy.y, COLORS.danger);
+      }
+    }
+
+    checkBattleEnd() {
+      // 检查所有敌人死亡
+      const allDead = this.enemies.every(e => e.hp <= 0);
+      if (allDead) {
+        // 胜利
+        setTimeout(() => {
+          currentState = GameState.REWARD;
+        }, 500);
+      }
+    }
+
+    collectReward() {
+      this.gold += 20;
+      this.completeNode();
+    }
+
+    delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+  }
+
+  // ==================== 渲染函数 ====================
+
+  function render() {
+    // 清屏
+    ctx.fillStyle = COLORS.bgDark;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    switch (currentState) {
+      case GameState.MAIN_MENU:
+        renderMainMenu();
+        break;
+      case GameState.CHARACTER_SELECT:
+        renderCharacterSelect();
+        break;
+      case GameState.MAP:
+        renderMap();
+        break;
+      case GameState.BATTLE:
+        renderBattle();
+        break;
+      case GameState.REWARD:
+        renderReward();
+        break;
+      case GameState.GAME_OVER:
+        renderGameOver();
+        break;
+      case GameState.VICTORY:
+        renderVictory();
+        break;
+    }
+
+    // 飘字
+    drawFloatingTexts();
+  }
+
+  function renderMainMenu() {
+    // 背景
+    const gradient = ctx.createLinearGradient(0, 0, 0, gameHeight);
+    gradient.addColorStop(0, '#1a1a2e');
+    gradient.addColorStop(1, '#0f0f1a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    // 八卦图案背景
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    ctx.translate(gameWidth/2, gameHeight/2 - 50);
+    ctx.rotate(Date.now() / 5000);
+    drawBaguaSymbol(0, 0, 150);
+    ctx.restore();
+
+    // 标题
+    drawText('玄牢志', gameWidth/2, gameHeight * 0.25, {
+      size: 64,
+      color: COLORS.primary,
+      shadow: true
+    });
+
+    drawText('八卦地牢 · 命运轮回', gameWidth/2, gameHeight * 0.35, {
+      size: 20,
+      color: COLORS.textMuted
+    });
+
+    // 按钮
+    const btnW = 200;
+    const btnH = 50;
+    const btnX = (gameWidth - btnW) / 2;
+
+    if (drawButton(btnX, gameHeight * 0.55, btnW, btnH, '开始游戏')) {
+      currentState = GameState.CHARACTER_SELECT;
+    }
+
+    if (drawButton(btnX, gameHeight * 0.65, btnW, btnH, '继续游戏', { disabled: true })) {
+      // 继续游戏
+    }
+
+    // 版本信息
+    drawText('v0.1.0 开发版', gameWidth/2, gameHeight - 30, {
+      size: 12,
+      color: COLORS.textMuted
+    });
+  }
+
+  function drawBaguaSymbol(x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 简化的八卦图案
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 - Math.PI / 2;
+      const x1 = x + Math.cos(angle) * (r * 0.6);
+      const y1 = y + Math.sin(angle) * (r * 0.6);
+      const x2 = x + Math.cos(angle) * r;
+      const y2 = y + Math.sin(angle) * r;
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+  }
+
+  function renderCharacterSelect() {
+    // 背景
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    // 标题
+    drawText('选择角色', gameWidth/2, 60, {
+      size: 32,
+      color: COLORS.primary
+    });
+
+    // 角色卡片
+    const chars = Object.values(CHARACTERS);
+    const cardW = 180;
+    const cardH = 280;
+    const gap = 30;
+    const startX = (gameWidth - (chars.length * cardW + (chars.length - 1) * gap)) / 2;
+
+    chars.forEach((char, i) => {
+      const x = startX + i * (cardW + gap);
+      const y = 120;
+      const isHover = pointInRect(input.mouseX, input.mouseY, x, y, cardW, cardH);
+
+      // 卡片背景
+      drawRoundRect(x, y, cardW, cardH, 12,
+        char.locked ? '#333' : (isHover ? '#3a3a5a' : COLORS.bgLight),
+        isHover && !char.locked ? COLORS.primary : COLORS.border
+      );
+
+      // 角色图标（简化）
+      ctx.fillStyle = char.locked ? '#555' : COLORS.primary;
+      ctx.beginPath();
+      ctx.arc(x + cardW/2, y + 80, 40, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 角色名称
+      drawText(char.name, x + cardW/2, y + 150, {
+        size: 24,
+        color: char.locked ? '#666' : COLORS.text
+      });
+
+      // 角色称号
+      drawText(char.title, x + cardW/2, y + 180, {
+        size: 14,
+        color: char.locked ? '#555' : COLORS.textMuted
+      });
+
+      // HP
+      drawText(`生命: ${char.hp}`, x + cardW/2, y + 220, {
+        size: 14,
+        color: char.locked ? '#555' : COLORS.danger
+      });
+
+      // 锁定标志
+      if (char.locked) {
+        drawText('🔒 未解锁', x + cardW/2, y + 250, {
+          size: 14,
+          color: '#666'
+        });
+      }
+
+      // 点击选择
+      if (input.clicked && isHover && !char.locked) {
+        game = new Game();
+        game.startNewGame(char.id);
+      }
+    });
+
+    // 返回按钮
+    if (drawButton(20, 20, 80, 40, '返回', { color: COLORS.bgLight, textColor: COLORS.text })) {
+      currentState = GameState.MAIN_MENU;
+    }
+  }
+
+  function renderMap() {
+    // 背景
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    // 标题
+    drawText(`第 ${game.floor} 层 - 土牢`, gameWidth/2, 40, {
+      size: 24,
+      color: COLORS.primary
+    });
+
+    // 玩家信息
+    drawText(`${game.player.name}`, 80, 80, { size: 16 });
+    drawText(`HP: ${game.player.hp}/${game.player.maxHp}`, 80, 105, {
+      size: 14,
+      color: COLORS.danger
+    });
+    drawText(`金币: ${game.gold}`, 80, 125, {
+      size: 14,
+      color: COLORS.primary
+    });
+
+    // 地图节点
+    const nodeR = 35;
+    const startY = 180;
+    const gapY = 60;
+
+    game.map.nodes.forEach((node, i) => {
+      const x = gameWidth / 2;
+      const y = startY + i * gapY;
+
+      const isHover = Math.hypot(input.mouseX - x, input.mouseY - y) < nodeR;
+
+      // 连接线
+      if (i < game.map.nodes.length - 1) {
+        ctx.beginPath();
+        ctx.moveTo(x, y + nodeR);
+        ctx.lineTo(x, y + gapY - nodeR);
+        ctx.strokeStyle = node.cleared ? COLORS.success : COLORS.border;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // 节点圆圈
+      ctx.beginPath();
+      ctx.arc(x, y, nodeR, 0, Math.PI * 2);
+
+      let nodeColor = COLORS.bgLight;
+      if (node.cleared) {
+        nodeColor = COLORS.success;
+      } else if (node.available) {
+        nodeColor = isHover ? COLORS.primary : COLORS.bgLight;
+      } else {
+        nodeColor = '#333';
+      }
+
+      ctx.fillStyle = nodeColor;
+      ctx.fill();
+      ctx.strokeStyle = node.available && !node.cleared ? COLORS.primary : COLORS.border;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 节点图标
+      let icon = '?';
+      let iconColor = COLORS.text;
+      switch (node.type) {
+        case 'battle': icon = '⚔'; break;
+        case 'elite': icon = '💀'; iconColor = COLORS.primary; break;
+        case 'boss': icon = '👹'; iconColor = COLORS.danger; break;
+        case 'rest': icon = '🔥'; break;
+        case 'shop': icon = '🏪'; break;
+        case 'event': icon = '❓'; break;
+      }
+
+      if (node.cleared) {
+        icon = '✓';
+        iconColor = '#fff';
+      }
+
+      drawText(icon, x, y, { size: 24, color: iconColor });
+
+      // 点击进入
+      if (input.clicked && isHover && node.available && !node.cleared) {
+        game.enterNode(i);
+      }
+    });
+  }
+
+  function renderBattle() {
+    // 背景
+    const gradient = ctx.createLinearGradient(0, 0, 0, gameHeight);
+    gradient.addColorStop(0, '#1a1a2e');
+    gradient.addColorStop(0.5, '#252542');
+    gradient.addColorStop(1, '#1a1a2e');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    // 战斗场景分隔线
+    ctx.beginPath();
+    ctx.moveTo(0, gameHeight * 0.55);
+    ctx.lineTo(gameWidth, gameHeight * 0.55);
+    ctx.strokeStyle = COLORS.border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 敌人区域
+    renderEnemies();
+
+    // 玩家区域
+    renderPlayer();
+
+    // 手牌区域
+    renderHand();
+
+    // UI
+    renderBattleUI();
+
+    // 目标选择指示
+    if (game.targetingMode) {
+      drawText('选择目标', gameWidth/2, gameHeight * 0.45, {
+        size: 20,
+        color: COLORS.primary
+      });
+    }
+  }
+
+  function renderEnemies() {
+    const baseX = gameWidth / 2;
+    const baseY = gameHeight * 0.25;
+    const spacing = 160;
+
+    game.enemies.forEach((enemy, i) => {
+      if (enemy.hp <= 0) return;
+
+      // 计算位置
+      const offset = (game.enemies.filter(e => e.hp > 0).length - 1) / 2;
+      const aliveIndex = game.enemies.filter((e, j) => e.hp > 0 && j < i).length;
+      const x = baseX + (aliveIndex - offset) * spacing;
+      const y = baseY;
+
+      enemy.x = x;
+      enemy.y = y;
+
+      // 震动效果
+      let shakeX = 0;
+      if (enemy.shake > 0) {
+        shakeX = (Math.random() - 0.5) * enemy.shake;
+        enemy.shake -= 0.5;
+      }
+
+      const isHover = Math.hypot(input.mouseX - x, input.mouseY - y) < 50;
+      const isTargetable = game.targetingMode && isHover;
+
+      // 敌人圆形（简化）
+      ctx.beginPath();
+      ctx.arc(x + shakeX, y, 45, 0, Math.PI * 2);
+      ctx.fillStyle = isTargetable ? '#4a4a6a' : COLORS.bgLight;
+      ctx.fill();
+      ctx.strokeStyle = isTargetable ? COLORS.danger : COLORS.border;
+      ctx.lineWidth = isTargetable ? 3 : 2;
+      ctx.stroke();
+
+      // 敌人名称
+      drawText(enemy.name, x, y - 70, { size: 14, color: COLORS.text });
+
+      // HP 条
+      const hpBarW = 70;
+      const hpBarH = 8;
+      const hpBarX = x - hpBarW/2;
+      const hpBarY = y + 55;
+
+      drawRoundRect(hpBarX, hpBarY, hpBarW, hpBarH, 4, '#333');
+      const hpPercent = enemy.hp / enemy.maxHp;
+      drawRoundRect(hpBarX, hpBarY, hpBarW * hpPercent, hpBarH, 4, COLORS.danger);
+
+      drawText(`${enemy.hp}/${enemy.maxHp}`, x, hpBarY + 20, {
+        size: 12,
+        color: COLORS.text
+      });
+
+      // 护甲
+      if (enemy.armor > 0) {
+        drawText(`🛡${enemy.armor}`, x - 40, y, { size: 14, color: COLORS.secondary });
+      }
+
+      // 意图
+      if (enemy.intent) {
+        let intentText = '';
+        let intentColor = COLORS.text;
+
+        switch (enemy.intent.type) {
+          case 'attack':
+            const dmg = enemy.intent.value + enemy.strength;
+            intentText = `⚔ ${dmg}`;
+            intentColor = COLORS.danger;
+            break;
+          case 'defend':
+            intentText = `🛡 ${enemy.intent.value}`;
+            intentColor = COLORS.secondary;
+            break;
+          case 'buff':
+            intentText = '↑';
+            intentColor = COLORS.primary;
+            break;
+          case 'debuff':
+            intentText = '☠';
+            intentColor = COLORS.fire;
+            break;
+        }
+
+        drawText(intentText, x, y - 55, { size: 18, color: intentColor });
+      }
+
+      // Buff/Debuff 图标
+      let buffY = y + 75;
+      if (enemy.buffs.vulnerable > 0) {
+        drawText(`💔${enemy.buffs.vulnerable}`, x - 15, buffY, { size: 12 });
+      }
+      if (enemy.buffs.burn > 0) {
+        drawText(`🔥${enemy.buffs.burn}`, x + 15, buffY, { size: 12 });
+      }
+
+      // 点击选择目标
+      if (input.clicked && isTargetable) {
+        game.playCard(game.selectedCardIndex, i);
+      }
+    });
+  }
+
+  function renderPlayer() {
+    const x = gameWidth * 0.15;
+    const y = gameHeight * 0.45;
+
+    // 玩家圆形
+    ctx.beginPath();
+    ctx.arc(x, y, 50, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.bgLight;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // 名称
+    drawText(game.player.name, x, y - 75, { size: 16, color: COLORS.text });
+
+    // HP 条
+    const hpBarW = 100;
+    const hpBarH = 12;
+    const hpBarX = x - hpBarW/2;
+    const hpBarY = y + 60;
+
+    drawRoundRect(hpBarX, hpBarY, hpBarW, hpBarH, 6, '#333');
+    const hpPercent = game.player.hp / game.player.maxHp;
+    const hpColor = hpPercent > 0.5 ? COLORS.danger : (hpPercent > 0.25 ? '#ff9f43' : '#ff4757');
+    drawRoundRect(hpBarX, hpBarY, hpBarW * hpPercent, hpBarH, 6, hpColor);
+
+    drawText(`${game.player.hp}/${game.player.maxHp}`, x, hpBarY + 25, {
+      size: 14,
+      color: COLORS.text
+    });
+
+    // 护甲
+    if (game.player.armor > 0) {
+      ctx.beginPath();
+      ctx.arc(x + 55, y - 20, 20, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.secondary;
+      ctx.fill();
+      drawText(game.player.armor.toString(), x + 55, y - 20, {
+        size: 14,
+        color: '#000'
+      });
+    }
+
+    // 力量
+    if (game.player.strength > 0) {
+      drawText(`⚔+${game.player.strength}`, x + 55, y + 15, {
+        size: 12,
+        color: COLORS.danger
+      });
+    }
+  }
+
+  function renderHand() {
+    const handY = gameHeight - 100;
+    const cardW = CARD_WIDTH;
+    const cardH = CARD_HEIGHT;
+
+    const handCount = game.hand.length;
+    const maxSpread = Math.min(cardW * 0.7, (gameWidth - 200) / Math.max(handCount, 1));
+    const totalWidth = (handCount - 1) * maxSpread + cardW;
+    const startX = (gameWidth - totalWidth) / 2;
+
+    // 检测悬停
+    let newHovered = -1;
+
+    game.hand.forEach((card, i) => {
+      const x = startX + i * maxSpread;
+      const y = handY;
+
+      if (pointInRect(input.mouseX, input.mouseY, x, y - 20, cardW, cardH + 20)) {
+        newHovered = i;
+      }
+    });
+
+    game.hoveredCard = newHovered;
+
+    // 绘制卡牌
+    game.hand.forEach((card, i) => {
+      const x = startX + i * maxSpread;
+      let y = handY;
+
+      const isHovered = i === game.hoveredCard;
+      const isSelected = i === game.selectedCardIndex;
+      const canPlay = game.isPlayerTurn && game.energy >= card.cost;
+
+      if (isHovered) {
+        y -= 30;
+      }
+
+      // 卡牌背景
+      let bgColor = COLORS.bgLight;
+      let borderColor = COLORS.border;
+
+      if (card.type === 'attack') borderColor = COLORS.attack;
+      else if (card.type === 'skill') borderColor = COLORS.skill;
+      else if (card.type === 'power') borderColor = COLORS.power;
+
+      if (isSelected) {
+        borderColor = COLORS.primary;
+      }
+
+      if (!canPlay) {
+        ctx.globalAlpha = 0.6;
+      }
+
+      drawRoundRect(x, y, cardW, cardH, 8, bgColor, borderColor);
+
+      // 卡牌内容
+      // 费用
+      ctx.beginPath();
+      ctx.arc(x + 18, y + 18, 14, 0, Math.PI * 2);
+      ctx.fillStyle = canPlay ? COLORS.primary : '#666';
+      ctx.fill();
+      drawText(card.cost.toString(), x + 18, y + 18, {
+        size: 16,
+        color: '#000'
+      });
+
+      // 名称
+      drawText(card.name, x + cardW/2, y + 45, {
+        size: 14,
+        color: COLORS.text
+      });
+
+      // 类型条
+      const typeColor = card.type === 'attack' ? COLORS.attack :
+                       card.type === 'skill' ? COLORS.skill : COLORS.power;
+      drawRoundRect(x + 10, y + 60, cardW - 20, 3, 1, typeColor);
+
+      // 描述
+      const lines = card.description.split('\n');
+      lines.forEach((line, li) => {
+        drawText(line, x + cardW/2, y + 85 + li * 16, {
+          size: 11,
+          color: COLORS.textMuted
+        });
+      });
+
+      ctx.globalAlpha = 1;
+
+      // 点击打出
+      if (input.clicked && isHovered && canPlay && !game.targetingMode) {
+        game.playCard(i);
+      }
+    });
+  }
+
+  function renderBattleUI() {
+    // 能量
+    const energyX = 60;
+    const energyY = gameHeight - 160;
+
+    ctx.beginPath();
+    ctx.arc(energyX, energyY, 30, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.bgLight;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.primary;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    drawText(`${game.energy}/${game.maxEnergy}`, energyX, energyY, {
+      size: 20,
+      color: COLORS.primary
+    });
+
+    // 抽牌堆
+    drawText(`抽牌堆`, gameWidth - 70, gameHeight - 180, {
+      size: 12,
+      color: COLORS.textMuted
+    });
+    drawText(game.drawPile.length.toString(), gameWidth - 70, gameHeight - 155, {
+      size: 20,
+      color: COLORS.text
+    });
+
+    // 弃牌堆
+    drawText(`弃牌堆`, gameWidth - 70, gameHeight - 120, {
+      size: 12,
+      color: COLORS.textMuted
+    });
+    drawText(game.discardPile.length.toString(), gameWidth - 70, gameHeight - 95, {
+      size: 20,
+      color: COLORS.text
+    });
+
+    // 结束回合按钮
+    if (game.isPlayerTurn) {
+      if (drawButton(gameWidth - 130, gameHeight - 60, 110, 40, '结束回合', {
+        color: game.targetingMode ? '#666' : COLORS.danger,
+        textColor: '#fff'
+      })) {
+        if (!game.targetingMode) {
+          game.endPlayerTurn();
+        }
+      }
+    } else {
+      drawText('敌方回合...', gameWidth - 75, gameHeight - 40, {
+        size: 14,
+        color: COLORS.textMuted
+      });
+    }
+
+    // 取消目标选择
+    if (game.targetingMode) {
+      if (drawButton(gameWidth/2 - 50, gameHeight * 0.5, 100, 35, '取消', {
+        color: COLORS.bgLight,
+        textColor: COLORS.text
+      })) {
+        game.targetingMode = false;
+        game.selectedCard = null;
+        game.selectedCardIndex = -1;
+      }
+    }
+
+    // 回合数
+    drawText(`回合 ${game.turn}`, 60, 30, { size: 14, color: COLORS.textMuted });
+  }
+
+  function renderReward() {
+    // 背景
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    drawText('战斗胜利!', gameWidth/2, gameHeight * 0.3, {
+      size: 36,
+      color: COLORS.primary
+    });
+
+    drawText('获得奖励:', gameWidth/2, gameHeight * 0.45, {
+      size: 20,
+      color: COLORS.text
+    });
+
+    drawText('💰 20 金币', gameWidth/2, gameHeight * 0.55, {
+      size: 24,
+      color: COLORS.primary
+    });
+
+    if (drawButton(gameWidth/2 - 75, gameHeight * 0.7, 150, 50, '继续')) {
+      game.collectReward();
+    }
+  }
+
+  function renderGameOver() {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    drawText('游戏结束', gameWidth/2, gameHeight * 0.35, {
+      size: 48,
+      color: COLORS.danger
+    });
+
+    drawText(`到达第 ${game.floor} 层`, gameWidth/2, gameHeight * 0.5, {
+      size: 20,
+      color: COLORS.textMuted
+    });
+
+    if (drawButton(gameWidth/2 - 75, gameHeight * 0.65, 150, 50, '返回主菜单')) {
+      currentState = GameState.MAIN_MENU;
+      game = null;
+    }
+  }
+
+  function renderVictory() {
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, gameWidth, gameHeight);
+
+    drawText('通关成功!', gameWidth/2, gameHeight * 0.3, {
+      size: 48,
+      color: COLORS.primary
+    });
+
+    drawText('恭喜你征服了土牢!', gameWidth/2, gameHeight * 0.45, {
+      size: 20,
+      color: COLORS.text
+    });
+
+    drawText(`获得金币: ${game.gold}`, gameWidth/2, gameHeight * 0.55, {
+      size: 18,
+      color: COLORS.primary
+    });
+
+    if (drawButton(gameWidth/2 - 75, gameHeight * 0.7, 150, 50, '返回主菜单')) {
+      currentState = GameState.MAIN_MENU;
+      game = null;
+    }
+  }
+
+  // ==================== 游戏循环 ====================
+
+  function gameLoop(timestamp) {
+    deltaTime = timestamp - lastTime;
+    lastTime = timestamp;
+
+    // 更新
+    updateFloatingTexts();
+
+    // 渲染
+    render();
+
+    // 重置输入
+    input.clicked = false;
+
+    animationId = requestAnimationFrame(gameLoop);
+  }
+
+  // ==================== 初始化 ====================
+
+  function init() {
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+
+    // 设置画布大小
+    resize();
+    window.addEventListener('resize', resize);
+
+    // 输入事件
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    // 隐藏加载画面
+    setTimeout(() => {
+      document.getElementById('loading').classList.add('hidden');
+      currentState = GameState.MAIN_MENU;
+    }, 1000);
+
+    // 开始游戏循环
+    animationId = requestAnimationFrame(gameLoop);
+  }
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+
+    // 保持 16:9 或自适应
+    const maxWidth = window.innerWidth;
+    const maxHeight = window.innerHeight;
+
+    gameWidth = Math.min(maxWidth, 800);
+    gameHeight = Math.min(maxHeight, 600);
+
+    // 保持宽高比
+    if (gameWidth / gameHeight > maxWidth / maxHeight) {
+      gameWidth = maxHeight * (800 / 600);
+    } else {
+      gameHeight = gameWidth * (600 / 800);
+    }
+
+    gameWidth = Math.floor(gameWidth);
+    gameHeight = Math.floor(gameHeight);
+
+    canvas.width = gameWidth * dpr;
+    canvas.height = gameHeight * dpr;
+    canvas.style.width = gameWidth + 'px';
+    canvas.style.height = gameHeight + 'px';
+
+    ctx.scale(dpr, dpr);
+  }
+
+  function handleMouseMove(e) {
+    const rect = canvas.getBoundingClientRect();
+    input.mouseX = e.clientX - rect.left;
+    input.mouseY = e.clientY - rect.top;
+  }
+
+  function handleMouseDown(e) {
+    input.isDown = true;
+    input.clickX = input.mouseX;
+    input.clickY = input.mouseY;
+  }
+
+  function handleMouseUp(e) {
+    input.isDown = false;
+    input.clicked = true;
+  }
+
+  function handleTouchStart(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    input.mouseX = touch.clientX - rect.left;
+    input.mouseY = touch.clientY - rect.top;
+    input.isDown = true;
+  }
+
+  function handleTouchMove(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    input.mouseX = touch.clientX - rect.left;
+    input.mouseY = touch.clientY - rect.top;
+  }
+
+  function handleTouchEnd(e) {
+    e.preventDefault();
+    input.isDown = false;
+    input.clicked = true;
+  }
+
+  // 启动
+  window.addEventListener('DOMContentLoaded', init);
+
+})();
+  </script>
+</body>
+</html>
