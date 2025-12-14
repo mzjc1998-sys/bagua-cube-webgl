@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>易经操作系统 - 逆向工程分析</title>
+  <style>
+    :root {
+      --bg-dark: #0a0e14;
+      --bg-panel: #141a22;
+      --bg-code: #1a2230;
+      --text-primary: #e8eef5;
+      --text-secondary: #8899aa;
+      --accent-yang: #ffd24a;
+      --accent-yin: #5ad6ff;
+      --accent-change: #ff6b6b;
+      --accent-stable: #6bff9b;
+      --border: #2a3545;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      font: 14px/1.5 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 320px 1fr 380px;
+      grid-template-rows: auto 1fr auto;
+      height: 100vh;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    header {
+      grid-column: 1 / -1;
+      background: var(--bg-panel);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-yang), var(--accent-yin));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    header .subtitle {
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .panel h2 {
+      font-size: 13px;
+      color: var(--accent-yang);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* 寄存器面板 */
+    .register-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .register {
+      background: var(--bg-code);
+      border-radius: 8px;
+      padding: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid transparent;
+    }
+    .register:hover { border-color: var(--accent-yang); }
+    .register.active { border-color: var(--accent-yin); background: #1a2a3a; }
+    .register .name {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .register .bits {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+    .register .yao {
+      display: flex;
+      gap: 2px;
+      margin-top: 6px;
+    }
+    .register .yao span {
+      height: 4px;
+      flex: 1;
+      border-radius: 2px;
+    }
+    .register .yao .yang { background: var(--accent-yang); }
+    .register .yao .yin {
+      background: transparent;
+      display: flex;
+      gap: 2px;
+    }
+    .register .yao .yin::before,
+    .register .yao .yin::after {
+      content: '';
+      flex: 1;
+      background: var(--accent-yin);
+      border-radius: 2px;
+    }
+
+    /* 主显示区 */
+    .main-display {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    .hexagram-display {
+      flex: 1;
+      background: var(--bg-panel);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .hexagram-visual {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .hexagram-visual .line {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      align-items: center;
+      height: 12px;
+    }
+    .hexagram-visual .line .segment {
+      width: 40px;
+      height: 8px;
+      border-radius: 2px;
+      transition: all 0.3s;
+    }
+    .hexagram-visual .line.yang .segment { background: var(--accent-yang); }
+    .hexagram-visual .line.yin .segment { background: var(--accent-yin); }
+    .hexagram-visual .line.changing { animation: pulse 0.8s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .hexagram-info {
+      text-align: center;
+    }
+    .hexagram-info .number {
+      font-size: 48px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent-yang), var(--accent-yin));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hexagram-info .name {
+      font-size: 24px;
+      margin: 8px 0;
+    }
+    .hexagram-info .binary {
+      font-size: 18px;
+      color: var(--text-secondary);
+      font-family: monospace;
+    }
+
+    /* 控制台 */
+    .console {
+      height: 200px;
+      background: var(--bg-code);
+      font-family: monospace;
+      font-size: 12px;
+      overflow-y: auto;
+      padding: 12px;
+    }
+    .console .line {
+      margin-bottom: 4px;
+    }
+    .console .line.system { color: var(--accent-yin); }
+    .console .line.output { color: var(--accent-stable); }
+    .console .line.error { color: var(--accent-change); }
+    .console .line.info { color: var(--text-secondary); }
+
+    /* 分析面板 */
+    .analysis-section {
+      margin-bottom: 16px;
+    }
+    .analysis-section h3 {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+
+    .state-machine {
+      background: var(--bg-code);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 11px;
+    }
+    .state-machine .state {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .state-machine .state:last-child { border: none; }
+    .state-machine .label { color: var(--text-secondary); }
+    .state-machine .value { color: var(--accent-yang); font-weight: 600; }
+
+    .group-theory {
+      background: var(--bg-code);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 11px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      transition: all 0.2s;
+    }
+    .btn:hover { border-color: var(--accent-yang); }
+    .btn.primary {
+      background: linear-gradient(135deg, #2a3a4a, #1a2a3a);
+      border-color: var(--accent-yin);
+    }
+
+    footer {
+      grid-column: 1 / -1;
+      background: var(--bg-panel);
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    /* 指令集表格 */
+    .instruction-table {
+      font-size: 10px;
+      width: 100%;
+    }
+    .instruction-table td {
+      padding: 3px 4px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .instruction-table td:hover {
+      background: var(--bg-code);
+    }
+    .instruction-table .hex-num {
+      color: var(--accent-yang);
+      font-weight: 600;
+      width: 24px;
+    }
+    .instruction-table .hex-name { color: var(--text-primary); }
+    .instruction-table .hex-bits {
+      color: var(--text-secondary);
+      font-family: monospace;
+    }
+
+    /* 变爻分析 */
+    .change-analysis {
+      background: var(--bg-code);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+    .change-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 10px 0;
+    }
+    .change-arrow .from, .change-arrow .to {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .change-arrow .arrow {
+      color: var(--accent-change);
+    }
+
+    /* 数学结构可视化 */
+    .math-visual {
+      background: var(--bg-code);
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+    .cayley-table {
+      display: inline-grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 1px;
+      font-size: 9px;
+      margin-top: 8px;
+    }
+    .cayley-table .cell {
+      width: 28px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-panel);
+    }
+    .cayley-table .cell.header {
+      background: var(--bg-dark);
+      color: var(--accent-yang);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>易经操作系统 I-Ching OS</h1>
+      <span class="subtitle">逆向工程分析 v1.0 | 假设：远古造物主遗留的计算系统</span>
+    </header>
+
+    <!-- 左侧：寄存器系统 -->
+    <div class="panel" id="registerPanel">
+      <h2>八卦寄存器 (3-bit Registers)</h2>
+      <div class="register-grid" id="registers"></div>
+
+      <h2 style="margin-top: 20px;">系统状态</h2>
+      <div class="state-machine" id="systemState">
+        <div class="state">
+          <span class="label">程序计数器 PC</span>
+          <span class="value" id="pcValue">000000</span>
+        </div>
+        <div class="state">
+          <span class="label">当前卦象 CUR</span>
+          <span class="value" id="curHex">乾为天</span>
+        </div>
+        <div class="state">
+          <span class="label">变爻寄存器 CHG</span>
+          <span class="value" id="chgReg">000000</span>
+        </div>
+        <div class="state">
+          <span class="label">周期计数 CYC</span>
+          <span class="value" id="cycCount">0</span>
+        </div>
+        <div class="state">
+          <span class="label">能量状态 E</span>
+          <span class="value" id="energyState">阳盛</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" onclick="IChingOS.step()">单步执行</button>
+        <button class="btn" onclick="IChingOS.run()">自动运行</button>
+        <button class="btn" onclick="IChingOS.stop()">停止</button>
+        <button class="btn" onclick="IChingOS.reset()">复位</button>
+      </div>
+
+      <div class="controls">
+        <button class="btn primary" onclick="IChingOS.divine()">筮卦</button>
+        <button class="btn" onclick="IChingOS.mutate()">变爻</button>
+      </div>
+    </div>
+
+    <!-- 中间：主显示区 -->
+    <div class="main-display">
+      <div class="hexagram-display">
+        <div class="hexagram-visual" id="hexagramVisual"></div>
+        <div class="hexagram-info">
+          <div class="number" id="hexNumber">1</div>
+          <div class="name" id="hexName">乾为天</div>
+          <div class="binary" id="hexBinary">000000</div>
+        </div>
+
+        <div class="change-analysis" id="changeAnalysis" style="display:none;">
+          <h3 style="text-align:center; margin-bottom:10px;">变爻路径</h3>
+          <div class="change-arrow">
+            <span class="from" id="changeFrom">乾</span>
+            <span class="arrow">→ 变爻 →</span>
+            <span class="to" id="changeTo">坤</span>
+          </div>
+          <div id="changeDetails" style="font-size:11px; color:var(--text-secondary);"></div>
+        </div>
+      </div>
+
+      <div class="console" id="console">
+        <div class="line system">[SYSTEM] 易经操作系统初始化...</div>
+        <div class="line system">[SYSTEM] 加载八卦寄存器组...</div>
+        <div class="line system">[SYSTEM] 初始化64卦指令集...</div>
+        <div class="line output">[READY] 系统就绪 - 等待筮卦或指令</div>
+      </div>
+    </div>
+
+    <!-- 右侧：分析面板 -->
+    <div class="panel" id="analysisPanel">
+      <h2>64卦指令集 (6-bit Instructions)</h2>
+      <div style="max-height: 280px; overflow-y: auto;">
+        <table class="instruction-table" id="instructionTable"></table>
+      </div>
+
+      <h2 style="margin-top: 16px;">群论分析</h2>
+      <div class="group-theory">
+        <div style="margin-bottom: 8px;">
+          <strong>对称群结构:</strong> Z₂ × Z₂ × Z₂ ≅ (Z₂)³
+        </div>
+        <div style="margin-bottom: 8px;">
+          <strong>生成元:</strong> 阴阳变换 σ
+        </div>
+        <div style="margin-bottom: 8px;">
+          <strong>群阶:</strong> |G| = 8 (八卦) | 64 (六十四卦)
+        </div>
+        <div id="groupAnalysis"></div>
+      </div>
+
+      <h2 style="margin-top: 16px;">XOR运算表 (八卦)</h2>
+      <div class="math-visual">
+        <div class="cayley-table" id="cayleyTable"></div>
+      </div>
+
+      <h2 style="margin-top: 16px;">逆向工程发现</h2>
+      <div class="analysis-section">
+        <div id="discoveries" style="font-size: 11px; color: var(--text-secondary);"></div>
+      </div>
+    </div>
+
+    <footer>
+      <span>易经操作系统 | 基于二进制宇宙假说</span>
+      <span id="clock"></span>
+    </footer>
+  </div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// 易经操作系统 - 逆向工程核心
+// 假设：易经是远古造物主遗留的操作系统说明书
+// 作者：数学家 + 程序员视角
+// ═══════════════════════════════════════════════════════════════════════════
+
+const IChingOS = (function() {
+  'use strict';
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第一部分：基础数据结构 - 八卦与六十四卦
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // 八卦映射：先天八卦序（伏羲）
+  // 注意：0=阳爻（—），1=阴爻（--）
+  const TRIGRAMS = {
+    '000': { name: '乾', nature: '天', attribute: '健', family: '父', element: '金', dir: 'S' },
+    '001': { name: '兑', nature: '泽', attribute: '悦', family: '少女', element: '金', dir: 'SE' },
+    '010': { name: '离', nature: '火', attribute: '丽', family: '中女', element: '火', dir: 'E' },
+    '011': { name: '震', nature: '雷', attribute: '动', family: '长男', element: '木', dir: 'NE' },
+    '100': { name: '巽', nature: '风', attribute: '入', family: '长女', element: '木', dir: 'SW' },
+    '101': { name: '坎', nature: '水', attribute: '陷', family: '中男', element: '水', dir: 'W' },
+    '110': { name: '艮', nature: '山', attribute: '止', family: '少男', element: '土', dir: 'NW' },
+    '111': { name: '坤', nature: '地', attribute: '顺', family: '母', element: '土', dir: 'N' }
+  };
+
+  // 六十四卦完整数据（上卦+下卦 = 6位二进制）
+  const HEXAGRAMS = [
+    { bits: '000000', name: '乾为天', keyword: '创始', syscall: 'INIT' },
+    { bits: '000001', name: '天泽履', keyword: '礼仪', syscall: 'PROTO' },
+    { bits: '000010', name: '天火同人', keyword: '同道', syscall: 'SYNC' },
+    { bits: '000011', name: '天雷无妄', keyword: '真实', syscall: 'VERIFY' },
+    { bits: '000100', name: '天风姤', keyword: '相遇', syscall: 'MEET' },
+    { bits: '000101', name: '天水讼', keyword: '争讼', syscall: 'DISPUTE' },
+    { bits: '000110', name: '天山遁', keyword: '退避', syscall: 'RETREAT' },
+    { bits: '000111', name: '天地否', keyword: '闭塞', syscall: 'BLOCK' },
+    { bits: '001000', name: '泽天夬', keyword: '决断', syscall: 'DECIDE' },
+    { bits: '001001', name: '兑为泽', keyword: '喜悦', syscall: 'JOY' },
+    { bits: '001010', name: '泽火革', keyword: '变革', syscall: 'TRANSFORM' },
+    { bits: '001011', name: '泽雷随', keyword: '随从', syscall: 'FOLLOW' },
+    { bits: '001100', name: '泽风大过', keyword: '过度', syscall: 'OVERFLOW' },
+    { bits: '001101', name: '泽水困', keyword: '困境', syscall: 'TRAP' },
+    { bits: '001110', name: '泽山咸', keyword: '感应', syscall: 'SENSE' },
+    { bits: '001111', name: '泽地萃', keyword: '聚集', syscall: 'GATHER' },
+    { bits: '010000', name: '火天大有', keyword: '盛大', syscall: 'EXPAND' },
+    { bits: '010001', name: '火泽睽', keyword: '背离', syscall: 'DIVERGE' },
+    { bits: '010010', name: '离为火', keyword: '光明', syscall: 'ILLUMINATE' },
+    { bits: '010011', name: '火雷噬嗑', keyword: '决狱', syscall: 'EXECUTE' },
+    { bits: '010100', name: '火风鼎', keyword: '革新', syscall: 'RENEW' },
+    { bits: '010101', name: '火水未济', keyword: '未完', syscall: 'PENDING' },
+    { bits: '010110', name: '火山旅', keyword: '旅行', syscall: 'TRAVEL' },
+    { bits: '010111', name: '火地晋', keyword: '前进', syscall: 'ADVANCE' },
+    { bits: '011000', name: '雷天大壮', keyword: '强盛', syscall: 'POWER' },
+    { bits: '011001', name: '雷泽归妹', keyword: '归宿', syscall: 'RETURN' },
+    { bits: '011010', name: '雷火丰', keyword: '丰盛', syscall: 'ABUNDANT' },
+    { bits: '011011', name: '震为雷', keyword: '震动', syscall: 'SHAKE' },
+    { bits: '011100', name: '雷风恒', keyword: '恒久', syscall: 'PERSIST' },
+    { bits: '011101', name: '雷水解', keyword: '解除', syscall: 'RELEASE' },
+    { bits: '011110', name: '雷山小过', keyword: '小过', syscall: 'MINOR_ERR' },
+    { bits: '011111', name: '雷地豫', keyword: '愉悦', syscall: 'PREPARE' },
+    { bits: '100000', name: '风天小畜', keyword: '蓄积', syscall: 'STORE' },
+    { bits: '100001', name: '风泽中孚', keyword: '诚信', syscall: 'TRUST' },
+    { bits: '100010', name: '风火家人', keyword: '家庭', syscall: 'FAMILY' },
+    { bits: '100011', name: '风雷益', keyword: '增益', syscall: 'INCREMENT' },
+    { bits: '100100', name: '巽为风', keyword: '顺入', syscall: 'PENETRATE' },
+    { bits: '100101', name: '风水涣', keyword: '涣散', syscall: 'SCATTER' },
+    { bits: '100110', name: '风山渐', keyword: '渐进', syscall: 'GRADUAL' },
+    { bits: '100111', name: '风地观', keyword: '观察', syscall: 'OBSERVE' },
+    { bits: '101000', name: '水天需', keyword: '等待', syscall: 'WAIT' },
+    { bits: '101001', name: '水泽节', keyword: '节制', syscall: 'LIMIT' },
+    { bits: '101010', name: '水火既济', keyword: '完成', syscall: 'COMPLETE' },
+    { bits: '101011', name: '水雷屯', keyword: '初始', syscall: 'BEGIN' },
+    { bits: '101100', name: '水风井', keyword: '资源', syscall: 'RESOURCE' },
+    { bits: '101101', name: '坎为水', keyword: '险阻', syscall: 'DANGER' },
+    { bits: '101110', name: '水山蹇', keyword: '蹇难', syscall: 'OBSTACLE' },
+    { bits: '101111', name: '水地比', keyword: '亲附', syscall: 'ATTACH' },
+    { bits: '110000', name: '山天大畜', keyword: '大蓄', syscall: 'ACCUMULATE' },
+    { bits: '110001', name: '山泽损', keyword: '减损', syscall: 'DECREMENT' },
+    { bits: '110010', name: '山火贲', keyword: '文饰', syscall: 'DECORATE' },
+    { bits: '110011', name: '山雷颐', keyword: '颐养', syscall: 'NOURISH' },
+    { bits: '110100', name: '山风蛊', keyword: '蛊惑', syscall: 'CORRUPT' },
+    { bits: '110101', name: '山水蒙', keyword: '启蒙', syscall: 'EDUCATE' },
+    { bits: '110110', name: '艮为山', keyword: '止息', syscall: 'STOP' },
+    { bits: '110111', name: '山地剥', keyword: '剥落', syscall: 'STRIP' },
+    { bits: '111000', name: '地天泰', keyword: '通泰', syscall: 'PROSPER' },
+    { bits: '111001', name: '地泽临', keyword: '临近', syscall: 'APPROACH' },
+    { bits: '111010', name: '地火明夷', keyword: '晦暗', syscall: 'DARKEN' },
+    { bits: '111011', name: '地雷复', keyword: '复归', syscall: 'RESTORE' },
+    { bits: '111100', name: '地风升', keyword: '上升', syscall: 'ASCEND' },
+    { bits: '111101', name: '地水师', keyword: '军队', syscall: 'ARMY' },
+    { bits: '111110', name: '地山谦', keyword: '谦逊', syscall: 'HUMBLE' },
+    { bits: '111111', name: '坤为地', keyword: '承载', syscall: 'RECEIVE' }
+  ];
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第二部分：系统状态与寄存器
+  // ═══════════════════════════════════════════════════════════════════════
+
+  const state = {
+    // 8个八卦寄存器（每个3位）
+    registers: {
+      qian: '000', // 乾
+      dui:  '001', // 兑
+      li:   '010', // 离
+      zhen: '011', // 震
+      xun:  '100', // 巽
+      kan:  '101', // 坎
+      gen:  '110', // 艮
+      kun:  '111'  // 坤
+    },
+
+    // 程序计数器（6位，指向64卦中的一个）
+    pc: '000000',
+
+    // 当前卦象（上卦3位 + 下卦3位）
+    currentHex: '000000',
+
+    // 变爻寄存器（6位，1表示该爻是变爻）
+    changeRegister: '000000',
+
+    // 周期计数器
+    cycleCount: 0,
+
+    // 运行状态
+    running: false,
+    runInterval: null,
+
+    // 历史记录（用于分析模式）
+    history: []
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第三部分：核心操作 - 变爻引擎
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // XOR操作（阴阳变换的数学本质）
+  function xor(bits1, bits2) {
+    let result = '';
+    for (let i = 0; i < bits1.length; i++) {
+      result += bits1[i] === bits2[i] ? '0' : '1';
+    }
+    return result;
+  }
+
+  // 取反操作（阴阳互变）
+  function invert(bits) {
+    return bits.split('').map(b => b === '0' ? '1' : '0').join('');
+  }
+
+  // 变爻：根据变爻寄存器改变当前卦象
+  function applyChange(hexBits, changeBits) {
+    return xor(hexBits, changeBits);
+  }
+
+  // 获取卦象的上卦和下卦
+  function splitHex(hexBits) {
+    return {
+      upper: hexBits.substring(0, 3),
+      lower: hexBits.substring(3, 6)
+    };
+  }
+
+  // 计算两卦之间的"距离"（汉明距离）
+  function hammingDistance(bits1, bits2) {
+    let dist = 0;
+    for (let i = 0; i < bits1.length; i++) {
+      if (bits1[i] !== bits2[i]) dist++;
+    }
+    return dist;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第四部分：筮卦算法（蓍草法模拟）
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function divineOneLine() {
+    // 模拟蓍草法：49策分二，挂一，揲四，归奇...
+    // 简化为概率模型：
+    // 老阳(9): 1/16 - 变爻阳
+    // 老阴(6): 3/16 - 变爻阴
+    // 少阳(7): 5/16 - 稳定阳
+    // 少阴(8): 7/16 - 稳定阴
+
+    const r = Math.random();
+    if (r < 1/16) return { value: '0', changing: true, type: '老阳' };  // 老阳变阴
+    if (r < 4/16) return { value: '1', changing: true, type: '老阴' };  // 老阴变阳
+    if (r < 9/16) return { value: '0', changing: false, type: '少阳' }; // 少阳不变
+    return { value: '1', changing: false, type: '少阴' }; // 少阴不变
+  }
+
+  function divine() {
+    const lines = [];
+    let hexBits = '';
+    let changeBits = '';
+
+    // 自下而上生成六爻
+    for (let i = 0; i < 6; i++) {
+      const line = divineOneLine();
+      lines.unshift(line); // 从下往上
+      hexBits = line.value + hexBits;
+      changeBits = (line.changing ? '1' : '0') + changeBits;
+    }
+
+    state.currentHex = hexBits;
+    state.changeRegister = changeBits;
+    state.cycleCount++;
+    state.history.push({ hex: hexBits, change: changeBits, time: Date.now() });
+
+    log('system', `[DIVINE] 筮卦完成，生成卦象...`);
+    lines.forEach((l, i) => {
+      log('info', `  第${6-i}爻: ${l.type} (${l.value === '0' ? '阳' : '阴'}${l.changing ? '→变' : ''})`);
+    });
+
+    updateDisplay();
+    analyzeHexagram();
+
+    return { hexBits, changeBits, lines };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第五部分：群论分析
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function analyzeGroup() {
+    // 八卦形成 Z₂³ 群（3维二进制向量空间）
+    // 运算：XOR（等同于向量加法 mod 2）
+
+    const analysis = {
+      // 验证群公理
+      closure: true,        // 封闭性：任意两卦XOR得到另一卦
+      associativity: true,  // 结合性：(a⊕b)⊕c = a⊕(b⊕c)
+      identity: '000',      // 单位元：乾卦（全阳）
+      inverse: {},          // 逆元：每个卦的逆是自身（a⊕a = 0）
+
+      // 群结构
+      order: 8,
+      isAbelian: true,      // 交换群
+      generators: ['001', '010', '100'], // 生成元
+      subgroups: []
+    };
+
+    // 计算逆元
+    Object.keys(TRIGRAMS).forEach(bits => {
+      analysis.inverse[bits] = bits; // 自逆
+    });
+
+    // 找出所有子群
+    analysis.subgroups = [
+      { name: '平凡群', elements: ['000'] },
+      { name: 'Z₂ (乾兑)', elements: ['000', '001'] },
+      { name: 'Z₂ (乾离)', elements: ['000', '010'] },
+      { name: 'Z₂ (乾巽)', elements: ['000', '100'] },
+      { name: 'Z₂ (乾坤)', elements: ['000', '111'] },
+      { name: 'Z₂² (乾兑离震)', elements: ['000', '001', '010', '011'] },
+      { name: 'Z₂² (乾巽坎艮)', elements: ['000', '100', '101', '110'] },
+      { name: '全群 Z₂³', elements: Object.keys(TRIGRAMS) }
+    ];
+
+    return analysis;
+  }
+
+  // 计算Cayley表（XOR运算表）
+  function generateCayleyTable() {
+    const table = [];
+    const keys = Object.keys(TRIGRAMS);
+
+    for (let i = 0; i < keys.length; i++) {
+      const row = [];
+      for (let j = 0; j < keys.length; j++) {
+        row.push(xor(keys[i], keys[j]));
+      }
+      table.push(row);
+    }
+
+    return { keys, table };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第六部分：系统调用解析
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function executeInstruction(hexBits) {
+    const hex = HEXAGRAMS.find(h => h.bits === hexBits);
+    if (!hex) return null;
+
+    const { upper, lower } = splitHex(hexBits);
+    const upperTri = TRIGRAMS[upper];
+    const lowerTri = TRIGRAMS[lower];
+
+    log('system', `[EXEC] ${hex.syscall} - ${hex.name}`);
+    log('info', `  上卦: ${upperTri.name}(${upperTri.nature}) | 下卦: ${lowerTri.name}(${lowerTri.nature})`);
+    log('output', `  关键词: ${hex.keyword} | 系统调用: ${hex.syscall}`);
+
+    // 模拟系统调用效果
+    interpretSyscall(hex);
+
+    return hex;
+  }
+
+  function interpretSyscall(hex) {
+    // 根据卦象的系统调用类型，模拟不同的操作
+    const effects = {
+      'INIT': () => { state.pc = '000000'; log('output', '  → 系统初始化'); },
+      'SYNC': () => { log('output', '  → 同步状态'); },
+      'BLOCK': () => { log('error', '  → 系统阻塞！'); },
+      'TRANSFORM': () => {
+        state.currentHex = invert(state.currentHex);
+        log('output', '  → 全局变换：阴阳互换');
+      },
+      'COMPLETE': () => { log('output', '  → 任务完成'); },
+      'DANGER': () => { log('error', '  → 警告：进入危险状态'); },
+      'PROSPER': () => { log('output', '  → 系统通泰，运行顺畅'); },
+      // ... 可扩展更多
+    };
+
+    const effect = effects[hex.syscall];
+    if (effect) effect();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第七部分：分析与发现
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function analyzeHexagram() {
+    const hex = HEXAGRAMS.find(h => h.bits === state.currentHex);
+    if (!hex) return;
+
+    const { upper, lower } = splitHex(state.currentHex);
+    const upperTri = TRIGRAMS[upper];
+    const lowerTri = TRIGRAMS[lower];
+
+    // 计算能量状态
+    const yangCount = state.currentHex.split('').filter(b => b === '0').length;
+    const yinCount = 6 - yangCount;
+
+    let energyState = '平衡';
+    if (yangCount > yinCount + 1) energyState = '阳盛';
+    if (yinCount > yangCount + 1) energyState = '阴盛';
+
+    document.getElementById('energyState').textContent = energyState;
+
+    // 分析变爻路径
+    if (state.changeRegister !== '000000') {
+      const newHex = applyChange(state.currentHex, state.changeRegister);
+      const newHexData = HEXAGRAMS.find(h => h.bits === newHex);
+
+      document.getElementById('changeAnalysis').style.display = 'block';
+      document.getElementById('changeFrom').textContent = hex.name;
+      document.getElementById('changeTo').textContent = newHexData ? newHexData.name : newHex;
+
+      const changeCount = state.changeRegister.split('').filter(b => b === '1').length;
+      document.getElementById('changeDetails').innerHTML =
+        `变爻数量: ${changeCount} | 汉明距离: ${hammingDistance(state.currentHex, newHex)}<br>` +
+        `变爻位置: ${state.changeRegister.split('').map((b,i) => b==='1'?`第${6-i}爻`:null).filter(x=>x).join(', ')}`;
+    } else {
+      document.getElementById('changeAnalysis').style.display = 'none';
+    }
+
+    // 更新发现面板
+    updateDiscoveries();
+  }
+
+  function updateDiscoveries() {
+    const discoveries = document.getElementById('discoveries');
+
+    let html = `
+      <p><strong>发现 #1:</strong> 八卦形成 Z₂³ 阿贝尔群，XOR为群运算</p>
+      <p><strong>发现 #2:</strong> 乾卦(000)为单位元，每卦自逆</p>
+      <p><strong>发现 #3:</strong> 变爻机制等同于XOR状态转换</p>
+      <p><strong>发现 #4:</strong> 64卦 = 8×8 = 上卦⊗下卦 (张量积)</p>
+      <p><strong>发现 #5:</strong> 先天八卦序 = 格雷码变体</p>
+    `;
+
+    if (state.history.length > 5) {
+      // 分析历史模式
+      const patterns = findPatterns();
+      if (patterns.length > 0) {
+        html += `<p><strong>发现 #6:</strong> 检测到周期模式...</p>`;
+      }
+    }
+
+    discoveries.innerHTML = html;
+  }
+
+  function findPatterns() {
+    // 简单的周期检测
+    const patterns = [];
+    if (state.history.length < 4) return patterns;
+
+    // 检查最近的卦象是否形成周期
+    const recent = state.history.slice(-10).map(h => h.hex);
+    for (let period = 2; period <= 5; period++) {
+      let isPattern = true;
+      for (let i = 0; i < period && i + period < recent.length; i++) {
+        if (recent[recent.length - 1 - i] !== recent[recent.length - 1 - i - period]) {
+          isPattern = false;
+          break;
+        }
+      }
+      if (isPattern && recent.length >= period * 2) {
+        patterns.push({ period, sequence: recent.slice(-period) });
+      }
+    }
+
+    return patterns;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第八部分：UI更新与交互
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function updateDisplay() {
+    // 更新卦象可视化
+    const visual = document.getElementById('hexagramVisual');
+    const { upper, lower } = splitHex(state.currentHex);
+    const changeBits = state.changeRegister;
+
+    let html = '';
+    for (let i = 0; i < 6; i++) {
+      const bit = state.currentHex[i];
+      const isChanging = changeBits[i] === '1';
+      const lineClass = bit === '0' ? 'yang' : 'yin';
+      const changingClass = isChanging ? 'changing' : '';
+
+      if (bit === '0') {
+        // 阳爻：一条完整的线
+        html += `<div class="line ${lineClass} ${changingClass}">
+          <div class="segment"></div>
+        </div>`;
+      } else {
+        // 阴爻：中间断开的两段
+        html += `<div class="line ${lineClass} ${changingClass}">
+          <div class="segment"></div>
+          <div style="width:12px;"></div>
+          <div class="segment"></div>
+        </div>`;
+      }
+
+      // 在第3爻和第4爻之间添加分隔（上下卦分界）
+      if (i === 2) {
+        html += '<div style="height:6px;"></div>';
+      }
+    }
+    visual.innerHTML = html;
+
+    // 更新卦象信息
+    const hexNum = parseInt(state.currentHex, 2) + 1;
+    const hex = HEXAGRAMS.find(h => h.bits === state.currentHex);
+
+    document.getElementById('hexNumber').textContent = hexNum;
+    document.getElementById('hexName').textContent = hex ? hex.name : '未知';
+    document.getElementById('hexBinary').textContent = state.currentHex;
+
+    // 更新系统状态
+    document.getElementById('pcValue').textContent = state.pc;
+    document.getElementById('curHex').textContent = hex ? hex.name : state.currentHex;
+    document.getElementById('chgReg').textContent = state.changeRegister;
+    document.getElementById('cycCount').textContent = state.cycleCount;
+  }
+
+  function log(type, message) {
+    const console = document.getElementById('console');
+    const line = document.createElement('div');
+    line.className = `line ${type}`;
+    line.textContent = message;
+    console.appendChild(line);
+    console.scrollTop = console.scrollHeight;
+  }
+
+  function initUI() {
+    // 初始化寄存器显示
+    const regGrid = document.getElementById('registers');
+    const regNames = ['qian', 'dui', 'li', 'zhen', 'xun', 'kan', 'gen', 'kun'];
+
+    regNames.forEach(name => {
+      const bits = state.registers[name];
+      const tri = TRIGRAMS[bits];
+
+      const yaoHtml = bits.split('').map(b =>
+        b === '0' ? '<span class="yang"></span>' : '<span class="yin"></span>'
+      ).join('');
+
+      const div = document.createElement('div');
+      div.className = 'register';
+      div.dataset.bits = bits;
+      div.innerHTML = `
+        <div class="name">${tri.name}</div>
+        <div class="bits">${bits} | ${tri.nature}</div>
+        <div class="yao">${yaoHtml}</div>
+      `;
+      div.onclick = () => selectRegister(bits);
+      regGrid.appendChild(div);
+    });
+
+    // 初始化指令集表格
+    const table = document.getElementById('instructionTable');
+    HEXAGRAMS.forEach((hex, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="hex-num">${i + 1}</td>
+        <td class="hex-name">${hex.name}</td>
+        <td class="hex-bits">${hex.bits}</td>
+      `;
+      tr.onclick = () => {
+        state.currentHex = hex.bits;
+        state.changeRegister = '000000';
+        updateDisplay();
+        analyzeHexagram();
+        executeInstruction(hex.bits);
+      };
+      table.appendChild(tr);
+    });
+
+    // 初始化Cayley表
+    const { keys, table: cayleyData } = generateCayleyTable();
+    const cayleyDiv = document.getElementById('cayleyTable');
+
+    // 表头
+    cayleyDiv.innerHTML = '<div class="cell header">⊕</div>';
+    keys.forEach(k => {
+      cayleyDiv.innerHTML += `<div class="cell header">${TRIGRAMS[k].name}</div>`;
+    });
+
+    // 表体
+    keys.forEach((k, i) => {
+      cayleyDiv.innerHTML += `<div class="cell header">${TRIGRAMS[k].name}</div>`;
+      cayleyData[i].forEach(result => {
+        cayleyDiv.innerHTML += `<div class="cell">${TRIGRAMS[result].name}</div>`;
+      });
+    });
+
+    // 初始化时钟
+    setInterval(() => {
+      const now = new Date();
+      document.getElementById('clock').textContent =
+        now.toLocaleTimeString('zh-CN', { hour12: false });
+    }, 1000);
+
+    // 初始显示
+    updateDisplay();
+    analyzeHexagram();
+  }
+
+  function selectRegister(bits) {
+    document.querySelectorAll('.register').forEach(r => {
+      r.classList.toggle('active', r.dataset.bits === bits);
+    });
+    log('info', `[REG] 选中寄存器: ${TRIGRAMS[bits].name} (${bits})`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 第九部分：控制接口
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function step() {
+    // 单步执行：PC递增，执行当前指令
+    const nextPC = ((parseInt(state.pc, 2) + 1) % 64).toString(2).padStart(6, '0');
+    state.pc = nextPC;
+    state.currentHex = nextPC;
+    state.cycleCount++;
+
+    updateDisplay();
+    executeInstruction(state.currentHex);
+    analyzeHexagram();
+  }
+
+  function run() {
+    if (state.running) return;
+    state.running = true;
+    log('system', '[RUN] 开始自动执行...');
+
+    state.runInterval = setInterval(() => {
+      step();
+    }, 1000);
+  }
+
+  function stop() {
+    if (!state.running) return;
+    state.running = false;
+    clearInterval(state.runInterval);
+    log('system', '[STOP] 停止执行');
+  }
+
+  function reset() {
+    stop();
+    state.pc = '000000';
+    state.currentHex = '000000';
+    state.changeRegister = '000000';
+    state.cycleCount = 0;
+    state.history = [];
+
+    log('system', '[RESET] 系统复位');
+    updateDisplay();
+    analyzeHexagram();
+  }
+
+  function mutate() {
+    // 执行变爻
+    if (state.changeRegister === '000000') {
+      log('error', '[MUTATE] 无变爻可执行');
+      return;
+    }
+
+    const oldHex = state.currentHex;
+    state.currentHex = applyChange(state.currentHex, state.changeRegister);
+    state.changeRegister = '000000';
+    state.cycleCount++;
+
+    const oldData = HEXAGRAMS.find(h => h.bits === oldHex);
+    const newData = HEXAGRAMS.find(h => h.bits === state.currentHex);
+
+    log('output', `[MUTATE] ${oldData?.name || oldHex} → ${newData?.name || state.currentHex}`);
+
+    updateDisplay();
+    analyzeHexagram();
+  }
+
+  // 初始化
+  document.addEventListener('DOMContentLoaded', initUI);
+
+  // 导出公共接口
+  return {
+    divine,
+    step,
+    run,
+    stop,
+    reset,
+    mutate,
+    state,
+    TRIGRAMS,
+    HEXAGRAMS,
+    analyzeGroup,
+    xor,
+    invert
+  };
+
+})();
+</script>
+</body>
+</html>

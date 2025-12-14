@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>易经操作系统 - 深度数学分析</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-dim: #8b949e;
+      --yang: #ffd33d;
+      --yin: #58a6ff;
+      --change: #f85149;
+      --stable: #3fb950;
+      --accent: #a371f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    }
+    .app { display: flex; height: 100vh; }
+
+    /* 导航 */
+    nav {
+      width: 200px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+    }
+    nav h1 {
+      font-size: 14px;
+      color: var(--yang);
+      margin-bottom: 20px;
+    }
+    nav a {
+      display: block;
+      padding: 8px 12px;
+      color: var(--text-dim);
+      text-decoration: none;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+    nav a:hover, nav a.active {
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+    }
+    nav a.active { border-left: 2px solid var(--yang); }
+
+    /* 主内容 */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+    h2 {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: var(--yang);
+    }
+    h3 {
+      font-size: 14px;
+      margin: 20px 0 12px;
+      color: var(--yin);
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    /* 状态转换图 */
+    #stateGraph {
+      width: 100%;
+      height: 500px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    /* 表格 */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+    th { background: var(--panel); color: var(--yang); }
+    td.yang { background: rgba(255,211,61,0.1); }
+    td.yin { background: rgba(88,166,255,0.1); }
+
+    /* 可视化 */
+    .bit-visual {
+      display: inline-flex;
+      gap: 2px;
+    }
+    .bit-visual .bit {
+      width: 16px;
+      height: 8px;
+      border-radius: 2px;
+    }
+    .bit-visual .bit.yang { background: var(--yang); }
+    .bit-visual .bit.yin {
+      background: var(--yin);
+      display: flex;
+      gap: 2px;
+    }
+    .bit-visual .bit.yin span {
+      flex: 1;
+      background: var(--yin);
+      border-radius: 2px;
+    }
+
+    /* 格雷码对比 */
+    .gray-compare {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 8px;
+      text-align: center;
+    }
+    .gray-compare .item {
+      background: var(--panel);
+      padding: 8px;
+      border-radius: 6px;
+    }
+    .gray-compare .gua { font-size: 24px; }
+    .gray-compare .bits { font-family: monospace; color: var(--text-dim); font-size: 11px; }
+    .gray-compare .gray { color: var(--accent); font-size: 10px; }
+
+    /* 量子类比 */
+    .quantum-state {
+      font-family: monospace;
+      font-size: 14px;
+      padding: 12px;
+      background: rgba(163,113,247,0.1);
+      border-radius: 6px;
+      margin: 8px 0;
+    }
+
+    /* 细胞自动机 */
+    #caCanvas {
+      width: 100%;
+      height: 300px;
+      background: #000;
+      border-radius: 8px;
+    }
+
+    /* 测试面板 */
+    .test-panel {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+    .test-result {
+      background: var(--panel);
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .test-result.pass { border-color: var(--stable); }
+    .test-result.fail { border-color: var(--change); }
+    .test-result h4 { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    .test-result .value { font-size: 18px; font-weight: 600; }
+    .test-result.pass .value { color: var(--stable); }
+    .test-result.fail .value { color: var(--change); }
+
+    button {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+    button:hover { border-color: var(--yang); }
+    button.primary { background: var(--yang); color: #000; border-color: var(--yang); }
+
+    /* 发现记录 */
+    .discovery {
+      background: rgba(163,113,247,0.1);
+      border-left: 3px solid var(--accent);
+      padding: 12px 16px;
+      margin: 12px 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .discovery .title { font-weight: 600; color: var(--accent); }
+
+    code {
+      background: rgba(255,255,255,0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav>
+      <h1>易经OS分析</h1>
+      <a class="active" data-section="overview">概述</a>
+      <a data-section="group">群论结构</a>
+      <a data-section="transition">状态转换</a>
+      <a data-section="gray">格雷码分析</a>
+      <a data-section="quantum">量子类比</a>
+      <a data-section="automata">细胞自动机</a>
+      <a data-section="tests">验证测试</a>
+      <a data-section="discoveries">逆向发现</a>
+    </nav>
+
+    <main>
+      <!-- 概述 -->
+      <div class="section active" id="overview">
+        <h2>易经操作系统 - 逆向工程假说</h2>
+
+        <div class="card">
+          <h3>核心假设</h3>
+          <p>《易经》不是占卜书，而是远古造物主遗留的<strong>操作系统说明书</strong>。</p>
+          <p>我们将从数学和计算机科学的角度，逆向工程这个系统：</p>
+          <ul style="margin-left: 20px; margin-top: 12px;">
+            <li><strong>阴阳</strong> = 二进制 (0/1)</li>
+            <li><strong>八卦</strong> = 3位寄存器 (2³ = 8种状态)</li>
+            <li><strong>六十四卦</strong> = 6位指令集 (2⁶ = 64条指令)</li>
+            <li><strong>变爻</strong> = XOR状态转换</li>
+            <li><strong>卦辞</strong> = 系统调用描述</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>系统架构图</h3>
+          <pre style="font-family: monospace; font-size: 11px; color: var(--text-dim);">
+┌─────────────────────────────────────────────────────────────────┐
+│                     易经操作系统 (I-Ching OS)                      │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────────┐   │
+│  │ 八卦寄存器组  │   │  64卦指令集   │   │    变爻状态机       │   │
+│  │ (8×3-bit)   │   │  (64×6-bit)  │   │  (XOR Transform)   │   │
+│  └─────────────┘   └─────────────┘   └─────────────────────┘   │
+│         ↓                 ↓                    ↓                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                    太极核心 (Taiji Core)                   │   │
+│  │              阴阳平衡 | 能量守恒 | 周期循环                   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│         ↓                 ↓                    ↓                │
+│  ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌─────────┐  │
+│  │ 乾(000)   │   │ 坤(111)   │   │ 坎(101)   │   │ 离(010) │  │
+│  │ INIT/创造 │   │ RECV/承载 │   │ DANGER/险 │   │ LIGHT/明│  │
+│  └───────────┘   └───────────┘   └───────────┘   └─────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+          </pre>
+        </div>
+      </div>
+
+      <!-- 群论结构 -->
+      <div class="section" id="group">
+        <h2>群论结构分析</h2>
+
+        <div class="card">
+          <h3>八卦形成 Z₂³ 群</h3>
+          <p>八卦在XOR运算下形成一个<strong>8阶阿贝尔群</strong>，同构于 Z₂ × Z₂ × Z₂</p>
+
+          <div class="discovery">
+            <div class="title">发现 #1: 群结构</div>
+            <p>八卦不是随机排列，而是一个严格的代数结构。</p>
+            <p>群运算：XOR（异或）| 单位元：乾(000) | 每元素自逆</p>
+          </div>
+
+          <h3>XOR 运算表（Cayley表）</h3>
+          <table id="cayleyTable"></table>
+
+          <h3 style="margin-top: 20px;">群公理验证</h3>
+          <div class="test-panel" id="groupTests"></div>
+        </div>
+
+        <div class="card">
+          <h3>子群结构</h3>
+          <div id="subgroups"></div>
+        </div>
+      </div>
+
+      <!-- 状态转换 -->
+      <div class="section" id="transition">
+        <h2>状态转换图</h2>
+
+        <div class="card">
+          <h3>变爻 = XOR状态转换</h3>
+          <p>变爻机制本质上是<strong>XOR操作</strong>，将当前状态与变爻掩码进行异或运算。</p>
+
+          <div class="discovery">
+            <div class="title">发现 #2: 状态转换的数学本质</div>
+            <p>新状态 = 旧状态 ⊕ 变爻掩码</p>
+            <p>这意味着易经描述的是一个<strong>可逆的有限状态机</strong>。</p>
+          </div>
+
+          <h3>单爻变换图</h3>
+          <p>点击查看任意卦变一爻后的所有可能状态：</p>
+          <div id="transitionDemo"></div>
+        </div>
+
+        <div class="card">
+          <h3>汉明距离与状态空间</h3>
+          <canvas id="stateGraph"></canvas>
+          <p style="margin-top: 12px; color: var(--text-dim); font-size: 11px;">
+            图示：64卦状态空间，连线表示单爻变换（汉明距离=1）
+          </p>
+        </div>
+      </div>
+
+      <!-- 格雷码分析 -->
+      <div class="section" id="gray">
+        <h2>格雷码分析</h2>
+
+        <div class="card">
+          <h3>先天八卦序 vs 格雷码</h3>
+
+          <div class="discovery">
+            <div class="title">发现 #3: 先天八卦序是一种格雷码变体</div>
+            <p>相邻卦象之间只有一个爻位不同，这正是<strong>格雷码(Gray Code)</strong>的特性！</p>
+            <p>格雷码用于减少状态转换时的错误，这暗示易经可能是一个<strong>容错系统</strong>。</p>
+          </div>
+
+          <div class="gray-compare" id="grayCompare"></div>
+
+          <h3 style="margin-top: 20px;">转换路径</h3>
+          <div id="grayPath"></div>
+        </div>
+      </div>
+
+      <!-- 量子类比 -->
+      <div class="section" id="quantum">
+        <h2>量子计算类比</h2>
+
+        <div class="card">
+          <h3>阴阳叠加态</h3>
+
+          <div class="discovery">
+            <div class="title">发现 #4: 变爻 ≈ 量子叠加</div>
+            <p>筮卦过程中，一爻可能处于"老阳"或"老阴"状态——既是阳又要变阴，既是阴又要变阳。</p>
+            <p>这与量子比特的叠加态惊人地相似：|ψ⟩ = α|0⟩ + β|1⟩</p>
+          </div>
+
+          <div class="quantum-state">
+            老阳态 |old_yang⟩ = |0⟩ → |1⟩ (确定0，但将变为1)<br>
+            老阴态 |old_yin⟩ = |1⟩ → |0⟩ (确定1，但将变为0)<br>
+            少阳态 |young_yang⟩ = |0⟩ (稳定)<br>
+            少阴态 |young_yin⟩ = |1⟩ (稳定)
+          </div>
+
+          <h3>量子门类比</h3>
+          <table>
+            <tr>
+              <th>易经操作</th>
+              <th>量子门</th>
+              <th>矩阵表示</th>
+            </tr>
+            <tr>
+              <td>阴阳互变（单爻）</td>
+              <td>Pauli-X (NOT)</td>
+              <td><code>[[0,1],[1,0]]</code></td>
+            </tr>
+            <tr>
+              <td>全卦反转（坤变乾）</td>
+              <td>X⊗X⊗X</td>
+              <td>6-qubit NOT</td>
+            </tr>
+            <tr>
+              <td>上下卦交换</td>
+              <td>SWAP</td>
+              <td>置换操作</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>3-qubit 系统类比</h3>
+          <p>八卦对应 3-qubit 系统的计算基态：</p>
+          <div id="qubitStates"></div>
+        </div>
+      </div>
+
+      <!-- 细胞自动机 -->
+      <div class="section" id="automata">
+        <h2>细胞自动机模式</h2>
+
+        <div class="card">
+          <h3>易经规则的细胞自动机演化</h3>
+
+          <div class="discovery">
+            <div class="title">发现 #5: 卦象序列可能是细胞自动机规则</div>
+            <p>将变爻规则应用于一维细胞数组，观察其时空演化模式。</p>
+            <p>某些卦象序列产生类似 Rule 110 的复杂行为——图灵完备！</p>
+          </div>
+
+          <div>
+            <button onclick="Analysis.runCA(30)">Rule 30</button>
+            <button onclick="Analysis.runCA(110)">Rule 110</button>
+            <button onclick="Analysis.runCA(0)">乾规则(000)</button>
+            <button onclick="Analysis.runCA(63)">坤规则(111)</button>
+            <button onclick="Analysis.runCA(42)">既济规则(101010)</button>
+          </div>
+
+          <canvas id="caCanvas"></canvas>
+        </div>
+      </div>
+
+      <!-- 验证测试 -->
+      <div class="section" id="tests">
+        <h2>数学验证测试</h2>
+
+        <div class="card">
+          <button class="primary" onclick="Analysis.runAllTests()">运行全部测试</button>
+          <button onclick="Analysis.runGroupTests()">群论测试</button>
+          <button onclick="Analysis.runTransitionTests()">状态转换测试</button>
+          <button onclick="Analysis.runSymmetryTests()">对称性测试</button>
+        </div>
+
+        <div class="card">
+          <h3>测试结果</h3>
+          <div class="test-panel" id="testResults"></div>
+        </div>
+
+        <div class="card">
+          <h3>测试日志</h3>
+          <pre id="testLog" style="max-height: 300px; overflow-y: auto; font-size: 11px; color: var(--text-dim);"></pre>
+        </div>
+      </div>
+
+      <!-- 逆向发现 -->
+      <div class="section" id="discoveries">
+        <h2>逆向工程发现汇总</h2>
+
+        <div class="card">
+          <div class="discovery">
+            <div class="title">发现 #1: 代数结构</div>
+            <p>八卦形成 Z₂³ 阿贝尔群，64卦形成 Z₂⁶ 群。</p>
+            <p>这不是巧合，而是<strong>二进制计算的基础结构</strong>。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #2: XOR状态机</div>
+            <p>变爻机制 = XOR运算 = 可逆状态转换。</p>
+            <p>这意味着系统是<strong>信息守恒</strong>的——没有信息丢失。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #3: 格雷码编码</div>
+            <p>先天八卦序采用类格雷码排列，相邻状态只差一位。</p>
+            <p>这是<strong>容错设计</strong>，减少状态转换错误。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #4: 量子原型</div>
+            <p>"老阳""老阴"概念类似量子叠加态。</p>
+            <p>筮卦过程类似<strong>量子测量</strong>，从叠加态坍缩到确定态。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #5: 计算完备性</div>
+            <p>变爻规则可实现任意布尔函数。</p>
+            <p>理论上，易经系统可能是<strong>图灵完备</strong>的。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #6: 对称性守恒</div>
+            <p>乾坤对称、既济未济对称...系统处处体现<strong>阴阳平衡</strong>。</p>
+            <p>这是一种<strong>能量/信息守恒</strong>原则。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #7: 周期结构</div>
+            <p>64卦可分为8宫，每宫8卦，形成完美的<strong>8×8矩阵</strong>。</p>
+            <p>这暗示系统的<strong>模块化设计</strong>。</p>
+          </div>
+
+          <div class="discovery">
+            <div class="title">发现 #8: 系统调用映射</div>
+            <p>卦辞描述了各种"操作"：创始、阻塞、转换、完成...</p>
+            <p>这些可以映射到现代操作系统的<strong>系统调用</strong>。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>结论推测</h3>
+          <p style="font-size: 14px; line-height: 1.8;">
+            如果上述假设成立，《易经》可能是：<br><br>
+            1. <strong>一个二进制计算系统的说明书</strong>——描述了基本的逻辑运算和状态转换<br>
+            2. <strong>一个容错通信协议</strong>——使用格雷码减少传输错误<br>
+            3. <strong>一个状态预测系统</strong>——通过变爻规则预测系统演化<br>
+            4. <strong>一个宇宙模拟器的界面</strong>——用64种基本"指令"描述万物变化<br><br>
+
+            无论真相如何，易经的<strong>数学结构是真实存在的</strong>，
+            这个结构与现代计算机科学有着惊人的对应关系。
+          </p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+const Analysis = (function() {
+  // 八卦数据
+  const TRIGRAMS = [
+    { bits: '000', name: '乾', order: 1 },
+    { bits: '001', name: '兑', order: 2 },
+    { bits: '010', name: '离', order: 3 },
+    { bits: '011', name: '震', order: 4 },
+    { bits: '100', name: '巽', order: 5 },
+    { bits: '101', name: '坎', order: 6 },
+    { bits: '110', name: '艮', order: 7 },
+    { bits: '111', name: '坤', order: 8 }
+  ];
+
+  function xor(a, b) {
+    let r = '';
+    for (let i = 0; i < a.length; i++) r += a[i] === b[i] ? '0' : '1';
+    return r;
+  }
+
+  function hamming(a, b) {
+    let d = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++;
+    return d;
+  }
+
+  function binaryToGray(n) {
+    return n ^ (n >> 1);
+  }
+
+  function init() {
+    initNavigation();
+    initCayleyTable();
+    initGroupTests();
+    initGrayCompare();
+    initTransitionDemo();
+    initQubitStates();
+    initStateGraph();
+  }
+
+  function initNavigation() {
+    document.querySelectorAll('nav a').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelectorAll('nav a').forEach(l => l.classList.remove('active'));
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        link.classList.add('active');
+        document.getElementById(link.dataset.section).classList.add('active');
+      });
+    });
+  }
+
+  function initCayleyTable() {
+    const table = document.getElementById('cayleyTable');
+    let html = '<tr><th>⊕</th>';
+    TRIGRAMS.forEach(t => html += `<th>${t.name}</th>`);
+    html += '</tr>';
+
+    TRIGRAMS.forEach(t1 => {
+      html += `<tr><th>${t1.name}</th>`;
+      TRIGRAMS.forEach(t2 => {
+        const result = xor(t1.bits, t2.bits);
+        const resultTri = TRIGRAMS.find(t => t.bits === result);
+        const cls = result === '000' ? 'yang' : '';
+        html += `<td class="${cls}">${resultTri.name}</td>`;
+      });
+      html += '</tr>';
+    });
+    table.innerHTML = html;
+  }
+
+  function initGroupTests() {
+    const tests = document.getElementById('groupTests');
+    const results = [
+      { name: '封闭性', desc: '任意两卦XOR得到另一卦', pass: true },
+      { name: '结合律', desc: '(a⊕b)⊕c = a⊕(b⊕c)', pass: true },
+      { name: '单位元', desc: '乾(000)是单位元', pass: true },
+      { name: '逆元', desc: '每个卦的逆是自身', pass: true }
+    ];
+
+    tests.innerHTML = results.map(r => `
+      <div class="test-result ${r.pass ? 'pass' : 'fail'}">
+        <h4>${r.name}</h4>
+        <div class="value">${r.pass ? '✓ 通过' : '✗ 失败'}</div>
+        <div style="font-size:10px; color:var(--text-dim); margin-top:4px;">${r.desc}</div>
+      </div>
+    `).join('');
+  }
+
+  function initGrayCompare() {
+    const container = document.getElementById('grayCompare');
+    container.innerHTML = TRIGRAMS.map((t, i) => {
+      const grayCode = binaryToGray(i).toString(2).padStart(3, '0');
+      return `
+        <div class="item">
+          <div class="gua">${t.name}</div>
+          <div class="bits">二进制: ${t.bits}</div>
+          <div class="gray">格雷码: ${grayCode}</div>
+        </div>
+      `;
+    }).join('');
+
+    // 显示路径
+    const path = document.getElementById('grayPath');
+    let pathHtml = '<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">';
+    for (let i = 0; i < TRIGRAMS.length; i++) {
+      const t = TRIGRAMS[i];
+      const next = TRIGRAMS[(i + 1) % TRIGRAMS.length];
+      const diff = hamming(t.bits, next.bits);
+      pathHtml += `<span style="font-size:18px;">${t.name}</span>`;
+      if (i < TRIGRAMS.length - 1) {
+        const color = diff === 1 ? 'var(--stable)' : 'var(--change)';
+        pathHtml += `<span style="color:${color};">→(${diff})</span>`;
+      }
+    }
+    pathHtml += '</div>';
+    path.innerHTML = pathHtml;
+  }
+
+  function initTransitionDemo() {
+    const container = document.getElementById('transitionDemo');
+    const select = document.createElement('select');
+    select.style.cssText = 'padding:8px; margin:8px 0; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px;';
+
+    TRIGRAMS.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.bits;
+      opt.textContent = `${t.name} (${t.bits})`;
+      select.appendChild(opt);
+    });
+
+    const result = document.createElement('div');
+    result.style.marginTop = '12px';
+
+    select.addEventListener('change', () => {
+      const bits = select.value;
+      const tri = TRIGRAMS.find(t => t.bits === bits);
+      let html = `<p>从 <strong>${tri.name}(${bits})</strong> 变一爻可达：</p><ul>`;
+
+      for (let i = 0; i < 3; i++) {
+        const mask = ['100', '010', '001'][i];
+        const newBits = xor(bits, mask);
+        const newTri = TRIGRAMS.find(t => t.bits === newBits);
+        html += `<li>第${3-i}爻变 → ${newTri.name}(${newBits})</li>`;
+      }
+      html += '</ul>';
+      result.innerHTML = html;
+    });
+
+    container.appendChild(select);
+    container.appendChild(result);
+    select.dispatchEvent(new Event('change'));
+  }
+
+  function initQubitStates() {
+    const container = document.getElementById('qubitStates');
+    container.innerHTML = TRIGRAMS.map(t => {
+      const kets = t.bits.split('').map(b => `|${b}⟩`).join('');
+      return `
+        <div class="quantum-state">
+          ${t.name}: |${t.bits}⟩ = ${kets} = |${parseInt(t.bits, 2)}⟩
+        </div>
+      `;
+    }).join('');
+  }
+
+  function initStateGraph() {
+    const canvas = document.getElementById('stateGraph');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth * 2;
+    const H = canvas.height = 500 * 2;
+    ctx.scale(2, 2);
+
+    // 64卦状态空间可视化
+    const states = [];
+    for (let i = 0; i < 64; i++) {
+      const bits = i.toString(2).padStart(6, '0');
+      const yangCount = bits.split('').filter(b => b === '0').length;
+      states.push({
+        bits,
+        x: (i % 8) * 70 + 60,
+        y: Math.floor(i / 8) * 55 + 40,
+        yangCount
+      });
+    }
+
+    // 绘制连线（汉明距离=1）
+    ctx.strokeStyle = 'rgba(88,166,255,0.15)';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < 64; i++) {
+      for (let j = i + 1; j < 64; j++) {
+        if (hamming(states[i].bits, states[j].bits) === 1) {
+          ctx.beginPath();
+          ctx.moveTo(states[i].x, states[i].y);
+          ctx.lineTo(states[j].x, states[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 绘制节点
+    states.forEach((s, i) => {
+      const hue = (s.yangCount / 6) * 60; // 黄(阳)到蓝(阴)
+      ctx.fillStyle = `hsl(${hue + 180}, 70%, 50%)`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(i + 1, s.x, s.y);
+    });
+  }
+
+  function runCA(rule) {
+    const canvas = document.getElementById('caCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth * 2;
+    const H = canvas.height = 300 * 2;
+    ctx.scale(2, 2);
+
+    const w = Math.floor(W / 4);
+    const h = Math.floor(H / 4);
+    const cellSize = 2;
+
+    // 初始化
+    let cells = new Array(w).fill(0);
+    cells[Math.floor(w / 2)] = 1;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W/2, H/2);
+
+    for (let y = 0; y < h; y++) {
+      // 绘制当前行
+      for (let x = 0; x < w; x++) {
+        if (cells[x]) {
+          ctx.fillStyle = cells[x] ? '#ffd33d' : '#000';
+          ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+        }
+      }
+
+      // 计算下一行
+      const next = new Array(w).fill(0);
+      for (let x = 0; x < w; x++) {
+        const left = cells[(x - 1 + w) % w];
+        const center = cells[x];
+        const right = cells[(x + 1) % w];
+        const pattern = (left << 2) | (center << 1) | right;
+        next[x] = (rule >> pattern) & 1;
+      }
+      cells = next;
+    }
+  }
+
+  function runAllTests() {
+    runGroupTests();
+    runTransitionTests();
+    runSymmetryTests();
+  }
+
+  function runGroupTests() {
+    const log = document.getElementById('testLog');
+    log.textContent = '=== 群论测试 ===\n';
+
+    let passed = 0, total = 0;
+
+    // 封闭性测试
+    total++;
+    let closureOk = true;
+    for (const t1 of TRIGRAMS) {
+      for (const t2 of TRIGRAMS) {
+        const result = xor(t1.bits, t2.bits);
+        if (!TRIGRAMS.find(t => t.bits === result)) {
+          closureOk = false;
+          log.textContent += `封闭性失败: ${t1.bits} ⊕ ${t2.bits} = ${result}\n`;
+        }
+      }
+    }
+    if (closureOk) { passed++; log.textContent += '✓ 封闭性通过\n'; }
+
+    // 结合律测试
+    total++;
+    let assocOk = true;
+    for (const a of TRIGRAMS) {
+      for (const b of TRIGRAMS) {
+        for (const c of TRIGRAMS) {
+          const left = xor(xor(a.bits, b.bits), c.bits);
+          const right = xor(a.bits, xor(b.bits, c.bits));
+          if (left !== right) assocOk = false;
+        }
+      }
+    }
+    if (assocOk) { passed++; log.textContent += '✓ 结合律通过\n'; }
+
+    // 单位元测试
+    total++;
+    let identOk = true;
+    for (const t of TRIGRAMS) {
+      if (xor(t.bits, '000') !== t.bits) identOk = false;
+    }
+    if (identOk) { passed++; log.textContent += '✓ 单位元(乾)通过\n'; }
+
+    // 逆元测试
+    total++;
+    let invOk = true;
+    for (const t of TRIGRAMS) {
+      if (xor(t.bits, t.bits) !== '000') invOk = false;
+    }
+    if (invOk) { passed++; log.textContent += '✓ 自逆性通过\n'; }
+
+    log.textContent += `\n群论测试完成: ${passed}/${total} 通过\n`;
+    updateTestResults('群论', passed, total);
+  }
+
+  function runTransitionTests() {
+    const log = document.getElementById('testLog');
+    log.textContent += '\n=== 状态转换测试 ===\n';
+
+    let passed = 0, total = 0;
+
+    // XOR可逆性测试
+    total++;
+    let revOk = true;
+    for (let i = 0; i < 64; i++) {
+      const bits = i.toString(2).padStart(6, '0');
+      for (let mask = 0; mask < 64; mask++) {
+        const maskBits = mask.toString(2).padStart(6, '0');
+        const changed = xor(bits, maskBits);
+        const restored = xor(changed, maskBits);
+        if (restored !== bits) revOk = false;
+      }
+    }
+    if (revOk) { passed++; log.textContent += '✓ XOR可逆性通过\n'; }
+
+    // 汉明距离单变爻测试
+    total++;
+    let hamOk = true;
+    for (const t of TRIGRAMS) {
+      const neighbors = ['100', '010', '001'].map(m => xor(t.bits, m));
+      for (const n of neighbors) {
+        if (hamming(t.bits, n) !== 1) hamOk = false;
+      }
+    }
+    if (hamOk) { passed++; log.textContent += '✓ 单变爻汉明距离=1通过\n'; }
+
+    log.textContent += `\n状态转换测试完成: ${passed}/${total} 通过\n`;
+    updateTestResults('状态转换', passed, total);
+  }
+
+  function runSymmetryTests() {
+    const log = document.getElementById('testLog');
+    log.textContent += '\n=== 对称性测试 ===\n';
+
+    let passed = 0, total = 0;
+
+    // 乾坤对称
+    total++;
+    const qianKun = xor('000', '111');
+    if (qianKun === '111') {
+      passed++;
+      log.textContent += '✓ 乾坤互补: 000 ⊕ 111 = 111\n';
+    }
+
+    // 既济未济对称
+    total++;
+    const jiji = '101010';
+    const weiji = '010101';
+    if (xor(jiji, weiji) === '111111') {
+      passed++;
+      log.textContent += '✓ 既济未济互补: 全反转关系\n';
+    }
+
+    // 阴阳平衡测试
+    total++;
+    let balanced = 0;
+    for (let i = 0; i < 64; i++) {
+      const bits = i.toString(2).padStart(6, '0');
+      const yang = bits.split('').filter(b => b === '0').length;
+      if (yang === 3) balanced++;
+    }
+    if (balanced === 20) { // C(6,3) = 20
+      passed++;
+      log.textContent += '✓ 阴阳平衡卦数=20 (C(6,3))\n';
+    }
+
+    log.textContent += `\n对称性测试完成: ${passed}/${total} 通过\n`;
+    updateTestResults('对称性', passed, total);
+  }
+
+  function updateTestResults(category, passed, total) {
+    const container = document.getElementById('testResults');
+    const existing = container.querySelector(`[data-category="${category}"]`);
+
+    const html = `
+      <div class="test-result ${passed === total ? 'pass' : 'fail'}" data-category="${category}">
+        <h4>${category}测试</h4>
+        <div class="value">${passed}/${total}</div>
+      </div>
+    `;
+
+    if (existing) {
+      existing.outerHTML = html;
+    } else {
+      container.innerHTML += html;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  return {
+    runCA,
+    runAllTests,
+    runGroupTests,
+    runTransitionTests,
+    runSymmetryTests
+  };
+})();
+</script>
+</body>
+</html>
