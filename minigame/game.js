@@ -367,6 +367,12 @@ function playSound(type) {
       setTimeout(() => playTone(440, 0.1, 0.3, 'sine'), 100);
       setTimeout(() => playTone(550, 0.15, 0.4, 'sine'), 200);
       break;
+    case 'explosion':
+      // 爆炸音效：低频轰鸣
+      playNoise(0.2, 0.6);
+      playTone(60, 0.3, 0.5, 'sawtooth');
+      playSweep(200, 40, 0.25, 0.4);
+      break;
   }
 }
 
@@ -3714,71 +3720,275 @@ let currentBoss = null;         // 当前Boss引用
 
 // 怪物类型定义（降低早期怪物伤害，提高生存能力）
 const MONSTER_TYPES = {
+  // ========== 基础怪物 ==========
   zombie: {
     name: '僵尸',
     color: '#4A7C59',
     hp: 25,
-    damage: 4,      // 大幅降低伤害
-    speed: 0.0025,  // 稍慢移速
-    exp: 25,        // 提高经验
+    damage: 4,
+    speed: 0.0025,
+    exp: 25,
     size: 0.8,
     unlockTime: 0,
-    drawType: 'zombie'
+    drawType: 'zombie',
+    behavior: 'chase',  // 追击型
+    spawnWeight: 100    // 生成权重
   },
   skeleton: {
     name: '骷髅',
     color: '#E0E0E0',
     hp: 20,
-    damage: 6,      // 降低伤害
+    damage: 6,
     speed: 0.003,
-    exp: 30,        // 提高经验
+    exp: 30,
     size: 0.75,
-    unlockTime: 30, // 延后出现时间
-    drawType: 'skeleton'
+    unlockTime: 30,
+    drawType: 'skeleton',
+    behavior: 'chase',
+    spawnWeight: 80
   },
+
+  // ========== 群体怪 (Swarmers) - 参考黎明前20分钟 ==========
+  bat: {
+    name: '蝙蝠',
+    color: '#5D4037',
+    hp: 8,
+    damage: 2,
+    speed: 0.006,
+    exp: 10,
+    size: 0.4,
+    unlockTime: 15,
+    drawType: 'bat',
+    behavior: 'swarm',   // 群体行为
+    spawnWeight: 120,
+    swarmSize: 5         // 成群生成
+  },
+  rat: {
+    name: '鼠群',
+    color: '#6D4C41',
+    hp: 5,
+    damage: 1,
+    speed: 0.007,
+    exp: 5,
+    size: 0.3,
+    unlockTime: 0,
+    drawType: 'rat',
+    behavior: 'swarm',
+    spawnWeight: 150,
+    swarmSize: 8
+  },
+
+  // ========== 远程怪 (Ranged) ==========
+  archer: {
+    name: '骷髅弓手',
+    color: '#BDBDBD',
+    hp: 15,
+    damage: 8,
+    speed: 0.002,
+    exp: 40,
+    size: 0.75,
+    unlockTime: 45,
+    drawType: 'archer',
+    behavior: 'ranged',   // 远程攻击
+    spawnWeight: 50,
+    attackRange: 0.4,
+    projectileSpeed: 0.01
+  },
+  mage: {
+    name: '暗黑法师',
+    color: '#7B1FA2',
+    hp: 20,
+    damage: 12,
+    speed: 0.0015,
+    exp: 55,
+    size: 0.8,
+    unlockTime: 90,
+    drawType: 'mage',
+    behavior: 'ranged',
+    spawnWeight: 30,
+    attackRange: 0.5,
+    projectileSpeed: 0.008
+  },
+
+  // ========== 特殊行为怪 ==========
   ghost: {
     name: '幽灵',
     color: '#B0BEC5',
     hp: 18,
-    damage: 8,      // 降低伤害
+    damage: 8,
     speed: 0.004,
     exp: 35,
     size: 0.7,
-    unlockTime: 45, // 延后出现
-    drawType: 'ghost'
+    unlockTime: 45,
+    drawType: 'ghost',
+    behavior: 'phase',    // 穿墙/闪现
+    spawnWeight: 60,
+    phaseInterval: 3      // 每3秒闪现一次
   },
+  slime: {
+    name: '史莱姆',
+    color: '#4CAF50',
+    hp: 30,
+    damage: 3,
+    speed: 0.002,
+    exp: 20,
+    size: 0.6,
+    unlockTime: 20,
+    drawType: 'slime',
+    behavior: 'split',    // 分裂型
+    spawnWeight: 70,
+    splitCount: 2         // 死亡时分裂数量
+  },
+  exploder: {
+    name: '自爆虫',
+    color: '#FF5722',
+    hp: 12,
+    damage: 25,
+    speed: 0.005,
+    exp: 30,
+    size: 0.5,
+    unlockTime: 60,
+    drawType: 'exploder',
+    behavior: 'explode',  // 自爆型
+    spawnWeight: 40,
+    explodeRadius: 0.15
+  },
+
+  // ========== 坦克型 ==========
   demon: {
     name: '恶魔',
     color: '#C62828',
     hp: 50,
-    damage: 12,     // 降低伤害
+    damage: 12,
     speed: 0.002,
     exp: 60,
     size: 1.0,
-    unlockTime: 75, // 延后出现
-    drawType: 'demon'
+    unlockTime: 75,
+    drawType: 'demon',
+    behavior: 'chase',
+    spawnWeight: 40
+  },
+  golem: {
+    name: '石魔像',
+    color: '#607D8B',
+    hp: 100,
+    damage: 15,
+    speed: 0.001,
+    exp: 80,
+    size: 1.3,
+    unlockTime: 100,
+    drawType: 'golem',
+    behavior: 'tank',     // 坦克型 - 缓慢但高防
+    spawnWeight: 25,
+    armor: 30             // 30%减伤
   },
   darkKnight: {
     name: '黑骑士',
     color: '#37474F',
     hp: 70,
-    damage: 15,     // 降低伤害
+    damage: 15,
     speed: 0.0018,
     exp: 80,
     size: 1.1,
-    unlockTime: 100, // 延后出现
-    drawType: 'knight'
+    unlockTime: 100,
+    drawType: 'knight',
+    behavior: 'charge',   // 冲锋型
+    spawnWeight: 35,
+    chargeSpeed: 0.015,
+    chargeCooldown: 5
   },
+
+  // ========== 精英变种 ==========
+  eliteZombie: {
+    name: '腐烂巨僵',
+    color: '#2E7D32',
+    hp: 80,
+    damage: 10,
+    speed: 0.002,
+    exp: 100,
+    size: 1.2,
+    unlockTime: 120,
+    drawType: 'zombie',
+    behavior: 'elite',
+    spawnWeight: 15,
+    isElite: true,
+    abilities: ['poison_aura']  // 毒气光环
+  },
+  shadowLord: {
+    name: '暗影领主',
+    color: '#311B92',
+    hp: 120,
+    damage: 18,
+    speed: 0.003,
+    exp: 150,
+    size: 1.4,
+    unlockTime: 150,
+    drawType: 'demon',
+    behavior: 'elite',
+    spawnWeight: 10,
+    isElite: true,
+    abilities: ['teleport', 'summon']  // 传送、召唤
+  },
+
+  // ========== 特殊波次怪 ==========
+  swarmQueen: {
+    name: '虫群女王',
+    color: '#8D6E63',
+    hp: 60,
+    damage: 5,
+    speed: 0.0015,
+    exp: 120,
+    size: 1.1,
+    unlockTime: 80,
+    drawType: 'queen',
+    behavior: 'summoner', // 召唤型
+    spawnWeight: 20,
+    summonType: 'bat',
+    summonInterval: 4,
+    summonCount: 3
+  },
+
+  // ========== Boss级普通怪 ==========
   boss: {
     name: '魔王',
     color: '#4A148C',
     hp: 180,
-    damage: 20,     // 降低伤害
+    damage: 20,
     speed: 0.0012,
     exp: 200,
     size: 1.4,
-    unlockTime: 150, // 延后出现
-    drawType: 'boss'
+    unlockTime: 150,
+    drawType: 'boss',
+    behavior: 'boss',
+    spawnWeight: 5,
+    isMiniBoss: true
+  }
+};
+
+// 精英怪能力效果
+const ELITE_ABILITIES = {
+  poison_aura: {
+    name: '毒气光环',
+    radius: 0.1,
+    damagePerSec: 3,
+    color: '#4CAF50'
+  },
+  teleport: {
+    name: '暗影传送',
+    cooldown: 5,
+    range: 0.3
+  },
+  summon: {
+    name: '召唤',
+    cooldown: 8,
+    summonType: 'skeleton',
+    count: 2
+  },
+  enrage: {
+    name: '狂暴',
+    hpThreshold: 0.3,
+    speedMult: 2,
+    damageMult: 1.5
   }
 };
 
@@ -3874,15 +4084,30 @@ function spawnBoss() {
   console.log(`Boss出现: ${bossType.name} (HP: ${boss.hp})`);
 }
 
-// 获取可用的怪物类型（根据冒险时间）
+// 获取可用的怪物类型（根据冒险时间，带权重）
 function getAvailableMonsterTypes() {
   const available = [];
+  let totalWeight = 0;
   for (const [key, info] of Object.entries(MONSTER_TYPES)) {
     if (adventureTime >= info.unlockTime) {
-      available.push(key);
+      available.push({ type: key, weight: info.spawnWeight || 50 });
+      totalWeight += info.spawnWeight || 50;
     }
   }
-  return available;
+  return { monsters: available, totalWeight };
+}
+
+// 根据权重选择怪物类型
+function selectMonsterByWeight(available) {
+  const { monsters, totalWeight } = available;
+  if (monsters.length === 0) return 'zombie';
+
+  let roll = Math.random() * totalWeight;
+  for (const m of monsters) {
+    roll -= m.weight;
+    if (roll <= 0) return m.type;
+  }
+  return monsters[monsters.length - 1].type;
 }
 
 // 计算怪物强化倍率（随时间增加）
@@ -3899,6 +4124,58 @@ function getMonsterScaling() {
   return scaleFactor;
 }
 
+// 创建单个怪物实例
+function createMonsterInstance(type, x, y, scaling, sizeVariation = 0.1) {
+  const info = MONSTER_TYPES[type];
+  if (!info) return null;
+
+  const monster = {
+    type,
+    x,
+    y,
+    hp: Math.floor(info.hp * scaling),
+    maxHp: Math.floor(info.hp * scaling),
+    damage: Math.floor(info.damage * scaling),
+    speed: info.speed * (0.9 + Math.random() * 0.2) * (1 + scaling * 0.1),
+    exp: Math.floor(info.exp * scaling),
+    size: info.size * (1 - sizeVariation + Math.random() * sizeVariation * 2),
+    hitTimer: 0,
+    walkPhase: Math.random() * Math.PI * 2,
+    floatPhase: Math.random() * Math.PI * 2,
+    // 行为相关
+    behavior: info.behavior || 'chase',
+    behaviorTimer: 0,
+    behaviorCooldown: 0,
+    // 特殊属性
+    isElite: info.isElite || false,
+    abilities: info.abilities || [],
+    armor: info.armor || 0,
+    // 远程攻击
+    attackRange: info.attackRange,
+    projectileSpeed: info.projectileSpeed,
+    lastAttackTime: 0,
+    // 冲锋
+    chargeSpeed: info.chargeSpeed,
+    chargeCooldown: info.chargeCooldown || 5,
+    isCharging: false,
+    chargeTarget: null,
+    // 召唤
+    summonType: info.summonType,
+    summonInterval: info.summonInterval,
+    summonCount: info.summonCount,
+    lastSummonTime: 0,
+    // 分裂
+    splitCount: info.splitCount,
+    // 自爆
+    explodeRadius: info.explodeRadius,
+    // 闪现
+    phaseInterval: info.phaseInterval,
+    lastPhaseTime: 0
+  };
+
+  return monster;
+}
+
 // 创建怪物（在玩家周围的世界坐标生成）
 function spawnMonster() {
   // 在玩家周围0.5-0.8距离处生成
@@ -3907,36 +4184,61 @@ function spawnMonster() {
   const x = playerX + Math.cos(angle) * distance;
   const y = playerY + Math.sin(angle) * distance;
 
-  // 根据时间选择怪物类型
+  // 根据权重选择怪物类型
   const available = getAvailableMonsterTypes();
-  // 新解锁的怪物有更高概率出现
-  let type;
-  const rand = Math.random();
-  if (rand < 0.3 && available.length > 1) {
-    // 30%概率生成最新解锁的怪物
-    type = available[available.length - 1];
-  } else {
-    // 70%概率随机选择
-    type = available[Math.floor(Math.random() * available.length)];
-  }
-
+  const type = selectMonsterByWeight(available);
   const info = MONSTER_TYPES[type];
   const scaling = getMonsterScaling();
 
-  monsters.push({
-    type,
-    x,
-    y,
-    hp: Math.floor(info.hp * scaling),
-    maxHp: Math.floor(info.hp * scaling),
-    damage: Math.floor(info.damage * scaling),
-    speed: info.speed * (0.8 + Math.random() * 0.4) * (1 + scaling * 0.1), // 速度也略微增加
-    exp: Math.floor(info.exp * scaling),
-    size: info.size,
-    hitTimer: 0, // 被击中闪烁
-    walkPhase: Math.random() * Math.PI * 2, // 走路动画相位
-    floatPhase: Math.random() * Math.PI * 2 // 漂浮动画相位（幽灵用）
-  });
+  // 检查是否是群体怪
+  if (info.swarmSize && info.swarmSize > 1) {
+    // 生成一群怪物
+    spawnSwarm(type, x, y, info.swarmSize, scaling);
+    return;
+  }
+
+  // 生成单个怪物
+  const monster = createMonsterInstance(type, x, y, scaling);
+  if (monster) {
+    monsters.push(monster);
+  }
+}
+
+// 生成怪物群
+function spawnSwarm(type, centerX, centerY, count, scaling) {
+  for (let i = 0; i < count; i++) {
+    const spreadAngle = Math.random() * Math.PI * 2;
+    const spreadDist = Math.random() * 0.1;
+    const x = centerX + Math.cos(spreadAngle) * spreadDist;
+    const y = centerY + Math.sin(spreadAngle) * spreadDist;
+
+    const monster = createMonsterInstance(type, x, y, scaling, 0.2);
+    if (monster) {
+      monsters.push(monster);
+    }
+  }
+}
+
+// 生成分裂怪
+function spawnSplitMonsters(parentMonster) {
+  const info = MONSTER_TYPES[parentMonster.type];
+  if (!info || !info.splitCount) return;
+
+  for (let i = 0; i < info.splitCount; i++) {
+    const angle = (i / info.splitCount) * Math.PI * 2;
+    const dist = 0.05;
+    const x = parentMonster.x + Math.cos(angle) * dist;
+    const y = parentMonster.y + Math.sin(angle) * dist;
+
+    // 分裂出的怪物更小更弱
+    const scaling = 0.5;
+    const monster = createMonsterInstance(parentMonster.type, x, y, scaling, 0.3);
+    if (monster) {
+      monster.size *= 0.6;
+      monster.splitCount = 0; // 不能再次分裂
+      monsters.push(monster);
+    }
+  }
 }
 
 // 绘制怪物（统一入口）
@@ -3980,19 +4282,35 @@ function drawMonster(x, y, scale, monster, time) {
       drawZombieType(x, y, scale, monster, time, info);
       break;
     case 'skeleton':
+    case 'archer':
       drawSkeletonType(x, y, scale, monster, time, info);
       break;
     case 'ghost':
       drawGhostType(x, y, scale, monster, time, info);
       break;
     case 'demon':
+    case 'mage':
       drawDemonType(x, y, scale, monster, time, info);
       break;
     case 'knight':
+    case 'golem':
       drawKnightType(x, y, scale, monster, time, info);
       break;
     case 'boss':
+    case 'queen':
       drawBossType(x, y, scale, monster, time, info);
+      break;
+    case 'bat':
+      drawBatType(x, y, scale, monster, time, info);
+      break;
+    case 'rat':
+      drawRatType(x, y, scale, monster, time, info);
+      break;
+    case 'slime':
+      drawSlimeType(x, y, scale, monster, time, info);
+      break;
+    case 'exploder':
+      drawExploderType(x, y, scale, monster, time, info);
       break;
     default:
       drawZombieType(x, y, scale, monster, time, info);
@@ -4579,6 +4897,248 @@ function drawBossType(x, y, scale, monster, time, info) {
   ctx.restore();
 }
 
+// 绘制蝙蝠类型
+function drawBatType(x, y, scale, monster, time, info) {
+  const s = scale * (monster.size || info.size);
+  const wingSpan = BASE_UNIT * s * 0.8;
+  const bodyH = BASE_UNIT * s * 0.3;
+
+  const flapSpeed = 12;
+  const wingAngle = Math.sin(time * flapSpeed + monster.walkPhase) * 0.6;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : (info.color || '#5D4037');
+  ctx.strokeStyle = baseColor;
+  ctx.fillStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 2 * s);
+
+  // 身体（椭圆）
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bodyH * 0.4, bodyH, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 翅膀
+  ctx.beginPath();
+  // 左翅膀
+  ctx.moveTo(-bodyH * 0.2, -bodyH * 0.3);
+  ctx.quadraticCurveTo(-wingSpan * Math.cos(wingAngle), -wingSpan * 0.5 * Math.sin(wingAngle) - bodyH * 0.5, -wingSpan * 0.8, 0);
+  ctx.quadraticCurveTo(-wingSpan * 0.5, bodyH * 0.3, -bodyH * 0.2, bodyH * 0.2);
+  ctx.fill();
+  // 右翅膀
+  ctx.beginPath();
+  ctx.moveTo(bodyH * 0.2, -bodyH * 0.3);
+  ctx.quadraticCurveTo(wingSpan * Math.cos(wingAngle), -wingSpan * 0.5 * Math.sin(wingAngle) - bodyH * 0.5, wingSpan * 0.8, 0);
+  ctx.quadraticCurveTo(wingSpan * 0.5, bodyH * 0.3, bodyH * 0.2, bodyH * 0.2);
+  ctx.fill();
+
+  // 眼睛
+  ctx.fillStyle = '#FF4444';
+  ctx.beginPath();
+  ctx.arc(-bodyH * 0.15, -bodyH * 0.4, bodyH * 0.12, 0, Math.PI * 2);
+  ctx.arc(bodyH * 0.15, -bodyH * 0.4, bodyH * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 耳朵
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.moveTo(-bodyH * 0.2, -bodyH * 0.7);
+  ctx.lineTo(-bodyH * 0.35, -bodyH * 1.2);
+  ctx.lineTo(-bodyH * 0.05, -bodyH * 0.8);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(bodyH * 0.2, -bodyH * 0.7);
+  ctx.lineTo(bodyH * 0.35, -bodyH * 1.2);
+  ctx.lineTo(bodyH * 0.05, -bodyH * 0.8);
+  ctx.fill();
+
+  drawMonsterHPBar(wingSpan * 0.5, -bodyH, bodyH * 0.5, monster);
+  ctx.restore();
+}
+
+// 绘制老鼠类型
+function drawRatType(x, y, scale, monster, time, info) {
+  const s = scale * (monster.size || info.size);
+  const bodyLen = BASE_UNIT * s * 0.5;
+
+  const runSpeed = 15;
+  const runPhase = Math.sin(time * runSpeed + monster.walkPhase) * 0.3;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : (info.color || '#6D4C41');
+  ctx.fillStyle = baseColor;
+  ctx.strokeStyle = baseColor;
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+
+  // 身体
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bodyLen, bodyLen * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 头
+  ctx.beginPath();
+  ctx.ellipse(-bodyLen * 0.8, -bodyLen * 0.1, bodyLen * 0.35, bodyLen * 0.3, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 耳朵
+  ctx.beginPath();
+  ctx.arc(-bodyLen * 1.0, -bodyLen * 0.4, bodyLen * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(-bodyLen * 0.7, -bodyLen * 0.45, bodyLen * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 尾巴
+  ctx.beginPath();
+  ctx.moveTo(bodyLen * 0.8, 0);
+  ctx.quadraticCurveTo(bodyLen * 1.5, -bodyLen * 0.5 * Math.sin(time * 8), bodyLen * 1.8, bodyLen * 0.2);
+  ctx.stroke();
+
+  // 腿（奔跑动画）
+  ctx.lineWidth = Math.max(1, 1 * s);
+  const legOffset = runPhase * bodyLen * 0.3;
+  ctx.beginPath();
+  ctx.moveTo(-bodyLen * 0.4, bodyLen * 0.3);
+  ctx.lineTo(-bodyLen * 0.5 + legOffset, bodyLen * 0.6);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(bodyLen * 0.3, bodyLen * 0.3);
+  ctx.lineTo(bodyLen * 0.4 - legOffset, bodyLen * 0.6);
+  ctx.stroke();
+
+  // 眼睛
+  ctx.fillStyle = '#111111';
+  ctx.beginPath();
+  ctx.arc(-bodyLen * 1.0, -bodyLen * 0.15, bodyLen * 0.08, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawMonsterHPBar(bodyLen * 0.6, -bodyLen * 0.6, bodyLen * 0.3, monster);
+  ctx.restore();
+}
+
+// 绘制史莱姆类型
+function drawSlimeType(x, y, scale, monster, time, info) {
+  const s = scale * (monster.size || info.size);
+  const radius = BASE_UNIT * s * 0.5;
+
+  const bouncePhase = Math.sin(time * 4 + monster.walkPhase);
+  const squash = 1 + bouncePhase * 0.2;
+  const stretch = 1 - bouncePhase * 0.15;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : (info.color || '#4CAF50');
+
+  // 身体（弹性球）
+  ctx.fillStyle = baseColor;
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  ctx.ellipse(0, radius * 0.2, radius * squash, radius * stretch, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 高光
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.ellipse(-radius * 0.3, -radius * 0.1 * stretch, radius * 0.25, radius * 0.2, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 眼睛
+  ctx.fillStyle = '#111111';
+  ctx.beginPath();
+  ctx.ellipse(-radius * 0.25, radius * 0.1, radius * 0.12, radius * 0.15 * stretch, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(radius * 0.25, radius * 0.1, radius * 0.12, radius * 0.15 * stretch, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 嘴（微笑）
+  ctx.strokeStyle = '#111111';
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.beginPath();
+  ctx.arc(0, radius * 0.3, radius * 0.2, 0.2, Math.PI - 0.2);
+  ctx.stroke();
+
+  drawMonsterHPBar(radius * 0.8, -radius * stretch, radius * 0.5, monster);
+  ctx.restore();
+}
+
+// 绘制自爆虫类型
+function drawExploderType(x, y, scale, monster, time, info) {
+  const s = scale * (monster.size || info.size);
+  const radius = BASE_UNIT * s * 0.4;
+
+  // 接近玩家时闪烁加快
+  const dx = playerX - monster.x;
+  const dy = playerY - monster.y;
+  const distToPlayer = Math.sqrt(dx * dx + dy * dy);
+  const urgency = Math.max(0, 1 - distToPlayer * 3);
+  const flashSpeed = 3 + urgency * 15;
+  const flash = Math.sin(time * flashSpeed) > 0;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  const baseColor = monster.hitTimer > 0 ? '#FFFFFF' : (flash && urgency > 0.3 ? '#FFFF00' : (info.color || '#FF5722'));
+
+  // 身体（圆球）
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 危险条纹
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = Math.max(1, 2 * s);
+  for (let i = 0; i < 3; i++) {
+    const angle = (i / 3) * Math.PI * 2 + time * 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.7, angle, angle + 0.5);
+    ctx.stroke();
+  }
+
+  // 引信/触角
+  ctx.strokeStyle = '#333333';
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  const fuseWave = Math.sin(time * 10) * 0.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -radius);
+  ctx.quadraticCurveTo(radius * fuseWave, -radius * 1.5, 0, -radius * 1.8);
+  ctx.stroke();
+
+  // 火花（接近时）
+  if (urgency > 0.3) {
+    ctx.fillStyle = '#FFFF00';
+    for (let i = 0; i < 4; i++) {
+      const sparkAngle = time * 20 + i * Math.PI / 2;
+      const sparkDist = radius * 1.8 + Math.sin(time * 30 + i) * radius * 0.3;
+      ctx.beginPath();
+      ctx.arc(Math.cos(sparkAngle) * radius * 0.2, -sparkDist, radius * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // 眼睛（愤怒）
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.arc(-radius * 0.25, -radius * 0.1, radius * 0.2, 0, Math.PI * 2);
+  ctx.arc(radius * 0.25, -radius * 0.1, radius * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#FF0000';
+  ctx.beginPath();
+  ctx.arc(-radius * 0.25, -radius * 0.1, radius * 0.1, 0, Math.PI * 2);
+  ctx.arc(radius * 0.25, -radius * 0.1, radius * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  drawMonsterHPBar(radius * 0.8, -radius * 1.2, radius * 0.5, monster);
+  ctx.restore();
+}
+
 // 绘制怪物血条（通用）- 增强版
 function drawMonsterHPBar(len, headY, headR, monster) {
   if (monster.hp < monster.maxHp) {
@@ -4645,6 +5205,9 @@ function startAdventure() {
   collectibles = [];
   collectibleSpawnTimer = 0;
   goldCollected = 0;
+  // 重置弹幕和爆炸
+  enemyProjectiles = [];
+  explosions = [];
   // 重置平滑方向
   smoothDirX = 0;
   smoothDirY = 0;
@@ -5134,6 +5697,21 @@ function attackMonsters() {
 
         // 检查成就
         checkAchievements();
+
+        // 特殊死亡效果
+        const monsterInfo = MONSTER_TYPES[m.type];
+
+        // 分裂怪物死亡时生成小怪
+        if (m.behavior === 'split' && m.splitCount > 0) {
+          spawnSplitMonsters(m);
+        }
+
+        // 爆炸怪死亡时爆炸（如果还没自爆）
+        if (m.behavior === 'explode' && !m.isExploding) {
+          const explosionRadius = monsterInfo ? monsterInfo.explosionRadius || 0.12 : 0.12;
+          const explosionDamage = monsterInfo ? monsterInfo.explosionDamage || 15 : 15;
+          createExplosion(m.x, m.y, explosionRadius, explosionDamage, '#FF6600');
+        }
 
         monsters.splice(i, 1);
 
@@ -6002,37 +6580,289 @@ function updateAdventure(dt) {
       }
     }
 
-    // 朝玩家移动（受控制效果影响）
+    // 初始化行为相关计时器
+    if (m.attackCooldown === undefined) m.attackCooldown = 0;
+    if (m.abilityCooldown === undefined) m.abilityCooldown = 0;
+    if (m.phaseTimer === undefined) m.phaseTimer = 0;
+    if (m.chargeTimer === undefined) m.chargeTimer = 0;
+    if (m.isCharging === undefined) m.isCharging = false;
+
+    // 更新计时器
+    if (m.attackCooldown > 0) m.attackCooldown -= dt;
+    if (m.abilityCooldown > 0) m.abilityCooldown -= dt;
+    if (m.phaseTimer > 0) m.phaseTimer -= dt;
+    if (m.chargeTimer > 0) m.chargeTimer -= dt;
+
     const dx = playerX - m.x;
     const dy = playerY - m.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > 0.05) {
-      // 冻结或眩晕时无法移动
-      if (m.freezeTimer > 0 || m.stunTimer > 0) {
-        // 不移动
-      } else if (m.rooted > 0) {
-        // 定身时也不移动
-      } else {
-        // 减速效果
-        let speedMult = 1;
-        if (m.slowTimer > 0) {
-          speedMult = 1 - (m.slowAmount || 0.5);
-        }
-        m.x += (dx / dist) * m.speed * speedMult;
-        m.y += (dy / dist) * m.speed * speedMult;
+
+    // 获取怪物行为类型
+    const behavior = m.behavior || 'chase';
+    const info = MONSTER_TYPES[m.type] || {};
+
+    // 检查是否可以移动
+    const canMove = m.freezeTimer <= 0 && m.stunTimer <= 0 && !(m.rooted > 0);
+
+    // 减速效果
+    let speedMult = 1;
+    if (m.slowTimer > 0) {
+      speedMult = 1 - (m.slowAmount || 0.5);
+    }
+
+    // 根据行为类型执行不同AI
+    if (canMove) {
+      switch (behavior) {
+        case 'chase':
+        case 'swarm':
+          // 基础追击行为
+          if (dist > 0.05) {
+            m.x += (dx / dist) * m.speed * speedMult;
+            m.y += (dy / dist) * m.speed * speedMult;
+          }
+          break;
+
+        case 'ranged':
+          // 远程攻击 - 保持距离并射击
+          const attackRange = info.attackRange || 0.3;
+          const optimalDist = attackRange * 0.8;
+
+          if (dist < optimalDist * 0.7) {
+            // 太近了，后退
+            m.x -= (dx / dist) * m.speed * speedMult * 0.8;
+            m.y -= (dy / dist) * m.speed * speedMult * 0.8;
+          } else if (dist > attackRange) {
+            // 太远了，靠近
+            m.x += (dx / dist) * m.speed * speedMult;
+            m.y += (dy / dist) * m.speed * speedMult;
+          } else {
+            // 保持距离，环绕移动
+            const perpX = -dy / dist;
+            const perpY = dx / dist;
+            const circleDir = Math.sin(walkTime * 2 + m.x * 10) > 0 ? 1 : -1;
+            m.x += perpX * m.speed * speedMult * 0.5 * circleDir;
+            m.y += perpY * m.speed * speedMult * 0.5 * circleDir;
+          }
+
+          // 远程攻击
+          if (dist <= attackRange && m.attackCooldown <= 0) {
+            const projectileType = info.projectileType || 'arrow';
+            createEnemyProjectile(m.x, m.y, playerX, playerY, projectileType);
+            m.attackCooldown = info.attackSpeed || 2.0;
+          }
+          break;
+
+        case 'phase':
+          // 幽灵 - 相位穿越
+          if (m.phaseTimer <= 0 && Math.random() < 0.02) {
+            // 开始相位（变得半透明，移动更快）
+            m.isPhasing = true;
+            m.phaseTimer = 1.5;
+          }
+
+          if (m.isPhasing) {
+            // 相位中快速移动
+            if (dist > 0.05) {
+              m.x += (dx / dist) * m.speed * speedMult * 2;
+              m.y += (dy / dist) * m.speed * speedMult * 2;
+            }
+            if (m.phaseTimer <= 0) {
+              m.isPhasing = false;
+              m.phaseTimer = 3.0; // 冷却
+            }
+          } else {
+            // 正常移动
+            if (dist > 0.05) {
+              m.x += (dx / dist) * m.speed * speedMult;
+              m.y += (dy / dist) * m.speed * speedMult;
+            }
+          }
+          break;
+
+        case 'charge':
+          // 冲锋行为
+          if (m.isCharging) {
+            // 冲锋中
+            if (m.chargeTarget) {
+              const cdx = m.chargeTarget.x - m.x;
+              const cdy = m.chargeTarget.y - m.y;
+              const cdist = Math.sqrt(cdx * cdx + cdy * cdy);
+              if (cdist > 0.02) {
+                m.x += (cdx / cdist) * m.speed * speedMult * 3;
+                m.y += (cdy / cdist) * m.speed * speedMult * 3;
+              } else {
+                // 冲锋结束
+                m.isCharging = false;
+                m.chargeTimer = 3.0;
+                m.chargeTarget = null;
+              }
+            }
+          } else if (m.chargeTimer <= 0 && dist < 0.5 && dist > 0.15) {
+            // 开始蓄力冲锋
+            m.isCharging = true;
+            m.chargeTarget = { x: playerX, y: playerY };
+          } else {
+            // 正常追击
+            if (dist > 0.05) {
+              m.x += (dx / dist) * m.speed * speedMult * 0.7;
+              m.y += (dy / dist) * m.speed * speedMult * 0.7;
+            }
+          }
+          break;
+
+        case 'explode':
+          // 爆炸怪 - 接近后自爆
+          if (dist > 0.05) {
+            // 快速接近
+            m.x += (dx / dist) * m.speed * speedMult * 1.2;
+            m.y += (dy / dist) * m.speed * speedMult * 1.2;
+          }
+
+          // 接近后自爆
+          if (dist < 0.1 && !m.isExploding) {
+            m.isExploding = true;
+            m.explodeTimer = 0.8; // 0.8秒后爆炸
+          }
+
+          if (m.isExploding) {
+            m.explodeTimer -= dt;
+            if (m.explodeTimer <= 0) {
+              // 触发爆炸
+              const explosionRadius = info.explosionRadius || 0.15;
+              const explosionDamage = info.explosionDamage || 20;
+              createExplosion(m.x, m.y, explosionRadius, explosionDamage, '#FF4500');
+              m.hp = 0; // 自爆死亡
+            }
+          }
+          break;
+
+        case 'tank':
+          // 坦克 - 缓慢但坚韧
+          if (dist > 0.05) {
+            m.x += (dx / dist) * m.speed * speedMult * 0.6;
+            m.y += (dy / dist) * m.speed * speedMult * 0.6;
+          }
+          break;
+
+        case 'summoner':
+          // 召唤师 - 保持距离，召唤小怪
+          if (dist < 0.25) {
+            // 太近，后退
+            m.x -= (dx / dist) * m.speed * speedMult;
+            m.y -= (dy / dist) * m.speed * speedMult;
+          } else if (dist > 0.4) {
+            // 太远，靠近
+            m.x += (dx / dist) * m.speed * speedMult * 0.5;
+            m.y += (dy / dist) * m.speed * speedMult * 0.5;
+          }
+
+          // 召唤小怪
+          if (m.abilityCooldown <= 0 && monsters.length < 30) {
+            const summonType = info.summonType || 'zombie';
+            const summonCount = info.summonCount || 2;
+            for (let i = 0; i < summonCount; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const sx = m.x + Math.cos(angle) * 0.1;
+              const sy = m.y + Math.sin(angle) * 0.1;
+              const summon = createMonsterInstance(summonType, sx, sy, 0.7, 0.2);
+              if (summon) {
+                monsters.push(summon);
+              }
+            }
+            m.abilityCooldown = info.summonCooldown || 5.0;
+          }
+          break;
+
+        case 'elite':
+          // 精英怪 - 有特殊技能
+          if (dist > 0.05) {
+            m.x += (dx / dist) * m.speed * speedMult;
+            m.y += (dy / dist) * m.speed * speedMult;
+          }
+
+          // 处理精英技能
+          if (m.abilities && m.abilityCooldown <= 0) {
+            for (const abilityName of m.abilities) {
+              const ability = ELITE_ABILITIES[abilityName];
+              if (!ability) continue;
+
+              switch (abilityName) {
+                case 'poison_aura':
+                  // 毒气光环 - 持续伤害周围玩家
+                  if (dist < ability.radius && playerInvincible <= 0) {
+                    const armorReduction = 1 - (stats.armor / 100);
+                    playerHP -= ability.damagePerSec * dt * armorReduction;
+                  }
+                  break;
+
+                case 'teleport':
+                  // 传送 - 瞬移到玩家身边
+                  if (dist > ability.range && m.abilityCooldown <= 0) {
+                    const teleportAngle = Math.random() * Math.PI * 2;
+                    const teleportDist = 0.1;
+                    m.x = playerX + Math.cos(teleportAngle) * teleportDist;
+                    m.y = playerY + Math.sin(teleportAngle) * teleportDist;
+                    m.abilityCooldown = ability.cooldown;
+                    // 传送特效
+                    createKillParticles(m.x, m.y, '#4B0082', 10);
+                  }
+                  break;
+
+                case 'summon':
+                  // 召唤
+                  if (m.abilityCooldown <= 0 && monsters.length < 30) {
+                    for (let i = 0; i < ability.count; i++) {
+                      const angle = Math.random() * Math.PI * 2;
+                      const sx = m.x + Math.cos(angle) * 0.1;
+                      const sy = m.y + Math.sin(angle) * 0.1;
+                      const summon = createMonsterInstance(ability.summonType, sx, sy, 0.8, 0.2);
+                      if (summon) {
+                        monsters.push(summon);
+                      }
+                    }
+                    m.abilityCooldown = ability.cooldown;
+                  }
+                  break;
+
+                case 'enrage':
+                  // 狂暴 - 低血量时增强
+                  if (m.hp / m.maxHp <= ability.hpThreshold && !m.isEnraged) {
+                    m.isEnraged = true;
+                    m.speed *= ability.speedMult;
+                    m.damage *= ability.damageMult;
+                    // 狂暴特效
+                    createKillParticles(m.x, m.y, '#FF0000', 15);
+                  }
+                  break;
+              }
+            }
+          }
+          break;
+
+        default:
+          // 默认追击
+          if (dist > 0.05) {
+            m.x += (dx / dist) * m.speed * speedMult;
+            m.y += (dy / dist) * m.speed * speedMult;
+          }
       }
     }
 
-    // 攻击玩家（无敌时不受伤，冻结/眩晕时无法攻击）
-    if (dist < 0.08 && playerInvincible <= 0 && m.freezeTimer <= 0 && m.stunTimer <= 0) {
-      // 骑士护甲减伤
-      const armorReduction = 1 - (stats.armor / 100);
-      playerHP -= m.damage * dt * armorReduction;
-      comboCount = 0;
-      // 受伤音效（0.3秒冷却避免刷屏）
-      if (walkTime - lastHurtSoundTime > 0.3) {
-        playSound('hurt');
-        lastHurtSoundTime = walkTime;
+    // 近战攻击玩家（无敌时不受伤，冻结/眩晕时无法攻击）
+    // 远程怪物不进行近战攻击
+    if (behavior !== 'ranged' && behavior !== 'summoner') {
+      if (dist < 0.08 && playerInvincible <= 0 && m.freezeTimer <= 0 && m.stunTimer <= 0) {
+        // 骑士护甲减伤
+        const armorReduction = 1 - (stats.armor / 100);
+        // 冲锋中造成额外伤害
+        const chargeDamageBonus = m.isCharging ? 2 : 1;
+        playerHP -= m.damage * dt * armorReduction * chargeDamageBonus;
+        comboCount = 0;
+        // 受伤音效（0.3秒冷却避免刷屏）
+        if (walkTime - lastHurtSoundTime > 0.3) {
+          playSound('hurt');
+          lastHurtSoundTime = walkTime;
+        }
       }
     }
 
@@ -6060,6 +6890,12 @@ function updateAdventure(dt) {
 
   // 更新拾取物
   updateCollectibles(dt);
+
+  // 更新敌方弹幕
+  updateEnemyProjectiles(dt);
+
+  // 更新爆炸效果
+  updateExplosions(dt);
 }
 
 // 计算移动方向（平滑AI）
@@ -6180,6 +7016,222 @@ function calculateMoveDirection() {
   }
 
   return { dx: dirX, dy: dirY };
+}
+
+// ==================== 敌方弹幕系统 ====================
+let enemyProjectiles = [];
+
+// 弹幕类型配置
+const PROJECTILE_TYPES = {
+  arrow: { color: '#8B4513', size: 0.015, speed: 0.15, damage: 5, trail: false },
+  fireball: { color: '#FF4500', size: 0.02, speed: 0.1, damage: 8, trail: true },
+  poison: { color: '#9ACD32', size: 0.018, speed: 0.08, damage: 4, trail: true },
+  dark: { color: '#4B0082', size: 0.025, speed: 0.12, damage: 10, trail: true }
+};
+
+// 创建敌方弹幕
+function createEnemyProjectile(x, y, targetX, targetY, type = 'arrow') {
+  const config = PROJECTILE_TYPES[type] || PROJECTILE_TYPES.arrow;
+  const dx = targetX - x;
+  const dy = targetY - y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.01) return;
+
+  enemyProjectiles.push({
+    x: x,
+    y: y,
+    vx: (dx / dist) * config.speed,
+    vy: (dy / dist) * config.speed,
+    type: type,
+    damage: config.damage,
+    size: config.size,
+    color: config.color,
+    trail: config.trail,
+    lifetime: 3.0,
+    trailParticles: []
+  });
+}
+
+// 更新敌方弹幕
+function updateEnemyProjectiles(dt) {
+  const stats = getPlayerStats();
+
+  for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+    const p = enemyProjectiles[i];
+
+    // 移动弹幕
+    p.x += p.vx * dt * 60;
+    p.y += p.vy * dt * 60;
+    p.lifetime -= dt;
+
+    // 拖尾效果
+    if (p.trail && Math.random() > 0.5) {
+      p.trailParticles.push({
+        x: p.x,
+        y: p.y,
+        alpha: 1,
+        size: p.size * 0.5
+      });
+    }
+
+    // 更新拖尾
+    for (let j = p.trailParticles.length - 1; j >= 0; j--) {
+      p.trailParticles[j].alpha -= dt * 3;
+      if (p.trailParticles[j].alpha <= 0) {
+        p.trailParticles.splice(j, 1);
+      }
+    }
+
+    // 检测与玩家碰撞
+    const dx = p.x - playerX;
+    const dy = p.y - playerY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 0.05 && playerInvincible <= 0) {
+      // 击中玩家
+      const armorReduction = 1 - (stats.armor / 100);
+      playerHP -= p.damage * armorReduction;
+      playSound('hurt');
+      createAttackEffect(playerX, playerY, p.damage, false);
+      enemyProjectiles.splice(i, 1);
+      continue;
+    }
+
+    // 移除过期弹幕
+    if (p.lifetime <= 0 || Math.abs(p.x - playerX) > 1.5 || Math.abs(p.y - playerY) > 1.5) {
+      enemyProjectiles.splice(i, 1);
+    }
+  }
+}
+
+// 绘制敌方弹幕
+function drawEnemyProjectiles() {
+  for (const p of enemyProjectiles) {
+    // 绘制拖尾
+    if (p.trail) {
+      for (const t of p.trailParticles) {
+        ctx.globalAlpha = t.alpha * 0.5;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(
+          (0.5 + t.x - playerX) * W,
+          (0.5 + t.y - playerY) * H,
+          t.size * W,
+          0, Math.PI * 2
+        );
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 绘制弹幕
+    const sx = (0.5 + p.x - playerX) * W;
+    const sy = (0.5 + p.y - playerY) * H;
+    const size = p.size * W;
+
+    // 发光效果
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 10;
+
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(sx, sy, size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 内核高亮
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(sx, sy, size * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ==================== 爆炸效果系统 ====================
+let explosions = [];
+
+// 创建爆炸效果
+function createExplosion(x, y, radius, damage, color = '#FF4500') {
+  explosions.push({
+    x: x,
+    y: y,
+    radius: radius,
+    maxRadius: radius,
+    damage: damage,
+    color: color,
+    timer: 0.5,
+    damageDealt: false
+  });
+
+  // 震屏
+  triggerScreenShake(0.5, 0.3);
+  playSound('explosion');
+}
+
+// 更新爆炸
+function updateExplosions(dt) {
+  const stats = getPlayerStats();
+
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    const e = explosions[i];
+    e.timer -= dt;
+
+    // 爆炸伤害（只触发一次）
+    if (!e.damageDealt) {
+      const dx = e.x - playerX;
+      const dy = e.y - playerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < e.radius && playerInvincible <= 0) {
+        const armorReduction = 1 - (stats.armor / 100);
+        const damageScale = 1 - (dist / e.radius) * 0.5; // 距离越近伤害越高
+        playerHP -= e.damage * armorReduction * damageScale;
+        playSound('hurt');
+      }
+      e.damageDealt = true;
+    }
+
+    if (e.timer <= 0) {
+      explosions.splice(i, 1);
+    }
+  }
+}
+
+// 绘制爆炸
+function drawExplosions() {
+  for (const e of explosions) {
+    const progress = 1 - (e.timer / 0.5);
+    const currentRadius = e.maxRadius * (0.5 + progress * 0.5);
+    const alpha = 1 - progress;
+
+    const sx = (0.5 + e.x - playerX) * W;
+    const sy = (0.5 + e.y - playerY) * H;
+    const r = currentRadius * W;
+
+    // 外圈
+    ctx.globalAlpha = alpha * 0.3;
+    ctx.fillStyle = e.color;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 内圈
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.fillStyle = '#FFFF00';
+    ctx.beginPath();
+    ctx.arc(sx, sy, r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 核心
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(sx, sy, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ==================== 拾取物系统 ====================
@@ -7005,6 +8057,12 @@ function drawGroundScene(groundQuad) {
 
     // 绘制攻击特效
     drawAttackEffects(groundQuad);
+
+    // 绘制敌方弹幕
+    drawEnemyProjectiles();
+
+    // 绘制爆炸效果
+    drawExplosions();
 
   } else {
     // 待机模式：使用固定的场景元素
