@@ -1,7 +1,7 @@
 /**
  * 火柴人渲染系统
  * Alan Becker风格的火柴人，带布娃娃物理系统
- * 支持身体断成两截、克苏鲁触手蠕动、搅成一团等效果
+ * 支持身体多处断裂、墙体碰撞、各自缩成一团变经验
  */
 class StickFigure {
   constructor(color = '#FF8800') {
@@ -39,32 +39,25 @@ class StickFigure {
 
     // 布娃娃物理
     this.ragdollActive = false;
-    this.ragdollBones = null;
-    this.ragdollVelocities = null;
     this.gravity = 0.8;
-    this.friction = 0.92;
+    this.friction = 0.85;
     this.groundY = 28;
 
-    // 身体断裂系统 - 断成两截
-    this.isBisected = false;
-    this.bisectPoint = null; // 断裂点: 'neck', 'spine', 'hip'
-    this.upperHalf = null;   // 上半身
-    this.lowerHalf = null;   // 下半身
-
-    // 触手蠕动参数
-    this.tentaclePhase = 0;
-    this.tentacleSpeed = 0.015;
-    this.writheIntensity = 1.0;
+    // 断裂的身体部件列表
+    this.bodyParts = []; // 每个部件独立物理
 
     // 死亡状态
     this.isDying = false;
     this.deathTimer = 0;
-    this.deathPhase = 'falling'; // falling, writhing, merging, fading
+    this.deathPhase = 'falling'; // falling, writhing, curling, done
     this.fadeAlpha = 1.0;
+
+    // 世界坐标（用于墙体碰撞）
+    this.worldX = 0;
+    this.worldY = 0;
 
     // 经验转化
     this.convertToExp = false;
-    this.expParticles = [];
     this.onExpReady = null;
   }
 
@@ -187,69 +180,92 @@ class StickFigure {
   }
 
   /**
-   * 将身体断成两截
+   * 将身体断成多个部件
    */
-  bisectBody(impactAngle, force) {
-    if (this.isBisected) return;
+  dismemberBody(impactAngle, force) {
+    const currentBones = this.getAnimatedBones(this.currentAnim, this.animTime, true);
 
-    // 随机选择断裂点
-    const bisectPoints = ['neck', 'spine', 'hip'];
-    this.bisectPoint = bisectPoints[Math.floor(Math.random() * bisectPoints.length)];
-    this.isBisected = true;
+    // 可能断裂的部位及概率
+    const possibleBreaks = [
+      { name: 'head', chance: 0.3, bones: ['head'] },
+      { name: 'armL', chance: 0.4, bones: ['shoulderL', 'elbowL', 'handL'] },
+      { name: 'armR', chance: 0.4, bones: ['shoulderR', 'elbowR', 'handR'] },
+      { name: 'legL', chance: 0.35, bones: ['hipL', 'kneeL', 'footL'] },
+      { name: 'legR', chance: 0.35, bones: ['hipR', 'kneeR', 'footR'] }
+    ];
 
-    const currentBones = this.ragdollBones || this.getAnimatedBones(this.currentAnim, this.animTime, true);
+    // 收集断裂的部位
+    const severedParts = new Set();
+    for (const breakPoint of possibleBreaks) {
+      if (Math.random() < breakPoint.chance) {
+        severedParts.add(breakPoint.name);
+      }
+    }
 
-    // 定义上下半身的骨骼
-    const upperBones = ['head', 'neck', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'];
-    const lowerBones = ['hip', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'];
+    // 确保至少断一个部位
+    if (severedParts.size === 0) {
+      const randomBreak = possibleBreaks[Math.floor(Math.random() * possibleBreaks.length)];
+      severedParts.add(randomBreak.name);
+    }
 
-    // 根据断裂点调整
-    if (this.bisectPoint === 'neck') {
-      // 脖子断 - 头单独飞出
-      this.upperHalf = this.createBodyHalf(['head'], currentBones, impactAngle, force * 1.5);
-      this.lowerHalf = this.createBodyHalf(
-        ['neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
-        currentBones, impactAngle + Math.PI, force * 0.5
-      );
-    } else if (this.bisectPoint === 'spine') {
-      // 腰断
-      this.upperHalf = this.createBodyHalf(
-        ['head', 'neck', 'spine', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'],
-        currentBones, impactAngle, force
-      );
-      this.lowerHalf = this.createBodyHalf(
-        ['hip', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
-        currentBones, impactAngle + Math.PI * 0.8, force * 0.8
-      );
-    } else {
-      // 臀部断
-      this.upperHalf = this.createBodyHalf(
-        ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'],
-        currentBones, impactAngle, force
-      );
-      this.lowerHalf = this.createBodyHalf(
-        ['hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
-        currentBones, impactAngle + Math.PI * 1.2, force * 0.7
-      );
+    // 收集主体剩余的骨骼
+    const mainBodyBones = ['neck', 'spine', 'hip'];
+    if (!severedParts.has('head')) mainBodyBones.push('head');
+    if (!severedParts.has('armL')) mainBodyBones.push('shoulderL', 'elbowL', 'handL');
+    if (!severedParts.has('armR')) mainBodyBones.push('shoulderR', 'elbowR', 'handR');
+    if (!severedParts.has('legL')) mainBodyBones.push('hipL', 'kneeL', 'footL');
+    if (!severedParts.has('legR')) mainBodyBones.push('hipR', 'kneeR', 'footR');
+
+    // 创建主体部件
+    this.bodyParts.push(this.createBodyPart(
+      mainBodyBones,
+      currentBones,
+      impactAngle + (Math.random() - 0.5) * 0.5,
+      force * 0.6,
+      'main'
+    ));
+
+    // 创建断裂的部件
+    for (const partName of severedParts) {
+      const breakPoint = possibleBreaks.find(b => b.name === partName);
+      if (breakPoint) {
+        // 断裂部件向随机方向飞出
+        const partAngle = impactAngle + (Math.random() - 0.5) * Math.PI;
+        this.bodyParts.push(this.createBodyPart(
+          breakPoint.bones,
+          currentBones,
+          partAngle,
+          force * (0.8 + Math.random() * 0.6),
+          partName
+        ));
+      }
     }
   }
 
   /**
-   * 创建身体半截
+   * 创建身体部件
    */
-  createBodyHalf(boneNames, sourceBones, angle, force) {
-    const half = {
+  createBodyPart(boneNames, sourceBones, angle, force, partName) {
+    const part = {
+      name: partName,
       bones: {},
-      velocities: {},
       x: 0,
       y: 0,
       vx: Math.cos(angle) * force * 2,
-      vy: Math.sin(angle) * force - 3,
+      vy: Math.sin(angle) * force - 4,
       rotation: 0,
-      rotationSpeed: (Math.random() - 0.5) * 0.2,
-      tentacleOffsets: {}, // 每个骨骼的触手偏移
-      groundY: this.groundY + Math.random() * 5,
-      onGround: false
+      rotationSpeed: (Math.random() - 0.5) * 0.3,
+      onGround: false,
+      // 触手蠕动
+      writhePhase: Math.random() * Math.PI * 2,
+      writheSpeed: 0.02 + Math.random() * 0.01,
+      writheIntensity: 1.0,
+      // 蜷缩状态
+      curlProgress: 0,
+      isCurled: false,
+      // 世界坐标
+      worldX: this.worldX,
+      worldY: this.worldY
     };
 
     // 计算中心
@@ -261,222 +277,195 @@ class StickFigure {
         count++;
       }
     }
-    cx /= count;
-    cy /= count;
+    if (count > 0) {
+      cx /= count;
+      cy /= count;
+    }
 
-    // 复制骨骼
+    // 复制骨骼（相对于部件中心）
     for (const name of boneNames) {
       if (sourceBones[name]) {
-        half.bones[name] = {
+        part.bones[name] = {
           x: sourceBones[name].x - cx,
           y: sourceBones[name].y - cy,
-          radius: sourceBones[name].radius,
           baseX: sourceBones[name].x - cx,
-          baseY: sourceBones[name].y - cy
-        };
-        half.velocities[name] = {
-          x: (Math.random() - 0.5) * 2,
-          y: (Math.random() - 0.5) * 2
-        };
-        // 触手偏移初始化
-        half.tentacleOffsets[name] = {
-          phase: Math.random() * Math.PI * 2,
-          amplitude: 3 + Math.random() * 5,
-          frequency: 0.5 + Math.random() * 1.5
+          baseY: sourceBones[name].y - cy,
+          radius: sourceBones[name].radius
         };
       }
     }
 
-    half.x = cx;
-    half.y = cy;
+    part.x = cx;
+    part.y = cy;
 
-    return half;
+    return part;
   }
 
   /**
-   * 激活布娃娃物理并断成两截
+   * 激活布娃娃物理
    */
   activateRagdoll(initialBones, impactAngle = 0, force = 10) {
     this.ragdollActive = true;
     this.isDying = true;
     this.deathTimer = 0;
     this.deathPhase = 'falling';
-    this.ragdollBones = JSON.parse(JSON.stringify(initialBones));
-    this.ragdollVelocities = {};
-    this.tentaclePhase = 0;
-    this.writheIntensity = 1.0;
+    this.bodyParts = [];
 
-    // 立即断成两截
-    this.bisectBody(impactAngle, force);
+    // 将身体断成多个部件
+    this.dismemberBody(impactAngle, force);
   }
 
   /**
-   * 更新触手蠕动效果
+   * 更新身体部件物理（含墙体碰撞）
    */
-  updateTentacleWrithe(half, deltaTime) {
-    if (!half || !half.bones) return;
-
-    const t = this.tentaclePhase;
-    const intensity = this.writheIntensity;
-
-    for (const name in half.bones) {
-      const bone = half.bones[name];
-      const offset = half.tentacleOffsets[name];
-      if (!offset) continue;
-
-      // 克苏鲁触手式蠕动 - 多重正弦波叠加
-      const wave1 = Math.sin(t * offset.frequency + offset.phase) * offset.amplitude;
-      const wave2 = Math.sin(t * offset.frequency * 1.7 + offset.phase * 0.5) * offset.amplitude * 0.5;
-      const wave3 = Math.cos(t * offset.frequency * 0.8 + offset.phase * 1.3) * offset.amplitude * 0.3;
-
-      // 不规则扭动
-      const twitch = Math.sin(t * 3 + offset.phase) * Math.random() * 2 * intensity;
-
-      bone.x = bone.baseX + (wave1 + wave2 + twitch) * intensity;
-      bone.y = bone.baseY + (wave3 + Math.abs(wave1) * 0.3) * intensity;
-    }
-  }
-
-  /**
-   * 更新身体半截物理
-   */
-  updateBodyHalf(half, deltaTime, targetX, targetY, mergeStrength) {
-    if (!half) return;
-
+  updateBodyPart(part, deltaTime, dungeon) {
     const dt = deltaTime * 0.05;
 
-    // 移动
-    if (!half.onGround) {
-      half.x += half.vx * dt;
-      half.y += half.vy * dt;
-      half.vy += this.gravity * dt;
-      half.rotation += half.rotationSpeed * dt;
+    // 蠕动效果
+    if (!part.isCurled) {
+      part.writhePhase += part.writheSpeed * deltaTime;
+      const intensity = part.writheIntensity;
 
-      // 地面碰撞
-      if (half.y > half.groundY) {
-        half.y = half.groundY;
-        half.vy *= -0.2;
-        half.vx *= this.friction;
-        half.rotationSpeed *= 0.7;
-
-        if (Math.abs(half.vy) < 0.5) {
-          half.onGround = true;
-        }
+      for (const name in part.bones) {
+        const bone = part.bones[name];
+        // 克苏鲁触手蠕动
+        const wave1 = Math.sin(part.writhePhase + bone.baseX * 0.1) * 4 * intensity;
+        const wave2 = Math.cos(part.writhePhase * 1.3 + bone.baseY * 0.1) * 3 * intensity;
+        bone.x = bone.baseX + wave1 + (Math.random() - 0.5) * 2 * intensity;
+        bone.y = bone.baseY + wave2 * 0.5;
       }
     }
 
-    // 向目标点合并（搅成一团阶段）
-    if (mergeStrength > 0) {
-      half.x += (targetX - half.x) * mergeStrength * dt;
-      half.y += (targetY - half.y) * mergeStrength * dt;
-      half.rotation += 0.1 * dt; // 旋转搅动
+    // 物理移动
+    if (!part.onGround) {
+      const newX = part.x + part.vx * dt;
+      const newY = part.y + part.vy * dt;
+
+      // 墙体碰撞检测
+      const worldNewX = part.worldX + newX * 0.03;
+      const worldNewY = part.worldY + newY * 0.03;
+
+      let canMoveX = true;
+      let canMoveY = true;
+
+      if (dungeon && dungeon.isWalkable) {
+        canMoveX = dungeon.isWalkable(worldNewX, part.worldY + part.y * 0.03);
+        canMoveY = dungeon.isWalkable(part.worldX + part.x * 0.03, worldNewY);
+      }
+
+      if (canMoveX) {
+        part.x = newX;
+        part.worldX = worldNewX;
+      } else {
+        part.vx *= -0.5; // 反弹
+      }
+
+      if (canMoveY) {
+        part.y = newY;
+        part.worldY = worldNewY;
+      } else {
+        part.vy *= -0.5;
+      }
+
+      part.vy += this.gravity * dt;
+      part.rotation += part.rotationSpeed * dt;
+
+      // 地面碰撞
+      if (part.y > this.groundY) {
+        part.y = this.groundY;
+        part.vy *= -0.2;
+        part.vx *= this.friction;
+        part.rotationSpeed *= 0.7;
+
+        if (Math.abs(part.vy) < 0.5 && Math.abs(part.vx) < 0.3) {
+          part.onGround = true;
+        }
+      }
+
+      part.vx *= 0.98;
+      part.vy *= 0.98;
     }
 
-    // 更新触手蠕动
-    this.updateTentacleWrithe(half, deltaTime);
+    // 蜷缩效果（落地后开始）
+    if (part.onGround && this.deathPhase === 'curling') {
+      part.curlProgress += deltaTime * 0.001;
+      part.writheIntensity = Math.max(0, 1 - part.curlProgress);
 
-    half.vx *= 0.99;
-    half.vy *= 0.99;
+      if (part.curlProgress >= 1) {
+        part.isCurled = true;
+        // 所有骨骼收缩到中心
+        for (const name in part.bones) {
+          const bone = part.bones[name];
+          bone.x = bone.baseX * 0.1;
+          bone.y = bone.baseY * 0.1;
+        }
+      } else {
+        // 逐渐收缩
+        const curl = part.curlProgress;
+        for (const name in part.bones) {
+          const bone = part.bones[name];
+          bone.x = bone.baseX * (1 - curl * 0.9);
+          bone.y = bone.baseY * (1 - curl * 0.9);
+        }
+      }
+    }
   }
 
   /**
    * 更新布娃娃物理
    */
-  updateRagdoll(deltaTime) {
+  updateRagdoll(deltaTime, dungeon) {
     if (!this.ragdollActive) return;
 
-    const dt = deltaTime * 0.05;
     this.deathTimer += deltaTime;
-    this.tentaclePhase += this.tentacleSpeed * deltaTime;
 
     // 更新死亡阶段
-    if (this.deathPhase === 'falling' && this.deathTimer > 600) {
-      this.deathPhase = 'writhing';
+    if (this.deathPhase === 'falling' && this.deathTimer > 800) {
+      // 检查是否所有部件都落地
+      const allOnGround = this.bodyParts.every(p => p.onGround);
+      if (allOnGround || this.deathTimer > 1500) {
+        this.deathPhase = 'writhing';
+      }
     } else if (this.deathPhase === 'writhing' && this.deathTimer > 2500) {
-      this.deathPhase = 'merging';
-    } else if (this.deathPhase === 'merging' && this.deathTimer > 4000) {
-      this.deathPhase = 'fading';
-    } else if (this.deathPhase === 'fading' && this.deathTimer > 5500) {
-      this.convertToExp = true;
-      this.generateExpParticles();
+      this.deathPhase = 'curling';
+    } else if (this.deathPhase === 'curling' && this.deathTimer > 4000) {
+      this.deathPhase = 'done';
+      // 检查所有部件是否蜷缩完成
+      const allCurled = this.bodyParts.every(p => p.isCurled);
+      if (allCurled) {
+        this.convertToExp = true;
+        if (this.onExpReady) {
+          this.onExpReady(this.bodyParts.length * 10);
+        }
+      }
     }
-
-    // 蠕动强度调整
-    if (this.deathPhase === 'writhing') {
-      this.writheIntensity = 1.0;
-      this.tentacleSpeed = 0.02;
-    } else if (this.deathPhase === 'merging') {
-      // 搅成一团时蠕动更剧烈
-      this.writheIntensity = 1.5 - (this.deathTimer - 2500) / 3000;
-      this.tentacleSpeed = 0.03;
-    } else if (this.deathPhase === 'fading') {
-      this.writheIntensity *= 0.98;
-      this.tentacleSpeed = 0.01;
-    }
-
-    // 计算合并目标点（两半之间的中点）
-    let mergeX = 0, mergeY = this.groundY;
-    if (this.upperHalf && this.lowerHalf) {
-      mergeX = (this.upperHalf.x + this.lowerHalf.x) / 2;
-      mergeY = (this.upperHalf.y + this.lowerHalf.y) / 2;
-    }
-
-    // 合并强度
-    const mergeStrength = this.deathPhase === 'merging' ? 0.03 :
-                          this.deathPhase === 'fading' ? 0.05 : 0;
-
-    // 更新两半身体
-    this.updateBodyHalf(this.upperHalf, deltaTime, mergeX, mergeY, mergeStrength);
-    this.updateBodyHalf(this.lowerHalf, deltaTime, mergeX, mergeY, mergeStrength);
 
     // 淡出
-    if (this.deathPhase === 'fading') {
-      this.fadeAlpha = Math.max(0, 1 - (this.deathTimer - 4000) / 1500);
-    }
-  }
-
-  /**
-   * 生成经验粒子
-   */
-  generateExpParticles() {
-    const particleCount = 8 + Math.floor(Math.random() * 6);
-    const centerX = this.upperHalf ? this.upperHalf.x : 0;
-    const centerY = this.upperHalf ? this.upperHalf.y : this.groundY;
-
-    for (let i = 0; i < particleCount; i++) {
-      this.expParticles.push({
-        x: centerX + (Math.random() - 0.5) * 30,
-        y: centerY + (Math.random() - 0.5) * 20,
-        vx: (Math.random() - 0.5) * 3,
-        vy: -3 - Math.random() * 4,
-        size: 4 + Math.random() * 5,
-        alpha: 1,
-        color: `hsl(${280 + Math.random() * 40}, 80%, 60%)`
-      });
+    if (this.deathPhase === 'done') {
+      this.fadeAlpha = Math.max(0, 1 - (this.deathTimer - 4000) / 1000);
+      if (this.fadeAlpha <= 0) {
+        this.convertToExp = true;
+        if (this.onExpReady && !this._expGiven) {
+          this._expGiven = true;
+          this.onExpReady(this.bodyParts.length * 10);
+        }
+      }
     }
 
-    if (this.onExpReady) {
-      this.onExpReady(particleCount * 5);
+    // 更新所有身体部件
+    for (const part of this.bodyParts) {
+      this.updateBodyPart(part, deltaTime, dungeon);
     }
   }
 
   /**
    * 更新动画
    */
-  update(deltaTime, state = {}) {
+  update(deltaTime, state = {}, dungeon = null) {
     this.animTime += deltaTime;
 
     if (this.isDying) {
-      this.updateRagdoll(deltaTime);
-      // 更新经验粒子
-      for (const p of this.expParticles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.1;
-        p.alpha *= 0.97;
-        p.size *= 0.98;
-      }
-      this.expParticles = this.expParticles.filter(p => p.alpha > 0.05);
+      this.updateRagdoll(deltaTime, dungeon);
       return;
     }
 
@@ -496,18 +485,25 @@ class StickFigure {
     }
 
     if (this.ragdollActive) {
-      this.updateRagdoll(deltaTime);
+      this.updateRagdoll(deltaTime, dungeon);
     }
+  }
+
+  /**
+   * 设置世界坐标（用于墙体碰撞）
+   */
+  setWorldPosition(x, y) {
+    this.worldX = x;
+    this.worldY = y;
   }
 
   /**
    * 渲染火柴人
    */
   render(ctx, screenX, screenY, scale = 1, facingRight = true) {
-    // 如果已断成两截，渲染两半
-    if (this.isBisected) {
-      this.renderBisectedBody(ctx, screenX, screenY, scale, facingRight);
-      this.renderExpParticles(ctx, screenX, screenY, scale);
+    // 如果在死亡状态，渲染断裂的部件
+    if (this.isDying && this.bodyParts.length > 0) {
+      this.renderBodyParts(ctx, screenX, screenY, scale, facingRight);
       return;
     }
 
@@ -523,9 +519,7 @@ class StickFigure {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    const bones = this.ragdollActive
-      ? this.ragdollBones
-      : this.getAnimatedBones(this.currentAnim, this.animTime, facingRight);
+    const bones = this.getAnimatedBones(this.currentAnim, this.animTime, facingRight);
 
     // 绘制身体
     this.drawLimb(ctx, bones.neck, bones.spine);
@@ -552,105 +546,73 @@ class StickFigure {
   }
 
   /**
-   * 渲染断成两截的身体
+   * 渲染断裂的身体部件
    */
-  renderBisectedBody(ctx, screenX, screenY, scale, facingRight) {
-    ctx.globalAlpha = this.fadeAlpha;
+  renderBodyParts(ctx, screenX, screenY, scale, facingRight) {
+    for (const part of this.bodyParts) {
+      ctx.save();
+      ctx.translate(screenX + part.x * scale, screenY + part.y * scale);
+      ctx.rotate(part.rotation);
+      ctx.scale(scale * (facingRight ? 1 : -1), scale);
+      ctx.globalAlpha = this.fadeAlpha;
 
-    // 渲染上半身
-    if (this.upperHalf) {
-      this.renderBodyHalf(ctx, screenX, screenY, scale, facingRight, this.upperHalf, true);
-    }
+      ctx.strokeStyle = this.color;
+      ctx.fillStyle = this.color;
+      ctx.lineWidth = this.lineWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-    // 渲染下半身
-    if (this.lowerHalf) {
-      this.renderBodyHalf(ctx, screenX, screenY, scale, facingRight, this.lowerHalf, false);
-    }
+      const bones = part.bones;
 
-    ctx.globalAlpha = 1;
-  }
+      // 根据部件类型绘制
+      if (part.name === 'main') {
+        // 主体
+        if (bones.neck && bones.spine) this.drawLimb(ctx, bones.neck, bones.spine);
+        if (bones.spine && bones.hip) this.drawLimb(ctx, bones.spine, bones.hip);
+        if (bones.shoulderL && bones.elbowL) this.drawLimb(ctx, bones.shoulderL, bones.elbowL);
+        if (bones.elbowL && bones.handL) this.drawLimb(ctx, bones.elbowL, bones.handL);
+        if (bones.shoulderR && bones.elbowR) this.drawLimb(ctx, bones.shoulderR, bones.elbowR);
+        if (bones.elbowR && bones.handR) this.drawLimb(ctx, bones.elbowR, bones.handR);
+        if (bones.hipL && bones.kneeL) this.drawLimb(ctx, bones.hipL, bones.kneeL);
+        if (bones.kneeL && bones.footL) this.drawLimb(ctx, bones.kneeL, bones.footL);
+        if (bones.hipR && bones.kneeR) this.drawLimb(ctx, bones.hipR, bones.kneeR);
+        if (bones.kneeR && bones.footR) this.drawLimb(ctx, bones.kneeR, bones.footR);
+        if (bones.head) {
+          ctx.beginPath();
+          ctx.arc(bones.head.x, bones.head.y, bones.head.radius || 8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (part.name === 'head') {
+        // 头部
+        if (bones.head) {
+          ctx.beginPath();
+          ctx.arc(bones.head.x, bones.head.y, bones.head.radius || 8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (part.name === 'armL' || part.name === 'armR') {
+        // 手臂
+        const shoulder = part.name === 'armL' ? bones.shoulderL : bones.shoulderR;
+        const elbow = part.name === 'armL' ? bones.elbowL : bones.elbowR;
+        const hand = part.name === 'armL' ? bones.handL : bones.handR;
+        if (shoulder && elbow) this.drawLimb(ctx, shoulder, elbow);
+        if (elbow && hand) this.drawLimb(ctx, elbow, hand);
+      } else if (part.name === 'legL' || part.name === 'legR') {
+        // 腿
+        const hip = part.name === 'legL' ? bones.hipL : bones.hipR;
+        const knee = part.name === 'legL' ? bones.kneeL : bones.kneeR;
+        const foot = part.name === 'legL' ? bones.footL : bones.footR;
+        if (hip && knee) this.drawLimb(ctx, hip, knee);
+        if (knee && foot) this.drawLimb(ctx, knee, foot);
+      }
 
-  /**
-   * 渲染身体半截
-   */
-  renderBodyHalf(ctx, screenX, screenY, scale, facingRight, half, isUpper) {
-    ctx.save();
-    ctx.translate(screenX + half.x * scale, screenY + half.y * scale);
-    ctx.rotate(half.rotation);
-    ctx.scale(scale * (facingRight ? 1 : -1), scale);
-
-    ctx.strokeStyle = this.color;
-    ctx.fillStyle = this.color;
-    ctx.lineWidth = this.lineWidth;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    const bones = half.bones;
-
-    // 绘制连接
-    if (isUpper) {
-      // 上半身连接
-      if (bones.neck && bones.spine) this.drawLimb(ctx, bones.neck, bones.spine);
-      if (bones.spine && bones.hip) this.drawLimb(ctx, bones.spine, bones.hip);
-      if (bones.shoulderL && bones.elbowL) this.drawLimb(ctx, bones.shoulderL, bones.elbowL);
-      if (bones.elbowL && bones.handL) this.drawLimb(ctx, bones.elbowL, bones.handL);
-      if (bones.shoulderR && bones.elbowR) this.drawLimb(ctx, bones.shoulderR, bones.elbowR);
-      if (bones.elbowR && bones.handR) this.drawLimb(ctx, bones.elbowR, bones.handR);
-
-      // 头部
-      if (bones.head) {
+      // 断裂处血迹
+      if (!part.isCurled) {
+        ctx.fillStyle = '#8B0000';
         ctx.beginPath();
-        ctx.arc(bones.head.x, bones.head.y, bones.head.radius || 8, 0, Math.PI * 2);
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
         ctx.fill();
       }
-    } else {
-      // 下半身连接
-      if (bones.hip) {
-        if (bones.hipL) this.drawLimb(ctx, bones.hip, bones.hipL);
-        if (bones.hipR) this.drawLimb(ctx, bones.hip, bones.hipR);
-      }
-      if (bones.hipL && bones.kneeL) this.drawLimb(ctx, bones.hipL, bones.kneeL);
-      if (bones.kneeL && bones.footL) this.drawLimb(ctx, bones.kneeL, bones.footL);
-      if (bones.hipR && bones.kneeR) this.drawLimb(ctx, bones.hipR, bones.kneeR);
-      if (bones.kneeR && bones.footR) this.drawLimb(ctx, bones.kneeR, bones.footR);
-    }
 
-    // 断裂处血迹/肉末效果
-    ctx.fillStyle = '#8B0000';
-    const bloodSpots = 3 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < bloodSpots; i++) {
-      ctx.beginPath();
-      ctx.arc(
-        (Math.random() - 0.5) * 8,
-        (Math.random() - 0.5) * 8,
-        2 + Math.random() * 2,
-        0, Math.PI * 2
-      );
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  /**
-   * 渲染经验粒子
-   */
-  renderExpParticles(ctx, screenX, screenY, scale) {
-    for (const p of this.expParticles) {
-      ctx.save();
-      ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 15;
-
-      ctx.beginPath();
-      ctx.arc(
-        screenX + p.x * scale,
-        screenY + p.y * scale,
-        p.size * scale,
-        0, Math.PI * 2
-      );
-      ctx.fill();
       ctx.restore();
     }
   }
@@ -670,7 +632,7 @@ class StickFigure {
    * 检查是否已完全转化为经验
    */
   isFullyConverted() {
-    return this.convertToExp && this.expParticles.length === 0;
+    return this.convertToExp && this.fadeAlpha <= 0;
   }
 
   /**
@@ -678,22 +640,15 @@ class StickFigure {
    */
   reset() {
     this.ragdollActive = false;
-    this.ragdollBones = null;
-    this.ragdollVelocities = null;
     this.animTime = 0;
     this.currentAnim = 'idle';
-    this.isBisected = false;
-    this.bisectPoint = null;
-    this.upperHalf = null;
-    this.lowerHalf = null;
+    this.bodyParts = [];
     this.isDying = false;
     this.deathTimer = 0;
     this.deathPhase = 'falling';
-    this.tentaclePhase = 0;
-    this.writheIntensity = 1.0;
     this.fadeAlpha = 1.0;
     this.convertToExp = false;
-    this.expParticles = [];
+    this._expGiven = false;
   }
 
   /**
