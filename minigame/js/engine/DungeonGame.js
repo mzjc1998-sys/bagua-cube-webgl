@@ -476,14 +476,12 @@ class DungeonGame {
         };
         this.enemyStickFigures.set(enemy, stickFigure);
       }
-      // 设置世界位置用于墙体碰撞检测
-      stickFigure.setWorldPosition(enemy.x, enemy.y);
       stickFigure.update(this.deltaTime, {
         isMoving: enemy.state === 'chase' || enemy.state === 'patrol',
         isAttacking: enemy.isAttacking,
         isDead: enemy.isDead(),
         isHit: enemy.hitFlash > 0
-      }, this.dungeonGenerator);
+      });
     }
 
     // 清理已完全转化为经验的敌人
