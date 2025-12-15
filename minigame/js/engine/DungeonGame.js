@@ -1,6 +1,7 @@
 /**
  * 地牢游戏主引擎
  * Minecraft Dungeons 风格的等轴测动作游戏
+ * 弹幕射击 + 火柴人风格
  */
 import IsometricRenderer from './IsometricRenderer.js';
 import DungeonGenerator from '../dungeon/DungeonGenerator.js';
@@ -8,6 +9,8 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import CombatManager from '../combat/CombatManager.js';
 import ItemManager from '../items/ItemManager.js';
+import ProjectileManager from '../combat/ProjectileManager.js';
+import StickFigure from '../entities/StickFigure.js';
 
 class DungeonGame {
   constructor() {
@@ -22,6 +25,11 @@ class DungeonGame {
     this.dungeonGenerator = new DungeonGenerator();
     this.combatManager = new CombatManager();
     this.itemManager = new ItemManager();
+    this.projectileManager = new ProjectileManager();
+
+    // 火柴人渲染器
+    this.playerStickFigure = new StickFigure('#FF8800'); // 橙色火柴人（Alan Becker风格）
+    this.enemyStickFigures = new Map();
 
     // 游戏对象
     this.player = null;
@@ -97,6 +105,24 @@ class DungeonGame {
       this.killCount++;
       const drops = enemy.getDrops();
       this.itemManager.addDrops(drops);
+      // 激活死亡火柴人的布娃娃
+      const stickFigure = this.enemyStickFigures.get(enemy);
+      if (stickFigure) {
+        const impactAngle = Math.atan2(enemy.y - this.player.y, enemy.x - this.player.x);
+        stickFigure.activateRagdoll(stickFigure.getAnimatedBones('idle', 0), impactAngle, 8);
+      }
+    };
+
+    // 设置弹幕回调
+    this.projectileManager.onEnemyHit = (enemy, damage, projectile) => {
+      this.combatManager.showDamageNumber(enemy.x, enemy.y, damage, '#FFD700');
+      if (enemy.isDead() && this.combatManager.onEnemyKilled) {
+        this.combatManager.onEnemyKilled(enemy);
+      }
+    };
+
+    this.projectileManager.onPlayerHit = (player, damage, projectile) => {
+      this.combatManager.showDamageNumber(player.x, player.y, damage, '#FF4444');
     };
 
     // 生成第一层地牢
@@ -153,6 +179,11 @@ class DungeonGame {
     // 清理物品
     this.itemManager.clear();
     this.combatManager.clear();
+    this.projectileManager.clear();
+    this.enemyStickFigures.clear();
+
+    // 重置玩家火柴人
+    this.playerStickFigure.reset();
   }
 
   /**
@@ -201,11 +232,17 @@ class DungeonGame {
 
     // 检查翻滚按钮
     if (this.rollButton && this.isInCircle(x, y, this.rollButton)) {
-      const joyDirX = this.joystick.active ?
-        (this.joystick.currentX - this.joystick.startX) / this.joystick.radius : 0;
-      const joyDirY = this.joystick.active ?
-        (this.joystick.currentY - this.joystick.startY) / this.joystick.radius : 0;
-      this.player.roll(joyDirX, joyDirY);
+      if (this.joystick.active) {
+        const dx = this.joystick.currentX - this.joystick.startX;
+        const dy = this.joystick.currentY - this.joystick.startY;
+        // 使用修正后的坐标转换
+        const worldDirX = (dx + dy) * 0.7071;
+        const worldDirY = (dy - dx) * 0.7071;
+        this.player.roll(worldDirX, worldDirY);
+      } else {
+        // 没有摇杆输入时使用面朝方向
+        this.player.roll(Math.cos(this.player.facingAngle), Math.sin(this.player.facingAngle));
+      }
       return;
     }
 
@@ -236,9 +273,9 @@ class DungeonGame {
       // 判断是否开始滑动
       if (dist > this.attackInput.dragThreshold) {
         this.attackInput.isDragging = true;
-        // 滑动时设置攻击方向（转换为世界坐标）
-        const worldDirX = (dx - dy) / Math.sqrt(2);
-        const worldDirY = (dx + dy) / Math.sqrt(2);
+        // 滑动时设置攻击方向（使用修正后的坐标转换）
+        const worldDirX = (dx + dy) * 0.7071;
+        const worldDirY = (dy - dx) * 0.7071;
         this.player.facingAngle = Math.atan2(worldDirY, worldDirX);
       }
       return;
@@ -255,14 +292,30 @@ class DungeonGame {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist > 5) {
-        // 转换为世界坐标方向（等轴测）
-        const worldDirX = (dx - dy) / Math.sqrt(2);
-        const worldDirY = (dx + dy) / Math.sqrt(2);
+        // 直接使用屏幕方向，更直观
+        // 屏幕上方 = 世界坐标左上 (-x, -y)
+        // 屏幕下方 = 世界坐标右下 (+x, +y)
+        // 屏幕左方 = 世界坐标左下 (-x, +y)
+        // 屏幕右方 = 世界坐标右上 (+x, -y)
 
-        const targetX = this.player.x + worldDirX * 0.1;
-        const targetY = this.player.y + worldDirY * 0.1;
+        // 简化的等轴测转换：
+        // 屏幕X影响世界X正方向 + 世界Y负方向
+        // 屏幕Y影响世界X正方向 + 世界Y正方向
+        const worldDirX = (dx + dy) * 0.7071; // 1/sqrt(2)
+        const worldDirY = (dy - dx) * 0.7071;
 
-        this.player.setMoveTarget(targetX, targetY);
+        // 归一化并应用移动距离
+        const worldDist = Math.sqrt(worldDirX * worldDirX + worldDirY * worldDirY);
+        if (worldDist > 0) {
+          const normalizedX = worldDirX / worldDist;
+          const normalizedY = worldDirY / worldDist;
+          const moveStrength = Math.min(dist / this.joystick.radius, 1);
+
+          const targetX = this.player.x + normalizedX * moveStrength * 0.15;
+          const targetY = this.player.y + normalizedY * moveStrength * 0.15;
+
+          this.player.setMoveTarget(targetX, targetY);
+        }
       }
     }
   }
@@ -291,9 +344,12 @@ class DungeonGame {
   }
 
   /**
-   * 执行攻击（自动瞄准最近敌人或使用当前朝向）
+   * 执行攻击（发射弹幕，自动瞄准最近敌人或使用当前朝向）
    */
   performAttack() {
+    // 检查攻击冷却
+    if (this.player.attackCooldown > 0) return;
+
     // 如果不是滑动状态，自动瞄准最近的敌人
     if (!this.attackInput.isDragging) {
       const nearestEnemy = this.findNearestEnemy();
@@ -303,7 +359,19 @@ class DungeonGame {
         this.player.facingAngle = Math.atan2(dy, dx);
       }
     }
-    this.player.startAttack();
+
+    // 发射弹幕
+    this.projectileManager.firePlayerProjectile(this.player, {
+      damage: this.player.calculateDamage(),
+      speed: 0.4,
+      maxRange: 15,
+      color: '#FFD700'
+    });
+
+    // 设置攻击冷却和动画状态
+    this.player.attackCooldown = this.player.attackSpeed;
+    this.player.isAttacking = true;
+    this.player.attackAnimation = 150;
   }
 
   /**
@@ -381,15 +449,46 @@ class DungeonGame {
     // 更新玩家
     this.player.update(this.deltaTime, this.dungeonGenerator);
 
+    // 更新玩家火柴人动画
+    this.playerStickFigure.update(this.deltaTime, {
+      isMoving: this.player.isMoving,
+      isRunning: this.player.isMoving && this.joystick.active,
+      isAttacking: false, // 弹幕攻击不需要近战动画
+      isShooting: this.player.isAttacking,
+      isRolling: this.player.isRolling,
+      isDead: this.player.isDead(),
+      isHit: this.player.invincible && this.player.invincibleTimer > 400
+    });
+
     // 更新敌人
     for (const enemy of this.enemies) {
       if (!enemy.isDead()) {
         enemy.update(this.deltaTime, this.player, this.dungeonGenerator);
       }
+
+      // 更新敌人火柴人动画
+      let stickFigure = this.enemyStickFigures.get(enemy);
+      if (!stickFigure) {
+        stickFigure = new StickFigure(enemy.color);
+        this.enemyStickFigures.set(enemy, stickFigure);
+      }
+      stickFigure.update(this.deltaTime, {
+        isMoving: enemy.state === 'chase' || enemy.state === 'patrol',
+        isAttacking: enemy.isAttacking,
+        isDead: enemy.isDead(),
+        isHit: enemy.hitFlash > 0
+      });
     }
 
-    // 处理战斗
-    this.combatManager.processPlayerAttack(this.player, this.enemies);
+    // 更新弹幕（代替近战战斗判定）
+    this.projectileManager.update(
+      this.deltaTime,
+      this.dungeonGenerator,
+      this.player,
+      this.enemies
+    );
+
+    // 处理敌人近战攻击（敌人仍然可以近战）
     this.combatManager.processEnemyAttacks(this.enemies, this.player);
     this.combatManager.update(this.deltaTime);
 
@@ -442,6 +541,9 @@ class DungeonGame {
 
     // 渲染实体（按深度排序）
     this.renderEntities();
+
+    // 渲染弹幕
+    this.projectileManager.render(ctx, this.renderer);
 
     // 渲染特效
     this.combatManager.renderEffects(ctx, this.renderer);
@@ -551,54 +653,82 @@ class DungeonGame {
       return;
     }
 
-    // 翻滚时变扁
-    const scaleY = p.isRolling ? 0.5 : 1.0;
+    // 获取屏幕坐标
+    const pos = this.renderer.worldToScreen(p.x, p.y, 0);
 
-    // 绘制实体
-    let color = p.color;
-    if (p.isAttacking) {
-      color = '#8BC34A'; // 攻击时变色
+    // 判断面朝方向（用于火柴人镜像）
+    const facingRight = Math.cos(p.facingAngle) >= 0;
+
+    // 渲染火柴人
+    const scale = this.renderer.zoom * 0.8;
+    this.playerStickFigure.render(ctx, pos.x, pos.y - 15 * scale, scale, facingRight);
+
+    // 绘制面朝方向指示器（射击方向）
+    if (this.attackInput.active || p.isAttacking) {
+      const indicatorLen = 25 * this.renderer.zoom;
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y - 10 * scale);
+
+      // 等轴测角度转换
+      const screenAngleX = Math.cos(p.facingAngle);
+      const screenAngleY = Math.sin(p.facingAngle) * 0.5;
+
+      ctx.lineTo(
+        pos.x + screenAngleX * indicatorLen,
+        pos.y - 10 * scale + screenAngleY * indicatorLen
+      );
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 瞄准点
+      ctx.beginPath();
+      ctx.arc(
+        pos.x + screenAngleX * indicatorLen,
+        pos.y - 10 * scale + screenAngleY * indicatorLen,
+        4, 0, Math.PI * 2
+      );
+      ctx.fillStyle = '#FFD700';
+      ctx.fill();
     }
-
-    this.renderer.drawEntity(ctx, p.x, p.y, p.radius * scaleY, color, 8);
-
-    // 绘制面朝方向指示器
-    const pos = this.renderer.worldToScreen(p.x, p.y, 15);
-    const indicatorLen = 20 * this.renderer.zoom;
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-    ctx.lineTo(
-      pos.x + Math.cos(p.facingAngle) * indicatorLen,
-      pos.y + Math.sin(p.facingAngle) * indicatorLen * 0.5
-    );
-    ctx.strokeStyle = '#FFF';
-    ctx.lineWidth = 3;
-    ctx.stroke();
   }
 
   /**
    * 渲染敌人
    */
   renderEnemy(ctx, enemy) {
-    // 受击闪白
-    let color = enemy.color;
-    if (enemy.hitFlash > 0) {
-      color = '#FFFFFF';
+    // 获取屏幕坐标
+    const pos = this.renderer.worldToScreen(enemy.x, enemy.y, 0);
+
+    // 获取该敌人的火柴人渲染器
+    const stickFigure = this.enemyStickFigures.get(enemy);
+
+    if (stickFigure) {
+      // 受击闪白
+      if (enemy.hitFlash > 0) {
+        stickFigure.setColor('#FFFFFF');
+      } else {
+        stickFigure.setColor(enemy.color);
+      }
+
+      // 判断面朝方向
+      const facingRight = Math.cos(enemy.facingAngle || 0) >= 0;
+
+      // 渲染火柴人（敌人稍大一些）
+      const scale = this.renderer.zoom * (enemy.type === 'boss' ? 1.2 : enemy.type === 'elite' ? 1.0 : 0.75);
+      stickFigure.render(ctx, pos.x, pos.y - 12 * scale, scale, facingRight);
     }
 
-    // 绘制实体
-    this.renderer.drawEntity(ctx, enemy.x, enemy.y, enemy.radius, color, 8);
-
     // 绘制血条
-    this.renderer.drawHealthBar(ctx, enemy.x, enemy.y, 20, enemy.hp, enemy.maxHP);
+    this.renderer.drawHealthBar(ctx, enemy.x, enemy.y, 25, enemy.hp, enemy.maxHP);
 
     // 精英/Boss标记
     if (enemy.type === 'elite' || enemy.type === 'boss') {
-      const pos = this.renderer.worldToScreen(enemy.x, enemy.y, 45);
+      const labelPos = this.renderer.worldToScreen(enemy.x, enemy.y, 50);
       ctx.fillStyle = enemy.type === 'boss' ? '#F44336' : '#9C27B0';
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(enemy.type === 'boss' ? 'BOSS' : '精英', pos.x, pos.y);
+      ctx.fillText(enemy.type === 'boss' ? 'BOSS' : '精英', labelPos.x, labelPos.y);
     }
   }
 
