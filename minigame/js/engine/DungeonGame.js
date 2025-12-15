@@ -470,6 +470,10 @@ class DungeonGame {
       let stickFigure = this.enemyStickFigures.get(enemy);
       if (!stickFigure) {
         stickFigure = new StickFigure(enemy.color);
+        // 设置经验回调
+        stickFigure.onExpReady = (expAmount) => {
+          this.player.gainExp(expAmount + (enemy.expReward || 20));
+        };
         this.enemyStickFigures.set(enemy, stickFigure);
       }
       stickFigure.update(this.deltaTime, {
@@ -478,6 +482,16 @@ class DungeonGame {
         isDead: enemy.isDead(),
         isHit: enemy.hitFlash > 0
       });
+    }
+
+    // 清理已完全转化为经验的敌人
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const enemy = this.enemies[i];
+      const stickFigure = this.enemyStickFigures.get(enemy);
+      if (stickFigure && stickFigure.isFullyConverted()) {
+        this.enemyStickFigures.delete(enemy);
+        this.enemies.splice(i, 1);
+      }
     }
 
     // 更新弹幕（代替近战战斗判定）
