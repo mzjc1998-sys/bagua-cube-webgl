@@ -64,7 +64,6 @@ class StickFigure {
 
     // 经验转化
     this.convertToExp = false;
-    this.expParticles = [];
     this.onExpReady = null;
   }
 
@@ -398,7 +397,11 @@ class StickFigure {
       this.deathPhase = 'fading';
     } else if (this.deathPhase === 'fading' && this.deathTimer > 5500) {
       this.convertToExp = true;
-      this.generateExpParticles();
+      // 直接给予经验，不生成粒子
+      if (this.onExpReady && !this._expGiven) {
+        this._expGiven = true;
+        this.onExpReady(50);
+      }
     }
 
     // 蠕动强度调整
@@ -436,31 +439,6 @@ class StickFigure {
   }
 
   /**
-   * 生成经验粒子
-   */
-  generateExpParticles() {
-    const particleCount = 8 + Math.floor(Math.random() * 6);
-    const centerX = this.upperHalf ? this.upperHalf.x : 0;
-    const centerY = this.upperHalf ? this.upperHalf.y : this.groundY;
-
-    for (let i = 0; i < particleCount; i++) {
-      this.expParticles.push({
-        x: centerX + (Math.random() - 0.5) * 30,
-        y: centerY + (Math.random() - 0.5) * 20,
-        vx: (Math.random() - 0.5) * 3,
-        vy: -3 - Math.random() * 4,
-        size: 4 + Math.random() * 5,
-        alpha: 1,
-        color: `hsl(${280 + Math.random() * 40}, 80%, 60%)`
-      });
-    }
-
-    if (this.onExpReady) {
-      this.onExpReady(particleCount * 5);
-    }
-  }
-
-  /**
    * 更新动画
    */
   update(deltaTime, state = {}) {
@@ -468,15 +446,6 @@ class StickFigure {
 
     if (this.isDying) {
       this.updateRagdoll(deltaTime);
-      // 更新经验粒子
-      for (const p of this.expParticles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.1;
-        p.alpha *= 0.97;
-        p.size *= 0.98;
-      }
-      this.expParticles = this.expParticles.filter(p => p.alpha > 0.05);
       return;
     }
 
@@ -507,7 +476,6 @@ class StickFigure {
     // 如果已断成两截，渲染两半
     if (this.isBisected) {
       this.renderBisectedBody(ctx, screenX, screenY, scale, facingRight);
-      this.renderExpParticles(ctx, screenX, screenY, scale);
       return;
     }
 
@@ -633,29 +601,6 @@ class StickFigure {
   }
 
   /**
-   * 渲染经验粒子
-   */
-  renderExpParticles(ctx, screenX, screenY, scale) {
-    for (const p of this.expParticles) {
-      ctx.save();
-      ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 15;
-
-      ctx.beginPath();
-      ctx.arc(
-        screenX + p.x * scale,
-        screenY + p.y * scale,
-        p.size * scale,
-        0, Math.PI * 2
-      );
-      ctx.fill();
-      ctx.restore();
-    }
-  }
-
-  /**
    * 绘制肢体
    */
   drawLimb(ctx, start, end) {
@@ -670,7 +615,7 @@ class StickFigure {
    * 检查是否已完全转化为经验
    */
   isFullyConverted() {
-    return this.convertToExp && this.expParticles.length === 0;
+    return this.convertToExp && this.fadeAlpha <= 0;
   }
 
   /**
@@ -693,7 +638,7 @@ class StickFigure {
     this.writheIntensity = 1.0;
     this.fadeAlpha = 1.0;
     this.convertToExp = false;
-    this.expParticles = [];
+    this._expGiven = false;
   }
 
   /**
