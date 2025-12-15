@@ -283,24 +283,18 @@ class DungeonGenerator {
   }
 
   /**
-   * 挖出走廊瓦片（宽度为2）
+   * 挖出走廊瓦片（宽度为3，确保通行）
    */
   carveCorridorTile(x, y) {
+    // 3x3 范围内全部挖成地板，确保走廊通畅
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const nx = x + dx;
         const ny = y + dy;
         if (this.isValid(nx, ny)) {
-          if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
-            if (this.map[ny][nx] === this.TILE.VOID) {
-              if (dx === 0 && dy === 0) {
-                this.map[ny][nx] = this.TILE.FLOOR;
-              } else if (Math.abs(dx) + Math.abs(dy) === 1) {
-                this.map[ny][nx] = this.TILE.FLOOR;
-              } else {
-                this.map[ny][nx] = this.TILE.WALL;
-              }
-            }
+          // 中心和相邻格子都设为地板
+          if (this.map[ny][nx] === this.TILE.VOID || this.map[ny][nx] === this.TILE.WALL) {
+            this.map[ny][nx] = this.TILE.FLOOR;
           }
         }
       }

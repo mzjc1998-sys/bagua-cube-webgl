@@ -38,6 +38,22 @@ class DungeonGame {
       radius: 60
     };
 
+    // 攻击输入状态
+    this.attackInput = {
+      active: false,
+      touchId: null,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      holdTime: 0,           // 按住时间
+      isHolding: false,      // 是否长按中
+      isDragging: false,     // 是否滑动中
+      autoAttackInterval: 300, // 自动攻击间隔
+      autoAttackTimer: 0,
+      dragThreshold: 20      // 滑动阈值
+    };
+
     // 游戏状态
     this.gameState = 'playing'; // playing, paused, gameover, victory
     this.currentFloor = 1;
@@ -166,9 +182,20 @@ class DungeonGame {
    * 处理触摸开始
    */
   handleTouchStart(id, x, y) {
-    // 检查攻击按钮
+    // 检查攻击按钮（支持长按和滑动）
     if (this.attackButton && this.isInCircle(x, y, this.attackButton)) {
-      this.player.startAttack();
+      this.attackInput.active = true;
+      this.attackInput.touchId = id;
+      this.attackInput.startX = x;
+      this.attackInput.startY = y;
+      this.attackInput.currentX = x;
+      this.attackInput.currentY = y;
+      this.attackInput.holdTime = 0;
+      this.attackInput.isHolding = true;
+      this.attackInput.isDragging = false;
+      this.attackInput.autoAttackTimer = 0;
+      // 立即攻击一次
+      this.performAttack();
       return;
     }
 
@@ -197,6 +224,27 @@ class DungeonGame {
    * 处理触摸移动
    */
   handleTouchMove(id, x, y) {
+    // 攻击按钮滑动
+    if (this.attackInput.active && this.attackInput.touchId === id) {
+      this.attackInput.currentX = x;
+      this.attackInput.currentY = y;
+
+      const dx = x - this.attackInput.startX;
+      const dy = y - this.attackInput.startY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // 判断是否开始滑动
+      if (dist > this.attackInput.dragThreshold) {
+        this.attackInput.isDragging = true;
+        // 滑动时设置攻击方向（转换为世界坐标）
+        const worldDirX = (dx - dy) / Math.sqrt(2);
+        const worldDirY = (dx + dy) / Math.sqrt(2);
+        this.player.facingAngle = Math.atan2(worldDirY, worldDirX);
+      }
+      return;
+    }
+
+    // 移动摇杆
     if (this.joystick.active && this.joystick.touchId === id) {
       this.joystick.currentX = x;
       this.joystick.currentY = y;
@@ -223,9 +271,78 @@ class DungeonGame {
    * 处理触摸结束
    */
   handleTouchEnd(id, x, y) {
+    // 攻击按钮松开
+    if (this.attackInput.touchId === id) {
+      // 如果是滑动攻击，松开时执行一次攻击
+      if (this.attackInput.isDragging) {
+        this.performAttack();
+      }
+      this.attackInput.active = false;
+      this.attackInput.isHolding = false;
+      this.attackInput.isDragging = false;
+      this.attackInput.touchId = null;
+    }
+
+    // 摇杆松开
     if (this.joystick.touchId === id) {
       this.joystick.active = false;
       this.player.isMoving = false;
+    }
+  }
+
+  /**
+   * 执行攻击（自动瞄准最近敌人或使用当前朝向）
+   */
+  performAttack() {
+    // 如果不是滑动状态，自动瞄准最近的敌人
+    if (!this.attackInput.isDragging) {
+      const nearestEnemy = this.findNearestEnemy();
+      if (nearestEnemy) {
+        const dx = nearestEnemy.x - this.player.x;
+        const dy = nearestEnemy.y - this.player.y;
+        this.player.facingAngle = Math.atan2(dy, dx);
+      }
+    }
+    this.player.startAttack();
+  }
+
+  /**
+   * 查找最近的敌人
+   */
+  findNearestEnemy() {
+    let nearest = null;
+    let nearestDist = Infinity;
+    const maxAutoAimRange = 8; // 自动瞄准范围
+
+    for (const enemy of this.enemies) {
+      if (enemy.isDead()) continue;
+
+      const dx = enemy.x - this.player.x;
+      const dy = enemy.y - this.player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < nearestDist && dist <= maxAutoAimRange) {
+        nearestDist = dist;
+        nearest = enemy;
+      }
+    }
+
+    return nearest;
+  }
+
+  /**
+   * 更新攻击输入（用于长按自动攻击）
+   */
+  updateAttackInput() {
+    if (!this.attackInput.isHolding) return;
+
+    this.attackInput.holdTime += this.deltaTime;
+    this.attackInput.autoAttackTimer += this.deltaTime;
+
+    // 长按时自动连续攻击
+    if (this.attackInput.autoAttackTimer >= this.attackInput.autoAttackInterval) {
+      this.attackInput.autoAttackTimer = 0;
+      this.performAttack();
     }
   }
 
@@ -257,6 +374,9 @@ class DungeonGame {
    */
   update() {
     if (this.gameState !== 'playing') return;
+
+    // 更新攻击输入（长按自动攻击）
+    this.updateAttackInput();
 
     // 更新玩家
     this.player.update(this.deltaTime, this.dungeonGenerator);
