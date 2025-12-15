@@ -105,8 +105,6 @@ class DungeonGame {
     // 设置战斗回调
     this.combatManager.onEnemyKilled = (enemy) => {
       this.killCount++;
-      const drops = enemy.getDrops();
-      this.itemManager.addDrops(drops);
       // 激活死亡火柴人的布娃娃
       const stickFigure = this.enemyStickFigures.get(enemy);
       if (stickFigure) {
