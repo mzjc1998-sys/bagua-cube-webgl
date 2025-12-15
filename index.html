@@ -3,1091 +3,1309 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>先天八卦 / 64卦：bit 立方体 + 宫视角</title>
+  <title>地牢探索 - Roguelike</title>
   <style>
-    html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#eef2f7; }
-    canvas { display:block; width:100vw; height:100vh; touch-action:none; }
-
-    #hud{
-      position:fixed; left:10px; top:10px; z-index:10;
-      background:rgba(0,0,0,.56); color:#fff;
-      padding:10px 12px; border-radius:14px;
-      font:14px/1.35 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      max-width:min(640px, calc(100vw - 20px));
-      backdrop-filter: blur(6px);
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #1a1a2e;
+      font-family: system-ui, -apple-system, sans-serif;
+      touch-action: none;
+      user-select: none;
     }
-    #hudHeader{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    #hudTitle{ font-weight:900; }
-    #hudBody{ margin-top:8px; }
-
-    #hud.collapsed{ padding:8px 10px; max-width:min(260px, calc(100vw - 20px)); }
-    #hud.collapsed #hudBody{ display:none; }
-
-    .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
-    .chip{
-      display:inline-flex; align-items:center; gap:6px;
-      padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.12);
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
     }
-    .sw{ width:14px; height:14px; border-radius:4px; display:inline-block; border:1px solid rgba(255,255,255,.35); }
 
-    button{
-      appearance:none; border:1px solid rgba(255,255,255,.25);
-      background:rgba(255,255,255,.10);
-      color:#fff; border-radius:10px;
-      padding:6px 10px; cursor:pointer; font:inherit;
+    /* HUD */
+    #hud {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: none;
+      z-index: 100;
     }
-    button.active{ background:rgba(255,255,255,.22); border-color:rgba(255,255,255,.45); }
-    button:active{ transform:translateY(1px); }
-    button:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
 
-    .mini{ padding:4px 8px; border-radius:999px; }
-    .sep{ width:1px; height:22px; background:rgba(255,255,255,.2); }
-
-    label{ display:inline-flex; align-items:center; gap:6px; }
-    input[type="checkbox"]{ width:16px; height:16px; }
-    .hint{ opacity:.85; font-size:12px; margin-top:8px; }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-
-    #mirrorPanel, #hexPanel{
-      margin-top:10px; padding-top:10px;
-      border-top:1px solid rgba(255,255,255,.18);
+    .hud-panel {
+      background: rgba(0,0,0,0.7);
+      border-radius: 12px;
+      padding: 10px 15px;
+      color: #fff;
+      backdrop-filter: blur(5px);
     }
-    #mirrorPanel{ display:none; }
-    #hexPanel{ display:none; }
 
-    #check{ margin-top:8px; opacity:.95; }
-    #detail{ margin-top:8px; opacity:.98; }
-    #detail b{ font-weight:900; }
+    .health-bar {
+      width: 150px;
+      height: 20px;
+      background: #333;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
 
-    .palace-label{ font-weight:800; margin-right:4px; }
+    .health-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ff4757, #ff6b81);
+      transition: width 0.3s;
+    }
+
+    .stats {
+      font-size: 14px;
+      margin-top: 8px;
+    }
+
+    .stats span {
+      display: inline-block;
+      margin-right: 12px;
+    }
+
+    /* 攻击按钮 */
+    #attackBtn {
+      position: fixed;
+      bottom: 40px;
+      right: 40px;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #e74c3c, #c0392b);
+      border: 4px solid rgba(255,255,255,0.3);
+      color: #fff;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      touch-action: none;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 20px rgba(231,76,60,0.5);
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+
+    #attackBtn:active, #attackBtn.active {
+      transform: scale(0.95);
+      box-shadow: 0 3px 10px rgba(231,76,60,0.5);
+    }
+
+    #attackBtn .arrow {
+      position: absolute;
+      font-size: 24px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    #attackBtn.dragging .arrow {
+      opacity: 1;
+    }
+
+    #attackBtn.dragging .label {
+      opacity: 0.5;
+    }
+
+    /* 虚拟摇杆 */
+    #joystickArea {
+      position: fixed;
+      bottom: 40px;
+      left: 40px;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.1);
+      border: 3px solid rgba(255,255,255,0.3);
+      touch-action: none;
+      z-index: 100;
+    }
+
+    #joystickKnob {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.8);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    /* 小地图 */
+    #minimap {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      width: 120px;
+      height: 120px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 8px;
+      border: 2px solid rgba(255,255,255,0.3);
+      z-index: 100;
+    }
+
+    #minimapCanvas {
+      width: 100%;
+      height: 100%;
+      border-radius: 6px;
+    }
+
+    /* 伤害数字 */
+    .damage-number {
+      position: fixed;
+      color: #ff4757;
+      font-size: 20px;
+      font-weight: bold;
+      pointer-events: none;
+      animation: damageFloat 1s forwards;
+      text-shadow: 0 0 5px #000;
+      z-index: 200;
+    }
+
+    @keyframes damageFloat {
+      0% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-50px); }
+    }
+
+    /* 游戏结束 */
+    #gameOver {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 500;
+      color: #fff;
+    }
+
+    #gameOver h1 {
+      font-size: 48px;
+      color: #ff4757;
+      margin-bottom: 20px;
+    }
+
+    #gameOver .stats-final {
+      font-size: 20px;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+
+    #restartBtn {
+      padding: 15px 40px;
+      font-size: 20px;
+      background: linear-gradient(145deg, #27ae60, #2ecc71);
+      border: none;
+      border-radius: 30px;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 5px 20px rgba(46,204,113,0.4);
+    }
+
+    /* 层级提示 */
+    #levelIndicator {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 48px;
+      color: #fff;
+      text-shadow: 0 0 20px rgba(255,255,255,0.5);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 300;
+      transition: opacity 0.5s;
+    }
+
+    #levelIndicator.show {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+
+<canvas id="gameCanvas"></canvas>
 
 <div id="hud">
-  <div id="hudHeader">
-    <div id="hudTitle">bit 立方体：8卦 / 64卦（宫视角 + 超立方体）</div>
-    <button id="btnHudToggle" class="mini">☰</button>
-  </div>
-
-  <div id="hudBody">
-    <div class="row">
-      <span class="chip"><span class="sw" style="background:#cfd6df;"></span>浅色=阳爻(0)</span>
-      <span class="chip"><span class="sw" style="background:#1f2329;"></span>深色=阴爻(1)</span>
-      <span class="chip"><span class="sw" style="background:#ffd24a;"></span>黄点=坤宫 / 本我(下卦)</span>
-      <span class="chip"><span class="sw" style="background:#5ad6ff;"></span>蓝点=乾宫 / 真我(上卦)</span>
+  <div class="hud-panel">
+    <div>❤️ 生命值</div>
+    <div class="health-bar">
+      <div class="health-fill" id="healthFill"></div>
     </div>
-
-    <div class="row">
-      <button id="btnMode8">8卦</button>
-      <button id="btnMode64" class="active">64卦</button>
-      <span class="sep"></span>
-      <button id="btnOrtho" class="active">正交</button>
-      <button id="btnPersp">透视</button>
-      <button id="btnSnap" class="mini">乾坤重合(六边形)</button>
-      <button id="btnFlip" class="mini">上下翻转</button>
-      <button id="btnUnfold" class="mini">展开超立方体</button>
-      <button id="btnReset" class="mini">重置</button>
+    <div class="stats">
+      <span>⚔️ 攻击: <b id="atkStat">10</b></span>
+      <span>🛡️ 防御: <b id="defStat">5</b></span>
+      <span>🏆 层数: <b id="floorStat">1</b></span>
+      <span>💀 击杀: <b id="killStat">0</b></span>
     </div>
-
-    <div class="row" id="palaceRow">
-      <span class="palace-label">宫视角(8卦)：</span>
-      <button class="mini palaceBtn" data-palace="乾">乾</button>
-      <button class="mini palaceBtn" data-palace="坤">坤</button>
-      <button class="mini palaceBtn" data-palace="兑">兑</button>
-      <button class="mini palaceBtn" data-palace="艮">艮</button>
-      <button class="mini palaceBtn" data-palace="离">离</button>
-      <button class="mini palaceBtn" data-palace="坎">坎</button>
-      <button class="mini palaceBtn" data-palace="震">震</button>
-      <button class="mini palaceBtn" data-palace="巽">巽</button>
-      <button id="btnPalaceFree" class="mini">自由旋转</button>
-    </div>
-
-    <div class="hint">
-      交互：拖拽旋转｜滚轮/双指缩放｜点顶点查看叠加信息。<br/>
-      宫视角：中心对角线两卦重叠，离玩家近的那个卦=当前宫。
-    </div>
-
-    <div id="mirrorPanel">
-      <div style="font-weight:900; margin-bottom:6px;">镜像立方体（按面生成，8卦模式）</div>
-      <div class="row">
-        <label><input id="mxp" type="checkbox">+X</label>
-        <label><input id="mxn" type="checkbox">-X</label>
-        <label><input id="myp" type="checkbox">+Y</label>
-        <label><input id="myn" type="checkbox">-Y</label>
-        <label><input id="mzp" type="checkbox">+Z</label>
-        <label><input id="mzn" type="checkbox">-Z</label>
-      </div>
-      <div class="hint">勾选后以该面四顶点为“共享面”，生成镜像 cube，用来拼接八宫结构。</div>
-    </div>
-
-    <div id="hexPanel">
-      <div style="font-weight:900; margin-bottom:6px;">64卦（本我 × 真我 的超立方体）</div>
-      <div class="row">
-        <label><input id="showHexNet" type="checkbox">显示64卦虚线卦网</label>
-        <label><input id="showStructure" type="checkbox" checked>显示结构棱</label>
-      </div>
-      <div class="row">
-        <label><input id="hideYellow" type="checkbox">隐藏黄色卦象</label>
-        <label><input id="showLabels64" type="checkbox" checked>显示主顶点卦名/bit</label>
-        <label><input id="auto4d" type="checkbox">自动四维旋转</label>
-        <label><input id="lockStatic" type="checkbox">锁定展开图视角</label>
-      </div>
-      <div class="hint">
-        折叠：两个 3D 立方体（坤宫=黄，本我；乾宫=蓝，真我）在四维中叠加。<br/>
-        展开：中心黄 cube + 6 个镜像 cube + 底部蓝 cube，形成 8 立方体展开图。
-      </div>
-    </div>
-
-    <div id="check"></div>
-    <div id="detail"></div>
   </div>
 </div>
 
+<div id="minimap">
+  <canvas id="minimapCanvas"></canvas>
+</div>
+
+<div id="joystickArea">
+  <div id="joystickKnob"></div>
+</div>
+
+<div id="attackBtn">
+  <span class="label">攻击</span>
+  <span class="arrow" style="top:-10px;left:50%;transform:translateX(-50%)">↑</span>
+  <span class="arrow" style="bottom:-10px;left:50%;transform:translateX(-50%)">↓</span>
+  <span class="arrow" style="left:-10px;top:50%;transform:translateY(-50%)">←</span>
+  <span class="arrow" style="right:-10px;top:50%;transform:translateY(-50%)">→</span>
+</div>
+
+<div id="levelIndicator">第 1 层</div>
+
+<div id="gameOver">
+  <h1>游戏结束</h1>
+  <div class="stats-final">
+    <div>到达层数: <b id="finalFloor">1</b></div>
+    <div>击杀敌人: <b id="finalKills">0</b></div>
+  </div>
+  <button id="restartBtn">重新开始</button>
+</div>
+
 <script>
-window.addEventListener('DOMContentLoaded', () => {
-(() => {
-  const STORAGE_KEY = "bagua_cube_settings_v1";
+(function() {
+  'use strict';
 
-  const bitsToName = {
-    "000":"乾","001":"兑","010":"离","011":"震",
-    "100":"巽","101":"坎","110":"艮","111":"坤"
+  // ============ 游戏配置 ============
+  const CONFIG = {
+    TILE_SIZE: 40,
+    MAP_WIDTH: 30,
+    MAP_HEIGHT: 30,
+    ROOM_MIN_SIZE: 4,
+    ROOM_MAX_SIZE: 8,
+    MAX_ROOMS: 12,
+    ENEMY_BASE_COUNT: 5,
+    ATTACK_RANGE: 60,
+    ATTACK_COOLDOWN: 400,
+    AUTO_ATTACK_INTERVAL: 500,
+    PLAYER_SPEED: 4,
+    ENEMY_SPEED: 1.5,
   };
-  const trigramBits = ["000","001","010","011","100","101","110","111"];
 
-  const COLOR_YANG = "#cfd6df";
-  const COLOR_YIN  = "#1f2329";
-  const COLOR_NODE = "#0b0f14";
-  const COLOR_LABEL = "#0b0f14";
-  const COLOR_HI = "#ffb020";
-  const COLOR_REAL = "#ffd24a";
-  const COLOR_TRUE = "#5ad6ff";
-  const COLOR_NEUTRAL = "rgba(20,25,30,.55)";
-  const COLOR_NET = "rgba(30,40,55,.22)";
-  const COLOR_WLINK = "rgba(40,50,60,.35)";
-  const COLOR_NETCUBE = "rgba(110,130,150,.55)";
+  // ============ 瓦片类型 ============
+  const TILE = {
+    WALL: 0,
+    FLOOR: 1,
+    STAIRS: 2,
+  };
 
-  // ---- 关键修复：安全获取 canvas，如无则自动创建 ----
-  let canvas = document.getElementById("c");
-  if (!canvas) {
-    canvas = document.createElement("canvas");
-    canvas.id = "c";
-    document.body.insertBefore(canvas, document.body.firstChild || null);
+  // ============ 颜色 ============
+  const COLORS = {
+    WALL: '#2d3436',
+    WALL_TOP: '#636e72',
+    FLOOR: '#4a4a5e',
+    FLOOR_ALT: '#3d3d4d',
+    STAIRS: '#f1c40f',
+    PLAYER: '#3498db',
+    PLAYER_OUTLINE: '#2980b9',
+    ENEMY: '#e74c3c',
+    ENEMY_OUTLINE: '#c0392b',
+    ATTACK: 'rgba(255, 200, 100, 0.6)',
+    HEALTH_BG: '#333',
+    HEALTH_FILL: '#e74c3c',
+  };
+
+  // ============ 游戏状态 ============
+  const game = {
+    canvas: null,
+    ctx: null,
+    minimapCanvas: null,
+    minimapCtx: null,
+    width: 0,
+    height: 0,
+    dpr: 1,
+    map: [],
+    rooms: [],
+    player: null,
+    enemies: [],
+    projectiles: [],
+    particles: [],
+    camera: { x: 0, y: 0 },
+    floor: 1,
+    kills: 0,
+    gameOver: false,
+    lastTime: 0,
+    joystick: { active: false, dx: 0, dy: 0 },
+    attack: {
+      active: false,
+      direction: null,
+      lastTime: 0,
+      isHolding: false,
+      holdStartTime: 0,
+      dragStart: null,
+    },
+  };
+
+  // ============ 玩家类 ============
+  class Player {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.radius = 15;
+      this.maxHp = 100;
+      this.hp = 100;
+      this.atk = 10;
+      this.def = 5;
+      this.speed = CONFIG.PLAYER_SPEED;
+      this.invincible = 0;
+    }
+
+    update(dt) {
+      if (this.invincible > 0) this.invincible -= dt;
+
+      // 移动
+      const moveX = game.joystick.dx * this.speed;
+      const moveY = game.joystick.dy * this.speed;
+
+      if (moveX !== 0 || moveY !== 0) {
+        const newX = this.x + moveX;
+        const newY = this.y + moveY;
+
+        if (!isWall(newX, this.y, this.radius)) this.x = newX;
+        if (!isWall(this.x, newY, this.radius)) this.y = newY;
+      }
+
+      // 检查楼梯
+      const tileX = Math.floor(this.x / CONFIG.TILE_SIZE);
+      const tileY = Math.floor(this.y / CONFIG.TILE_SIZE);
+      if (game.map[tileY] && game.map[tileY][tileX] === TILE.STAIRS) {
+        nextFloor();
+      }
+    }
+
+    draw(ctx) {
+      const screenX = this.x - game.camera.x;
+      const screenY = this.y - game.camera.y;
+
+      // 闪烁效果
+      if (this.invincible > 0 && Math.floor(this.invincible / 100) % 2 === 0) {
+        ctx.globalAlpha = 0.5;
+      }
+
+      // 身体
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.PLAYER;
+      ctx.fill();
+      ctx.strokeStyle = COLORS.PLAYER_OUTLINE;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // 眼睛方向
+      const eyeDir = game.joystick.dx !== 0 || game.joystick.dy !== 0
+        ? { x: game.joystick.dx, y: game.joystick.dy }
+        : { x: 0, y: -1 };
+      const eyeX = screenX + eyeDir.x * 5;
+      const eyeY = screenY + eyeDir.y * 5;
+
+      ctx.beginPath();
+      ctx.arc(eyeX - 4, eyeY - 2, 3, 0, Math.PI * 2);
+      ctx.arc(eyeX + 4, eyeY - 2, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+    }
+
+    takeDamage(dmg) {
+      if (this.invincible > 0) return;
+
+      const actualDmg = Math.max(1, dmg - this.def);
+      this.hp -= actualDmg;
+      this.invincible = 1000;
+
+      showDamageNumber(this.x, this.y, actualDmg, '#ff6b6b');
+      shakeScreen(5);
+
+      if (this.hp <= 0) {
+        this.hp = 0;
+        endGame();
+      }
+
+      updateHUD();
+    }
   }
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    console.error("Canvas 2D context 不支持，无法绘制立方体。");
-    return;
-  }
-  // --------------------------------------------------
 
-  const hud = document.getElementById("hud");
-  const btnHudToggle = document.getElementById("btnHudToggle");
+  // ============ 敌人类 ============
+  class Enemy {
+    constructor(x, y, type = 'normal') {
+      this.x = x;
+      this.y = y;
+      this.radius = 12;
+      this.type = type;
 
-  const btnMode8  = document.getElementById("btnMode8");
-  const btnMode64 = document.getElementById("btnMode64");
-  const btnOrtho  = document.getElementById("btnOrtho");
-  const btnPersp  = document.getElementById("btnPersp");
-  const btnSnap   = document.getElementById("btnSnap");
-  const btnFlip   = document.getElementById("btnFlip");
-  const btnUnfold = document.getElementById("btnUnfold");
-  const btnReset  = document.getElementById("btnReset");
+      const floorBonus = (game.floor - 1) * 0.2;
 
-  const palaceRow = document.getElementById("palaceRow");
-  const palaceBtns = Array.from(document.querySelectorAll(".palaceBtn"));
-  const btnPalaceFree = document.getElementById("btnPalaceFree");
+      if (type === 'elite') {
+        this.maxHp = 50 * (1 + floorBonus);
+        this.hp = this.maxHp;
+        this.atk = 15 * (1 + floorBonus * 0.5);
+        this.speed = CONFIG.ENEMY_SPEED * 0.8;
+        this.radius = 18;
+        this.color = '#9b59b6';
+        this.outline = '#8e44ad';
+      } else {
+        this.maxHp = 20 * (1 + floorBonus);
+        this.hp = this.maxHp;
+        this.atk = 8 * (1 + floorBonus * 0.5);
+        this.speed = CONFIG.ENEMY_SPEED;
+        this.color = COLORS.ENEMY;
+        this.outline = COLORS.ENEMY_OUTLINE;
+      }
 
-  const mirrorPanel = document.getElementById("mirrorPanel");
-  const hexPanel    = document.getElementById("hexPanel");
-  const mxp = document.getElementById("mxp");
-  const mxn = document.getElementById("mxn");
-  const myp = document.getElementById("myp");
-  const myn = document.getElementById("myn");
-  const mzp = document.getElementById("mzp");
-  const mzn = document.getElementById("mzn");
+      this.attackCooldown = 0;
+      this.knockback = { x: 0, y: 0 };
+    }
 
-  const showHexNetEl   = document.getElementById("showHexNet");
-  const showStructureEl= document.getElementById("showStructure");
-  const hideYellowEl   = document.getElementById("hideYellow");
-  const showLabels64El = document.getElementById("showLabels64");
-  const auto4dEl       = document.getElementById("auto4d");
-  const lockStaticEl   = document.getElementById("lockStatic");
+    update(dt) {
+      if (this.attackCooldown > 0) this.attackCooldown -= dt;
 
-  const hudCheck  = document.getElementById("check");
-  const hudDetail = document.getElementById("detail");
+      // 击退
+      if (this.knockback.x !== 0 || this.knockback.y !== 0) {
+        this.x += this.knockback.x;
+        this.y += this.knockback.y;
+        this.knockback.x *= 0.8;
+        this.knockback.y *= 0.8;
+        if (Math.abs(this.knockback.x) < 0.1) this.knockback.x = 0;
+        if (Math.abs(this.knockback.y) < 0.1) this.knockback.y = 0;
+        return;
+      }
 
-  let W=0, H=0, DPR=1;
-  let mode = "hex64";
-  let projMode = "ortho";
-  let rotX = 0;
-  let rotY = 0;
-  let rotZ = Math.PI;
-  let zoom = 1.05;
+      // 追踪玩家
+      const dx = game.player.x - this.x;
+      const dy = game.player.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
 
-  let unfold = 0;
-  let unfoldTarget = 0;
-  let unfoldAnim = null;
-  const UNFOLD_DUR = 1200;
-  const W_DIST = 4.0;
-  let aXW=0, aYW=0, aYZ=0;
-  let lastTs=null;
+      if (dist > 30) {
+        const moveX = (dx / dist) * this.speed;
+        const moveY = (dy / dist) * this.speed;
 
-  let vertices = [];
-  let edges = [];
-  let vByKey = new Map();
-  let sceneMaxAbs = 3.2;
-  let selKey = null;
-  let lastProjCache = null;
+        const newX = this.x + moveX;
+        const newY = this.y + moveY;
 
-  const ID_MAT = [1,0,0, 0,1,0, 0,0,1];
-  let palaceBases = {};
-  let currentPalace = "乾";
-  let palaceMat = ID_MAT.slice();
+        if (!isWall(newX, this.y, this.radius)) this.x = newX;
+        if (!isWall(this.x, newY, this.radius)) this.y = newY;
+      }
 
-  function clamp(v,min,max){ return v<min?min:(v>max?max:v); }
-  function clamp01(v){ return clamp(v,0,1); }
-  function lerp(a,b,t){ return a + (b-a)*t; }
-  function easeInOutCubic(t){
-    t = clamp01(t);
-    return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
-  }
-  function trigramIndex(bits){ return (parseInt(bits,2)&7)+1; }
-  function invertBits3(bits){ return bits.replace(/[01]/g, c => c==="0"?"1":"0"); }
+      // 攻击玩家
+      if (dist < this.radius + game.player.radius + 5 && this.attackCooldown <= 0) {
+        game.player.takeDamage(this.atk);
+        this.attackCooldown = 1000;
+      }
+    }
 
-  function vecAdd(a,b){ return {x:a.x+b.x,y:a.y+b.y,z:a.z+b.z}; }
-  function vecSub(a,b){ return {x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}; }
-  function vecScale(v,s){ return {x:v.x*s,y:v.y*s,z:v.z*s}; }
-  function vecLength(v){ return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z); }
-  function vecNorm(v){ const L=vecLength(v)||1; return {x:v.x/L,y:v.y/L,z:v.z/L}; }
+    draw(ctx) {
+      const screenX = this.x - game.camera.x;
+      const screenY = this.y - game.camera.y;
 
-  function keyOf(cubeId,x,y,z){ return cubeId+"|"+x+","+y+","+z; }
+      // 身体
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.fill();
+      ctx.strokeStyle = this.outline;
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-  function resize(){
-    DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    W = window.innerWidth; H = window.innerHeight;
-    canvas.width  = Math.floor(W * DPR);
-    canvas.height = Math.floor(H * DPR);
-    canvas.style.width = W + "px";
-    canvas.style.height = H + "px";
-    ctx.setTransform(DPR,0,0,DPR,0,0);
-  }
-  window.addEventListener("resize", resize);
-
-  function setHudCollapsed(collapsed){
-    hud.classList.toggle("collapsed", !!collapsed);
-    btnHudToggle.textContent = collapsed ? "☰" : "✕";
-  }
-
-  function saveSettings(){
-    try{
-      const data = {
-        hudCollapsed: hud.classList.contains("collapsed"),
-        mode,
-        projMode,
-        rot:{x:rotX,y:rotY,z:rotZ},
-        zoom,
-        currentPalace,
-        mirrors:{
-          mxp: mxp.checked,
-          mxn: mxn.checked,
-          myp: myp.checked,
-          myn: myn.checked,
-          mzp: mzp.checked,
-          mzn: mzn.checked
-        },
-        hex:{
-          showHexNet: showHexNetEl.checked,
-          showStructure: showStructureEl.checked,
-          hideYellow: hideYellowEl.checked,
-          showLabels64: showLabels64El.checked,
-          auto4d: auto4dEl.checked,
-          lockStatic: lockStaticEl.checked
-        },
-        unfoldTarget
+      // 眼睛
+      const eyeDir = {
+        x: (game.player.x - this.x) / (Math.sqrt((game.player.x - this.x) ** 2 + (game.player.y - this.y) ** 2) || 1),
+        y: (game.player.y - this.y) / (Math.sqrt((game.player.x - this.x) ** 2 + (game.player.y - this.y) ** 2) || 1)
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    }catch(e){}
-  }
 
-  function loadSettings(){
-    let ok=false;
-    try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      ok = true;
-
-      if (typeof data.mode==="string") mode=data.mode;
-      if (typeof data.projMode==="string") projMode=data.projMode;
-      if (data.rot){
-        if (typeof data.rot.x==="number") rotX=data.rot.x;
-        if (typeof data.rot.y==="number") rotY=data.rot.y;
-        if (typeof data.rot.z==="number") rotZ=data.rot.z;
-      }
-      if (typeof data.zoom==="number") zoom=data.zoom;
-      if ("currentPalace" in data) currentPalace=data.currentPalace;
-
-      if (data.mirrors){
-        mxp.checked=!!data.mirrors.mxp;
-        mxn.checked=!!data.mirrors.mxn;
-        myp.checked=!!data.mirrors.myp;
-        myn.checked=!!data.mirrors.myn;
-        mzp.checked=!!data.mirrors.mzp;
-        mzn.checked=!!data.mirrors.mzn;
-      }
-      if (data.hex){
-        showHexNetEl.checked    = !!data.hex.showHexNet;
-        showStructureEl.checked = !!data.hex.showStructure;
-        hideYellowEl.checked    = !!data.hex.hideYellow;
-        showLabels64El.checked  = !!data.hex.showLabels64;
-        auto4dEl.checked        = !!data.hex.auto4d;
-        lockStaticEl.checked    = !!data.hex.lockStatic;
-      }
-      if (typeof data.unfoldTarget==="number"){
-        unfoldTarget = clamp01(data.unfoldTarget);
-        unfold = unfoldTarget;
-      }
-      if (data.hudCollapsed) setHudCollapsed(true);
-    }catch(e){}
-    return ok;
-  }
-
-  const trigramPos = {};
-  (function initTrigramPos(){
-    for (const bits of trigramBits){
-      const b0=bits[0], b1=bits[1], b2=bits[2];
-      const x = (b2==="1")? 1:-1;
-      const y = (b0==="1")? 1:-1;
-      const z = (b1==="1")? 1:-1;
-      trigramPos[bits] = {x,y,z};
-    }
-  })();
-
-  function neighborBitsForUp(bits){
-    const b0=bits[0], b1=bits[1], b2=bits[2];
-    const flipped = b1==="0" ? "1" : "0";
-    return ""+b0+flipped+b2;
-  }
-
-  function basisForPalace(frontBits, backBits){
-    const pA = trigramPos[frontBits];
-    const pB = trigramPos[backBits];
-    const forward = vecNorm(vecSub(pB,pA));
-    const qBits = neighborBitsForUp(frontBits);
-    const q = trigramPos[qBits];
-    let upCand = vecSub(q,pA);
-    const projLen = (upCand.x*forward.x + upCand.y*forward.y + upCand.z*forward.z);
-    upCand = {x:upCand.x-forward.x*projLen, y:upCand.y-forward.y*projLen, z:upCand.z-forward.z*projLen};
-    const up = vecNorm(upCand);
-    let right = {x:up.y*forward.z-up.z*forward.y, y:up.z*forward.x-up.x*forward.z, z:up.x*forward.y-up.y*forward.x};
-    right = vecNorm(right);
-    return [
-      right.x,  right.y,  right.z,
-      up.x,     up.y,     up.z,
-      forward.x,forward.y,forward.z
-    ];
-  }
-
-  function computePalaceBases(){
-    const pairs = {
-      "乾":["000","111"],
-      "坤":["111","000"],
-      "兑":["001","110"],
-      "艮":["110","001"],
-      "离":["010","101"],
-      "坎":["101","010"],
-      "震":["011","100"],
-      "巽":["100","011"]
-    };
-    palaceBases = {};
-    for (const name in pairs){
-      const [f,b] = pairs[name];
-      palaceBases[name] = basisForPalace(f,b);
-    }
-  }
-
-  function applyPalaceMat(p){
-    if (mode!=="bagua" || !palaceMat) return p;
-    const m = palaceMat;
-    return {
-      x: m[0]*p.x + m[1]*p.y + m[2]*p.z,
-      y: m[3]*p.x + m[4]*p.y + m[5]*p.z,
-      z: m[6]*p.x + m[7]*p.y + m[8]*p.z
-    };
-  }
-
-  function rotPlane(v,i,j,ang){
-    const c=Math.cos(ang), s=Math.sin(ang);
-    const a=v[i], b=v[j];
-    v[i]=a*c - b*s;
-    v[j]=a*s + b*c;
-  }
-  function rotate4D(base4){
-    const v=[base4.x,base4.y,base4.z,base4.w];
-    rotPlane(v,0,3,aXW);
-    rotPlane(v,1,3,aYW);
-    rotPlane(v,1,2,aYZ);
-    return v;
-  }
-  function project4Dto3D(v4){
-    const w=v4[3];
-    const f = W_DIST / (W_DIST - w);
-    return {x:v4[0]*f, y:v4[1]*f, z:v4[2]*f};
-  }
-
-  function rotate3D(p){
-    let v = p;
-    if (mode==="bagua") v = applyPalaceMat(p);
-    let x = v.x * zoom;
-    let y = v.y * zoom;
-    let z = v.z * zoom;
-
-    const cy=Math.cos(rotY), sy=Math.sin(rotY);
-    let x1=x*cy+z*sy, z1=-x*sy+z*cy;
-    const cx=Math.cos(rotX), sx=Math.sin(rotX);
-    let y2=y*cx - z1*sx, z2=y*sx + z1*cx;
-    const cz=Math.cos(rotZ), sz=Math.sin(rotZ);
-    let x3=x1*cz - y2*sz, y3=x1*sz + y2*cz;
-    return {x:x3,y:y3,z:z2};
-  }
-
-  function boundAbs(){
-    if (mode==="hex64"){
-      const folded=3.2, unfolded=6.2;
-      return lerp(folded,unfolded,unfold);
-    }
-    return sceneMaxAbs;
-  }
-  function getOrthoScale(){
-    return 0.42 * Math.min(W,H) / Math.max(1e-6, boundAbs());
-  }
-  function project(p3){
-    const pr = rotate3D(p3);
-    if (projMode==="ortho"){
-      const s=getOrthoScale();
-      return {x:pr.x*s+W/2, y:-pr.y*s+H/2, z:pr.z, k:s};
-    } else {
-      const cameraDist = boundAbs()*4.2+2.0;
-      const fov = Math.min(W,H)*1.25;
-      const z = pr.z + cameraDist;
-      const k = fov / z;
-      return {x:pr.x*k+W/2, y:-pr.y*k+H/2, z, k};
-    }
-  }
-
-  function hitTest(px,py,projCache){
-    let best=null, bestD2=Infinity;
-    for (const v of vertices){
-      if (!v.pickable) continue;
-      const p=projCache.get(v.key);
-      if (!p) continue;
-      const r=Math.max(9,12*(p.k/150));
-      const dx=px-p.x, dy=py-p.y, d2=dx*dx+dy*dy;
-      if (d2<r*r && d2<bestD2){ bestD2=d2; best=v.key; }
-    }
-    return best;
-  }
-
-  function worldPosCube(cube,xBit,yBit,zBit){
-    const bx = cube.ax.x.mirror?(1-xBit):xBit;
-    const by = cube.ax.y.mirror?(1-yBit):yBit;
-    const bz = cube.ax.z.mirror?(1-zBit):zBit;
-    return {
-      x: cube.ax.x.base + 2*bx,
-      y: cube.ax.y.base + 2*by,
-      z: cube.ax.z.base + 2*bz
-    };
-  }
-  function makeCubeInstance({id,axisBase={x:-1,y:-1,z:-1},axisMirror={x:false,y:false,z:false},showLabels=true,pickable=true}){
-    return {
-      id,showLabels,pickable,
-      ax:{
-        x:{base:axisBase.x,mirror:!!axisMirror.x},
-        y:{base:axisBase.y,mirror:!!axisMirror.y},
-        z:{base:axisBase.z,mirror:!!axisMirror.z}
-      }
-    };
-  }
-
-  function buildSceneBagua(){
-    vertices=[]; edges=[]; vByKey.clear(); sceneMaxAbs=1;
-    const cubes=[];
-    const base=makeCubeInstance({id:"B",showLabels:true,pickable:true});
-    cubes.push(base);
-
-    const mirrorCfgs=[
-      {on:mxp.checked,id:"Mx+",axis:"x",base: 1,mirror:true},
-      {on:mxn.checked,id:"Mx-",axis:"x",base:-3,mirror:true},
-      {on:myp.checked,id:"My+",axis:"y",base: 1,mirror:true},
-      {on:myn.checked,id:"My-",axis:"y",base:-3,mirror:true},
-      {on:mzp.checked,id:"Mz+",axis:"z",base: 1,mirror:true},
-      {on:mzn.checked,id:"Mz-",axis:"z",base:-3,mirror:true}
-    ];
-    for (const m of mirrorCfgs){
-      if (!m.on) continue;
-      const axisBase={x:-1,y:-1,z:-1};
-      const axisMirror={x:false,y:false,z:false};
-      axisBase[m.axis]=m.base;
-      axisMirror[m.axis]=true;
-      cubes.push(makeCubeInstance({id:m.id,axisBase,axisMirror,showLabels:false,pickable:false}));
-    }
-
-    for (const cube of cubes){
-      for (let x=0;x<=1;x++)
-        for (let y=0;y<=1;y++)
-          for (let z=0;z<=1;z++){
-            const bits=""+y+z+x;
-            const w=worldPosCube(cube,x,y,z);
-            const key=keyOf(cube.id,x,y,z);
-            const v={
-              key,mode:"bagua",cubeId:cube.id,
-              role:"bagua",pickable:cube.pickable,showLabel:cube.showLabels,
-              local:{x,y,z}, bits, name:bitsToName[bits], world:w
-            };
-            vertices.push(v);
-            vByKey.set(key,v);
-            sceneMaxAbs=Math.max(sceneMaxAbs,Math.abs(w.x),Math.abs(w.y),Math.abs(w.z));
-          }
-
-      for (let y=0;y<=1;y++) for (let z=0;z<=1;z++)
-        edges.push({type:"edge8",cubeId:cube.id,val:y,a:keyOf(cube.id,0,y,z),b:keyOf(cube.id,1,y,z)});
-      for (let x=0;x<=1;x++) for (let z=0;z<=1;z++)
-        edges.push({type:"edge8",cubeId:cube.id,val:z,a:keyOf(cube.id,x,0,z),b:keyOf(cube.id,x,1,z)});
-      for (let x=0;x<=1;x++) for (let y=0;y<=1;y++)
-        edges.push({type:"edge8",cubeId:cube.id,val:x,a:keyOf(cube.id,x,y,0),b:keyOf(cube.id,x,y,1)});
-    }
-  }
-
-  function buildSceneHex64(){
-    vertices=[]; edges=[]; vByKey.clear(); sceneMaxAbs=6.0;
-    const roles=[{role:"real",w:+1},{role:"true",w:-1}];
-
-    for (const R of roles){
-      for (let x=0;x<=1;x++)
-        for (let y=0;y<=1;y++)
-          for (let z=0;z<=1;z++){
-            const coordBits=""+y+z+x;
-            const bits=(R.role==="real")?coordBits:invertBits3(coordBits);
-            const key=`${R.role}|${x},${y},${z}`;
-            const base4={x:x?1:-1,y:y?1:-1,z:z?1:-1,w:R.w};
-            const v={key,mode:"hex64",role:R.role,pickable:true,showLabel:true,
-                     local:{x,y,z},coordBits,bits,name:bitsToName[bits],base4};
-            vertices.push(v); vByKey.set(key,v);
-          }
-    }
-    function addStruct(role){
-      for (let y=0;y<=1;y++) for (let z=0;z<=1;z++)
-        edges.push({type:"edge64",role,val:y,a:`${role}|0,${y},${z}`,b:`${role}|1,${y},${z}`});
-      for (let x=0;x<=1;x++) for (let z=0;z<=1;z++)
-        edges.push({type:"edge64",role,val:z,a:`${role}|${x},0,${z}`,b:`${role}|${x},1,${z}`});
-      for (let x=0;x<=1;x++) for (let y=0;y<=1;y++)
-        edges.push({type:"edge64",role,val:x,a:`${role}|${x},${y},0`,b:`${role}|${x},${y},1`});
-    }
-    addStruct("real");
-    addStruct("true");
-
-    for (let x=0;x<=1;x++)
-      for (let y=0;y<=1;y++)
-        for (let z=0;z<=1;z++)
-          edges.push({type:"wlink",a:`real|${x},${y},${z}`,b:`true|${x},${y},${z}`});
-  }
-
-  function applyStaticLayoutIfNeeded() {
-    if (mode === "hex64" && lockStaticEl.checked) {
-      projMode = "ortho";           // 正交投影
-      unfold = unfoldTarget = 1;    // 完全展开
-      rotX = 0;
-      rotY = 0;
-      rotZ = 0;                     // 展开图朝上
-      auto4dEl.checked = false;     // 关闭自动四维旋转
-    }
-  }
-
-  function buildScene(){
-    selKey=null;
-    if (mode==="bagua") buildSceneBagua();
-    else buildSceneHex64();
-
-    applyStaticLayoutIfNeeded();    // ★ 锁定视角时强制应用布局
-
-    updateHUD();
-    hudDetail.innerHTML="";
-  }
-
-  function updateHUD(){
-    btnMode8.classList.toggle("active",mode==="bagua");
-    btnMode64.classList.toggle("active",mode==="hex64");
-    btnOrtho.classList.toggle("active",projMode==="ortho");
-    btnPersp.classList.toggle("active",projMode==="persp");
-
-    mirrorPanel.style.display = (mode==="bagua")?"block":"none";
-    hexPanel.style.display    = (mode==="hex64")?"block":"none";
-    palaceRow.style.display   = (mode==="bagua")?"flex":"none";
-
-    if (mode==="hex64"){
-      const unfolding=(unfoldTarget>0.5 || unfold>0.5 || !!unfoldAnim);
-      btnUnfold.textContent = unfolding ? "折叠超立方体" : "展开超立方体";
-    } else {
-      btnUnfold.textContent="展开超立方体";
-    }
-
-    for (const btn of palaceBtns){
-      btn.classList.toggle("active",mode==="bagua" && currentPalace===btn.dataset.palace);
-    }
-    btnPalaceFree.classList.toggle("active",mode==="bagua" && !currentPalace);
-
-    if (mode==="bagua"){
-      hudCheck.innerHTML =
-        `模式：<b>8卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>`+
-        (currentPalace?` ｜ 宫视角：<b>${currentPalace}宫</b>`:" ｜ 宫视角：自由");
-    } else {
-      hudCheck.innerHTML =
-        `模式：<b>64卦</b> ｜ 投影：<b>${projMode==="ortho"?"正交":"透视"}</b>`+
-        ` ｜ 展开：<b>${Math.round(unfold*100)}%</b>`;
-    }
-  }
-
-  function updateDetail(){
-    if (!selKey){ hudDetail.innerHTML=""; return; }
-    const v=vByKey.get(selKey);
-    if (!v){ hudDetail.innerHTML=""; return; }
-
-    if (mode==="bagua"){
-      hudDetail.innerHTML =
-        `选中：<b>${v.name}</b> bits=<b class="mono">${v.bits}</b>（先天序=${trigramIndex(v.bits)}）<br>`+
-        `local(x,y,z)=(${v.local.x},${v.local.y},${v.local.z}) ｜ cube=${v.cubeId}`;
-      return;
-    }
-
-    const isReal=(v.role==="real");
-    const thisRole=isReal?"坤宫 / 本我(下卦点)":"乾宫 / 真我(上卦点)";
-    const otherRole=isReal?"乾宫(上卦)":"坤宫(下卦)";
-    const thisBits=v.bits;
-    const others=vertices.filter(x=>x.role!==v.role)
-                         .slice().sort((a,b)=>a.bits.localeCompare(b.bits));
-
-    let html=`选中：<b>${thisRole}</b> 卦=<b>${v.name}</b> <span class="mono">${thisBits}</span><br>`;
-    html+=`<div style="margin-top:6px; font-weight:900;">与${otherRole}的 8 条叠加线：</div>`;
-    for (const o of others){
-      const U = isReal ? o.bits : thisBits;
-      const L = isReal ? thisBits : o.bits;
-      const hexBits=U+L;
-      const num=(parseInt(hexBits,2)&63)+1;
-      html += `${isReal?"上":"下"}${o.name}(<span class="mono">${o.bits}</span>) `
-           + `× ${isReal?"下":"上"}${v.name}(<span class="mono">${thisBits}</span>) `
-           + `= <span class="mono">${hexBits}</span> #<b>${num}</b><br>`;
-    }
-    hudDetail.innerHTML=html;
-  }
-
-  function snapHexViewFor64(){
-    rotY=-Math.PI/4;
-    rotX=Math.atan(1/Math.sqrt(2));
-    rotZ=Math.PI;
-  }
-  function resetView(){
-    projMode="ortho";
-    zoom=(mode==="hex64")?1.05:1.12;
-    if (mode==="hex64") snapHexViewFor64();
-    else { rotX=rotY=0; rotZ=Math.PI; }
-    updateHUD();
-    saveSettings();
-  }
-  function toggleFlip(){
-    const zNorm=((rotZ%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
-    rotZ=(Math.abs(zNorm)<1e-3)?Math.PI:0;
-    updateHUD(); saveSettings();
-  }
-  function startUnfold(to){
-    unfoldTarget=to;
-    unfoldAnim={start:performance.now(),from:unfold,to,dur:UNFOLD_DUR};
-    saveSettings();
-  }
-  function toggleUnfold(){
-    if (mode!=="hex64") return;
-    const to=(unfoldTarget>0.5 || unfold>0.5)?0:1;
-    startUnfold(to);
-    updateHUD();
-  }
-
-  function setPalace(name, resetRot=true){
-    if (!name){ currentPalace=null; palaceMat=ID_MAT.slice(); }
-    else { currentPalace=name; palaceMat=palaceBases[name] || ID_MAT.slice(); }
-    if (resetRot){ rotX=rotY=0; rotZ=Math.PI; }
-    updateHUD();
-    saveSettings();
-  }
-
-  function getNetLayout(pos3ByKey){
-    if (mode!=="hex64") return null;
-    const p000 = pos3ByKey.get("real|0,0,0");
-    const p100 = pos3ByKey.get("real|1,0,0");
-    const p010 = pos3ByKey.get("real|0,1,0");
-    const p001 = pos3ByKey.get("real|0,0,1");
-    if (!p000 || !p100 || !p010 || !p001) return null;
-    const vx = vecSub(p100,p000);
-    const vy = vecSub(p010,p000);
-    const vz = vecSub(p001,p000);
-    const lx = vecLength(vx), ly = vecLength(vy), lz = vecLength(vz);
-    const ux = vecScale(vx,1/(lx||1));
-    const uy = vecScale(vy,1/(ly||1));
-    const uz = vecScale(vz,1/(lz||1));
-    const edge = (lx+ly+lz)/3 || 1;
-    const mag = edge * 2.1 * unfold;
-    return {p000,ux,uy,uz,edge,mag};
-  }
-
-  function drawNetCubes(pos3ByKey){
-    if (!showStructureEl.checked) return;
-    if (unfold <= 0.001) return;
-    const layout = getNetLayout(pos3ByKey);
-    if (!layout) return;
-    const {ux,uy,uz,mag} = layout;
-    const shifts = [
-      vecScale(ux, mag),
-      vecScale(ux,-mag),
-      vecScale(uy, mag),
-      vecScale(uy,-mag),
-      vecScale(uz, mag),
-      vecScale(uz,-mag)
-    ];
-    ctx.save();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = COLOR_NETCUBE;
-    ctx.globalAlpha = 0.45 + 0.35 * unfold;
-    for (const s of shifts){
-      for (const e of edges){
-        if (e.type!=="edge64" || e.role!=="real") continue;
-        const pa = pos3ByKey.get(e.a);
-        const pb = pos3ByKey.get(e.b);
-        if (!pa || !pb) continue;
-        const pa2 = vecAdd(pa,s);
-        const pb2 = vecAdd(pb,s);
-        const Pa = project(pa2);
-        const Pb = project(pb2);
-        ctx.beginPath();
-        ctx.moveTo(Pa.x,Pa.y);
-        ctx.lineTo(Pb.x,Pb.y);
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-  }
-
-  function drawHexNetLines(pos3ByKey){
-    if (!showHexNetEl.checked) return;
-    const layout = getNetLayout(pos3ByKey);
-    if (!layout) return;
-    const {ux,uy,uz,mag} = layout;
-    const shifts = [
-      vecScale(ux, mag),
-      vecScale(ux,-mag),
-      vecScale(uy, mag),
-      vecScale(uy,-mag),
-      vecScale(uz, mag),
-      vecScale(uz,-mag)
-    ];
-
-    ctx.save();
-    ctx.setLineDash([6,6]);
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = COLOR_NET;
-    ctx.globalAlpha = 0.85;
-
-    const qSources = vertices.filter(v=>v.mode==="hex64" && v.role==="true");
-    for (const v of qSources){
-      const src3 = pos3ByKey.get(v.key);
-      if (!src3) continue;
-      const pSrc2D = project(src3);
-
-      const kunKey = "real|"+v.local.x+","+v.local.y+","+v.local.z;
-      const baseKun3 = pos3ByKey.get(kunKey);
-      if (!baseKun3) continue;
-
-      const pKun2D = project(baseKun3);
       ctx.beginPath();
-      ctx.moveTo(pSrc2D.x,pSrc2D.y);
-      ctx.lineTo(pKun2D.x,pKun2D.y);
-      ctx.stroke();
+      ctx.arc(screenX + eyeDir.x * 4 - 3, screenY + eyeDir.y * 4, 2, 0, Math.PI * 2);
+      ctx.arc(screenX + eyeDir.x * 4 + 3, screenY + eyeDir.y * 4, 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
 
-      for (const s of shifts){
-        const tgt3 = vecAdd(baseKun3, s);
-        const pTgt2D = project(tgt3);
-        ctx.beginPath();
-        ctx.moveTo(pSrc2D.x,pSrc2D.y);
-        ctx.lineTo(pTgt2D.x,pTgt2D.y);
-        ctx.stroke();
-      }
+      // 血条
+      const hpPercent = this.hp / this.maxHp;
+      const barWidth = this.radius * 2;
+      const barHeight = 4;
+      const barX = screenX - barWidth / 2;
+      const barY = screenY - this.radius - 10;
+
+      ctx.fillStyle = COLORS.HEALTH_BG;
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+      ctx.fillStyle = COLORS.HEALTH_FILL;
+      ctx.fillRect(barX, barY, barWidth * hpPercent, barHeight);
     }
 
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
+    takeDamage(dmg, knockbackDir) {
+      this.hp -= dmg;
+      showDamageNumber(this.x, this.y, dmg, '#ffdd59');
 
-  function buildSceneAndSave(){ buildScene(); saveSettings(); }
-
-  function render(ts){
-    ctx.setTransform(DPR,0,0,DPR,0,0);
-    ctx.clearRect(0,0,W,H);
-
-    if (mode==="hex64"){
-      if (lastTs==null) lastTs=ts;
-      const dt=ts-lastTs; lastTs=ts;
-
-      if (unfoldAnim){
-        const t=(ts-unfoldAnim.start)/unfoldAnim.dur;
-        const k=easeInOutCubic(t);
-        unfold=lerp(unfoldAnim.from,unfoldAnim.to,k);
-        if (t>=1){ unfold=unfoldAnim.to; unfoldAnim=null; }
+      if (knockbackDir) {
+        this.knockback.x = knockbackDir.x * 8;
+        this.knockback.y = knockbackDir.y * 8;
       }
-      if (auto4dEl.checked && !lockStaticEl.checked){
-        aXW+=dt*0.00055;
-        aYW+=dt*0.00035;
-        aYZ+=dt*0.00045;
+
+      // 添加粒子效果
+      for (let i = 0; i < 5; i++) {
+        game.particles.push({
+          x: this.x,
+          y: this.y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: (Math.random() - 0.5) * 5,
+          life: 500,
+          maxLife: 500,
+          color: this.color,
+          size: 4,
+        });
       }
-    }
 
-    const pos3ByKey=new Map();
-    if (mode==="bagua"){
-      for (const v of vertices) pos3ByKey.set(v.key,v.world);
-    } else {
-      for (const v of vertices){
-        const v4=rotate4D(v.base4);
-        const pFold=project4Dto3D(v4);
-        const offsetY = (v.role==="true") ? lerp(0, -4, unfold) : 0;
-        const p3={x:pFold.x, y:pFold.y + offsetY, z:pFold.z};
-        pos3ByKey.set(v.key,p3);
+      if (this.hp <= 0) {
+        return true; // 死亡
       }
-    }
-
-    const projCache=new Map();
-    for (const v of vertices){
-      const p3=pos3ByKey.get(v.key);
-      if (!p3) continue;
-      projCache.set(v.key,project(p3));
-    }
-    lastProjCache=projCache;
-
-    const showStructure = (mode==="hex64") ? showStructureEl.checked : true;
-    const hideYellow = (mode==="hex64") ? hideYellowEl.checked : false;
-    const showLabels64 = (mode==="hex64") ? showLabels64El.checked : true;
-
-    const drawableEdges=edges.filter(e=>{
-      if (mode==="bagua") return e.type==="edge8";
-      if (e.type==="edge64" || e.type==="wlink") return showStructure;
       return false;
-    });
-
-    const edgesSorted=drawableEdges.map(e=>{
-      const pa=projCache.get(e.a), pb=projCache.get(e.b);
-      const z=((pa?.z??1e9)+(pb?.z??1e9))/2;
-      return {e,pa,pb,z};
-    }).sort((a,b)=>b.z-a.z);
-
-    function incident(e){ return selKey && (e.a===selKey || e.b===selKey); }
-
-    for (const it of edgesSorted){
-      const {e,pa,pb}=it;
-      if (!pa||!pb) continue;
-      const hi=incident(e);
-      ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y);
-
-      if (mode==="hex64" && e.type==="wlink"){
-        ctx.setLineDash([10,8]);
-        ctx.lineWidth=hi?4.6:2.2;
-        ctx.strokeStyle=hi?COLOR_HI:COLOR_WLINK;
-        ctx.stroke(); ctx.setLineDash([]); continue;
-      }
-
-      ctx.lineWidth=hi?6.0:3.0;
-      ctx.strokeStyle=hi?COLOR_HI:(e.val===0?COLOR_YANG:COLOR_YIN);
-      ctx.stroke();
     }
-
-    drawNetCubes(pos3ByKey);
-    drawHexNetLines(pos3ByKey);
-
-    const vertsSorted=vertices.map(v=>({v,p:projCache.get(v.key)}))
-      .filter(x=>!!x.p).sort((a,b)=>b.p.z-a.p.z);
-
-    for (const {v,p} of vertsSorted){
-      const isSel=(selKey===v.key);
-      const r=7+(p.k/110);
-      let fill=COLOR_NODE;
-      if (mode==="bagua"){
-        fill=isSel?COLOR_HI:COLOR_NODE;
-      } else {
-        if (isSel) fill=COLOR_HI;
-        else if (v.role==="true") fill=COLOR_TRUE;
-        else fill=hideYellow?COLOR_NEUTRAL:COLOR_REAL;
-      }
-
-      ctx.beginPath();
-      ctx.arc(p.x,p.y,isSel?r*1.25:r,0,Math.PI*2);
-      ctx.fillStyle=fill; ctx.globalAlpha=0.92; ctx.fill(); ctx.globalAlpha=1;
-
-      let showLabel=false;
-      if (mode==="bagua"){
-        showLabel=v.showLabel;
-      } else {
-        showLabel=showLabels64 || isSel;
-        if (hideYellow && v.role==="real" && !isSel) showLabel=false;
-      }
-      if (showLabel){
-        ctx.fillStyle=COLOR_LABEL;
-        ctx.font="13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-        ctx.textAlign="center"; ctx.textBaseline="bottom";
-        ctx.fillText(v.name+" "+v.bits,p.x,p.y-(isSel?r*1.6:r*1.25));
-      }
-    }
-
-    if (mode==="hex64"){
-      let cr={x:0,y:0,z:0}, ct={x:0,y:0,z:0}, nr=0, nt=0;
-      for (const v of vertices){
-        const p3=pos3ByKey.get(v.key);
-        if (!p3) continue;
-        if (v.role==="real"){ cr=vecAdd(cr,p3); nr++; }
-        else { ct=vecAdd(ct,p3); nt++; }
-      }
-      if (nr>0 && nt>0){
-        cr=vecScale(cr,1/nr); ct=vecScale(ct,1/nt);
-        const pr=project(cr), pt=project(ct);
-        ctx.fillStyle="rgba(10,14,18,.9)";
-        ctx.font="13px system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
-        ctx.textAlign="center"; ctx.textBaseline="middle";
-        ctx.fillText("坤宫(黄)",pr.x,pr.y);
-        ctx.fillText("乾宫(蓝)",pt.x,pt.y);
-      }
-    }
-
-    requestAnimationFrame(render);
   }
 
-  const pointers=new Map();
-  let pointerDown=null;
-  let pinchStart=null;
-
-  canvas.addEventListener("pointerdown",e=>{
-    canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-    pointerDown={x:e.clientX,y:e.clientY,t:performance.now()};
-    if (pointers.size===2){
-      const pts=[...pointers.values()];
-      const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-      pinchStart={dist,zoom};
+  // ============ 地图生成 ============
+  function generateMap() {
+    // 初始化地图为墙
+    game.map = [];
+    for (let y = 0; y < CONFIG.MAP_HEIGHT; y++) {
+      game.map[y] = [];
+      for (let x = 0; x < CONFIG.MAP_WIDTH; x++) {
+        game.map[y][x] = TILE.WALL;
+      }
     }
-  });
-  canvas.addEventListener("pointermove",e=>{
-    if (!pointers.has(e.pointerId)) return;
-    const prev=pointers.get(e.pointerId);
-    pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
 
-    if (pointers.size===1){
-      // 64卦 + 锁定展开图视角 时，不响应旋转
-      if (mode === "hex64" && lockStaticEl.checked) return;
-      const dx=e.clientX-prev.x, dy=e.clientY-prev.y;
-      rotY+=dx*0.008;
-      rotX+=dy*0.008;
-    } else if (pointers.size===2 && pinchStart){
-      const pts=[...pointers.values()];
-      const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-      const factor=dist/pinchStart.dist;
-      zoom=clamp(pinchStart.zoom*factor,0.55,3.2);
+    game.rooms = [];
+
+    // 生成房间
+    for (let i = 0; i < CONFIG.MAX_ROOMS; i++) {
+      const w = randomInt(CONFIG.ROOM_MIN_SIZE, CONFIG.ROOM_MAX_SIZE);
+      const h = randomInt(CONFIG.ROOM_MIN_SIZE, CONFIG.ROOM_MAX_SIZE);
+      const x = randomInt(1, CONFIG.MAP_WIDTH - w - 1);
+      const y = randomInt(1, CONFIG.MAP_HEIGHT - h - 1);
+
+      const newRoom = { x, y, w, h, cx: Math.floor(x + w / 2), cy: Math.floor(y + h / 2) };
+
+      let overlaps = false;
+      for (const room of game.rooms) {
+        if (roomsOverlap(newRoom, room)) {
+          overlaps = true;
+          break;
+        }
+      }
+
+      if (!overlaps) {
+        carveRoom(newRoom);
+
+        if (game.rooms.length > 0) {
+          const prevRoom = game.rooms[game.rooms.length - 1];
+          if (Math.random() < 0.5) {
+            carveHorizontalTunnel(prevRoom.cx, newRoom.cx, prevRoom.cy);
+            carveVerticalTunnel(prevRoom.cy, newRoom.cy, newRoom.cx);
+          } else {
+            carveVerticalTunnel(prevRoom.cy, newRoom.cy, prevRoom.cx);
+            carveHorizontalTunnel(prevRoom.cx, newRoom.cx, newRoom.cy);
+          }
+        }
+
+        game.rooms.push(newRoom);
+      }
     }
-  });
-  canvas.addEventListener("pointerup",e=>{
-    pointers.delete(e.pointerId);
-    if (pointers.size<2) pinchStart=null;
 
-    if (!pointerDown) return;
-    const dx=e.clientX-pointerDown.x, dy=e.clientY-pointerDown.y;
-    const dt=performance.now()-pointerDown.t;
-    pointerDown=null;
-    if (dt<350 && (dx*dx+dy*dy)<16*16){
-      const pc=lastProjCache;
-      if (!pc) return;
-      const hit=hitTest(e.clientX,e.clientY,pc);
-      if (!hit) return;
-      selKey=(selKey===hit)?null:hit;
-      updateDetail();
-      saveSettings();
+    // 放置楼梯在最后一个房间
+    if (game.rooms.length > 1) {
+      const lastRoom = game.rooms[game.rooms.length - 1];
+      game.map[lastRoom.cy][lastRoom.cx] = TILE.STAIRS;
+    }
+  }
+
+  function roomsOverlap(r1, r2) {
+    return r1.x <= r2.x + r2.w + 1 && r1.x + r1.w + 1 >= r2.x &&
+           r1.y <= r2.y + r2.h + 1 && r1.y + r1.h + 1 >= r2.y;
+  }
+
+  function carveRoom(room) {
+    for (let y = room.y; y < room.y + room.h; y++) {
+      for (let x = room.x; x < room.x + room.w; x++) {
+        game.map[y][x] = TILE.FLOOR;
+      }
+    }
+  }
+
+  function carveHorizontalTunnel(x1, x2, y) {
+    for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+      if (y >= 0 && y < CONFIG.MAP_HEIGHT && x >= 0 && x < CONFIG.MAP_WIDTH) {
+        game.map[y][x] = TILE.FLOOR;
+      }
+    }
+  }
+
+  function carveVerticalTunnel(y1, y2, x) {
+    for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
+      if (y >= 0 && y < CONFIG.MAP_HEIGHT && x >= 0 && x < CONFIG.MAP_WIDTH) {
+        game.map[y][x] = TILE.FLOOR;
+      }
+    }
+  }
+
+  function isWall(x, y, radius) {
+    const tileX1 = Math.floor((x - radius) / CONFIG.TILE_SIZE);
+    const tileX2 = Math.floor((x + radius) / CONFIG.TILE_SIZE);
+    const tileY1 = Math.floor((y - radius) / CONFIG.TILE_SIZE);
+    const tileY2 = Math.floor((y + radius) / CONFIG.TILE_SIZE);
+
+    for (let ty = tileY1; ty <= tileY2; ty++) {
+      for (let tx = tileX1; tx <= tileX2; tx++) {
+        if (ty < 0 || ty >= CONFIG.MAP_HEIGHT || tx < 0 || tx >= CONFIG.MAP_WIDTH) {
+          return true;
+        }
+        if (game.map[ty][tx] === TILE.WALL) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // ============ 敌人生成 ============
+  function spawnEnemies() {
+    game.enemies = [];
+
+    const enemyCount = CONFIG.ENEMY_BASE_COUNT + Math.floor(game.floor * 1.5);
+
+    for (let i = 0; i < enemyCount; i++) {
+      // 跳过第一个房间（玩家出生点）
+      const roomIdx = randomInt(1, game.rooms.length - 1);
+      const room = game.rooms[roomIdx];
+
+      if (!room) continue;
+
+      const x = (room.x + randomInt(1, room.w - 2)) * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+      const y = (room.y + randomInt(1, room.h - 2)) * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+
+      const type = Math.random() < 0.15 + game.floor * 0.02 ? 'elite' : 'normal';
+      game.enemies.push(new Enemy(x, y, type));
+    }
+  }
+
+  // ============ 攻击系统 ============
+  function performAttack(direction) {
+    const now = Date.now();
+    if (now - game.attack.lastTime < CONFIG.ATTACK_COOLDOWN) return;
+    game.attack.lastTime = now;
+
+    let attackDir;
+
+    if (direction) {
+      // 方向攻击
+      attackDir = direction;
     } else {
-      saveSettings();
-    }
-  });
-  canvas.addEventListener("wheel",e=>{
-    e.preventDefault();
-    const delta=Math.sign(e.deltaY);
-    zoom=clamp(zoom*(delta>0?0.92:1.08),0.55,3.2);
-    saveSettings();
-  },{passive:false});
+      // 自动攻击最近敌人
+      let nearestEnemy = null;
+      let nearestDist = Infinity;
 
-  btnMode8.addEventListener("click",()=>{
-    mode="bagua"; rotX=rotY=0; rotZ=Math.PI;
-    unfold=unfoldTarget=0; selKey=null;
-    buildSceneAndSave();
-  });
-  btnMode64.addEventListener("click",()=>{
-    mode="hex64"; selKey=null;
-    buildSceneAndSave(); snapHexViewFor64();
-  });
-  btnOrtho.addEventListener("click",()=>{ projMode="ortho"; updateHUD(); saveSettings(); });
-  btnPersp.addEventListener("click",()=>{ projMode="persp"; updateHUD(); saveSettings(); });
-  btnSnap.addEventListener("click",()=>{
-    if (mode==="hex64") snapHexViewFor64();
-    else setPalace(currentPalace||"乾");
-    saveSettings();
-  });
-  btnFlip.addEventListener("click",toggleFlip);
-  btnUnfold.addEventListener("click",toggleUnfold);
-  btnReset.addEventListener("click",()=>{ resetView(); });
+      for (const enemy of game.enemies) {
+        const dx = enemy.x - game.player.x;
+        const dy = enemy.y - game.player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
 
-  [mxp,mxn,myp,myn,mzp,mzn].forEach(el=>{
-    el.addEventListener("change",()=>{ if(mode==="bagua") buildSceneAndSave(); });
-  });
-  [showHexNetEl,showStructureEl,hideYellowEl,showLabels64El,auto4dEl,lockStaticEl]
-    .forEach(el=>el.addEventListener("change",()=>{
-      if (mode === "hex64") {
-        applyStaticLayoutIfNeeded();
-        updateHUD();
+        if (dist < nearestDist && dist < CONFIG.ATTACK_RANGE * 2) {
+          nearestDist = dist;
+          nearestEnemy = enemy;
+        }
       }
-      saveSettings();
-    }));
 
-  for (const btn of palaceBtns){
-    btn.addEventListener("click",()=>{
-      if (mode!=="bagua") mode="bagua";
-      setPalace(btn.dataset.palace);
-      buildSceneAndSave();
+      if (nearestEnemy) {
+        const dx = nearestEnemy.x - game.player.x;
+        const dy = nearestEnemy.y - game.player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        attackDir = { x: dx / dist, y: dy / dist };
+      } else {
+        // 没有敌人就朝面向方向
+        attackDir = game.joystick.dx !== 0 || game.joystick.dy !== 0
+          ? { x: game.joystick.dx, y: game.joystick.dy }
+          : { x: 0, y: -1 };
+      }
+    }
+
+    // 创建攻击效果
+    game.particles.push({
+      type: 'attack',
+      x: game.player.x + attackDir.x * 30,
+      y: game.player.y + attackDir.y * 30,
+      dir: attackDir,
+      life: 200,
+      maxLife: 200,
     });
+
+    // 检测攻击命中
+    const attackX = game.player.x + attackDir.x * 30;
+    const attackY = game.player.y + attackDir.y * 30;
+
+    for (let i = game.enemies.length - 1; i >= 0; i--) {
+      const enemy = game.enemies[i];
+      const dx = enemy.x - attackX;
+      const dy = enemy.y - attackY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < CONFIG.ATTACK_RANGE) {
+        const dead = enemy.takeDamage(game.player.atk, attackDir);
+        if (dead) {
+          game.enemies.splice(i, 1);
+          game.kills++;
+          updateHUD();
+
+          // 击杀粒子效果
+          for (let j = 0; j < 10; j++) {
+            game.particles.push({
+              x: enemy.x,
+              y: enemy.y,
+              vx: (Math.random() - 0.5) * 8,
+              vy: (Math.random() - 0.5) * 8,
+              life: 800,
+              maxLife: 800,
+              color: enemy.color,
+              size: 6,
+            });
+          }
+        }
+      }
+    }
   }
-  btnPalaceFree.addEventListener("click",()=>{
-    setPalace(null);
-    buildSceneAndSave();
-  });
 
-  btnHudToggle.addEventListener("click",()=>{
-    setHudCollapsed(!hud.classList.contains("collapsed"));
-    saveSettings();
-  });
+  // ============ 下一层 ============
+  function nextFloor() {
+    game.floor++;
 
-  resize();
-  computePalaceBases();
-  const loaded = loadSettings();
-  if (!currentPalace) currentPalace="乾";
-  setPalace(currentPalace,false);
-  buildScene();
-  if (!loaded){
-    resetView();
-    if (window.innerWidth<=640) setHudCollapsed(true);
-  } else {
+    // 显示层级提示
+    const indicator = document.getElementById('levelIndicator');
+    indicator.textContent = `第 ${game.floor} 层`;
+    indicator.classList.add('show');
+    setTimeout(() => indicator.classList.remove('show'), 2000);
+
+    // 玩家属性提升
+    game.player.atk += 2;
+    game.player.def += 1;
+    game.player.maxHp += 10;
+    game.player.hp = Math.min(game.player.hp + 30, game.player.maxHp);
+
+    // 生成新地图
+    generateMap();
+    spawnEnemies();
+
+    // 玩家放到第一个房间
+    const startRoom = game.rooms[0];
+    game.player.x = startRoom.cx * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+    game.player.y = startRoom.cy * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+
     updateHUD();
+    updateMinimap();
   }
 
-  requestAnimationFrame(render);
+  // ============ 游戏结束 ============
+  function endGame() {
+    game.gameOver = true;
+
+    document.getElementById('finalFloor').textContent = game.floor;
+    document.getElementById('finalKills').textContent = game.kills;
+    document.getElementById('gameOver').style.display = 'flex';
+  }
+
+  function restartGame() {
+    game.gameOver = false;
+    game.floor = 1;
+    game.kills = 0;
+    game.enemies = [];
+    game.particles = [];
+
+    document.getElementById('gameOver').style.display = 'none';
+
+    generateMap();
+
+    const startRoom = game.rooms[0];
+    game.player = new Player(
+      startRoom.cx * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2,
+      startRoom.cy * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2
+    );
+
+    spawnEnemies();
+    updateHUD();
+    updateMinimap();
+
+    // 显示层级提示
+    const indicator = document.getElementById('levelIndicator');
+    indicator.textContent = `第 1 层`;
+    indicator.classList.add('show');
+    setTimeout(() => indicator.classList.remove('show'), 2000);
+  }
+
+  // ============ UI更新 ============
+  function updateHUD() {
+    const hpPercent = (game.player.hp / game.player.maxHp) * 100;
+    document.getElementById('healthFill').style.width = hpPercent + '%';
+    document.getElementById('atkStat').textContent = Math.floor(game.player.atk);
+    document.getElementById('defStat').textContent = Math.floor(game.player.def);
+    document.getElementById('floorStat').textContent = game.floor;
+    document.getElementById('killStat').textContent = game.kills;
+  }
+
+  function updateMinimap() {
+    const ctx = game.minimapCtx;
+    const scale = 4;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, 120, 120);
+
+    const offsetX = 60 - (game.player.x / CONFIG.TILE_SIZE) * scale;
+    const offsetY = 60 - (game.player.y / CONFIG.TILE_SIZE) * scale;
+
+    for (let y = 0; y < CONFIG.MAP_HEIGHT; y++) {
+      for (let x = 0; x < CONFIG.MAP_WIDTH; x++) {
+        const tile = game.map[y][x];
+        const px = x * scale + offsetX;
+        const py = y * scale + offsetY;
+
+        if (px < -scale || px > 120 || py < -scale || py > 120) continue;
+
+        if (tile === TILE.FLOOR) {
+          ctx.fillStyle = '#555';
+          ctx.fillRect(px, py, scale, scale);
+        } else if (tile === TILE.STAIRS) {
+          ctx.fillStyle = '#f1c40f';
+          ctx.fillRect(px, py, scale, scale);
+        }
+      }
+    }
+
+    // 敌人点
+    ctx.fillStyle = '#e74c3c';
+    for (const enemy of game.enemies) {
+      const px = (enemy.x / CONFIG.TILE_SIZE) * scale + offsetX;
+      const py = (enemy.y / CONFIG.TILE_SIZE) * scale + offsetY;
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 玩家点
+    ctx.fillStyle = '#3498db';
+    ctx.beginPath();
+    ctx.arc(60, 60, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  let screenShake = 0;
+  function shakeScreen(intensity) {
+    screenShake = intensity;
+  }
+
+  function showDamageNumber(x, y, dmg, color) {
+    const elem = document.createElement('div');
+    elem.className = 'damage-number';
+    elem.textContent = '-' + Math.floor(dmg);
+    elem.style.color = color;
+    elem.style.left = (x - game.camera.x + game.width / 2) + 'px';
+    elem.style.top = (y - game.camera.y + game.height / 2) + 'px';
+    document.body.appendChild(elem);
+
+    setTimeout(() => elem.remove(), 1000);
+  }
+
+  // ============ 渲染 ============
+  function render() {
+    const ctx = game.ctx;
+
+    // 清屏
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, game.width, game.height);
+
+    // 相机跟随
+    game.camera.x = game.player.x - game.width / 2;
+    game.camera.y = game.player.y - game.height / 2;
+
+    // 屏幕震动
+    if (screenShake > 0) {
+      game.camera.x += (Math.random() - 0.5) * screenShake * 2;
+      game.camera.y += (Math.random() - 0.5) * screenShake * 2;
+      screenShake *= 0.9;
+      if (screenShake < 0.5) screenShake = 0;
+    }
+
+    // 计算可见范围
+    const startTileX = Math.max(0, Math.floor(game.camera.x / CONFIG.TILE_SIZE) - 1);
+    const startTileY = Math.max(0, Math.floor(game.camera.y / CONFIG.TILE_SIZE) - 1);
+    const endTileX = Math.min(CONFIG.MAP_WIDTH, Math.ceil((game.camera.x + game.width) / CONFIG.TILE_SIZE) + 1);
+    const endTileY = Math.min(CONFIG.MAP_HEIGHT, Math.ceil((game.camera.y + game.height) / CONFIG.TILE_SIZE) + 1);
+
+    // 绘制地图
+    for (let y = startTileY; y < endTileY; y++) {
+      for (let x = startTileX; x < endTileX; x++) {
+        const tile = game.map[y][x];
+        const screenX = x * CONFIG.TILE_SIZE - game.camera.x;
+        const screenY = y * CONFIG.TILE_SIZE - game.camera.y;
+
+        if (tile === TILE.WALL) {
+          // 墙体顶部
+          ctx.fillStyle = COLORS.WALL_TOP;
+          ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE * 0.3);
+          // 墙体
+          ctx.fillStyle = COLORS.WALL;
+          ctx.fillRect(screenX, screenY + CONFIG.TILE_SIZE * 0.3, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE * 0.7);
+        } else if (tile === TILE.FLOOR) {
+          ctx.fillStyle = (x + y) % 2 === 0 ? COLORS.FLOOR : COLORS.FLOOR_ALT;
+          ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+        } else if (tile === TILE.STAIRS) {
+          ctx.fillStyle = COLORS.FLOOR;
+          ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+
+          // 楼梯图标
+          ctx.fillStyle = COLORS.STAIRS;
+          ctx.font = '24px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('⬇', screenX + CONFIG.TILE_SIZE / 2, screenY + CONFIG.TILE_SIZE / 2);
+        }
+      }
+    }
+
+    // 绘制敌人
+    for (const enemy of game.enemies) {
+      enemy.draw(ctx);
+    }
+
+    // 绘制玩家
+    game.player.draw(ctx);
+
+    // 绘制粒子
+    for (let i = game.particles.length - 1; i >= 0; i--) {
+      const p = game.particles[i];
+
+      if (p.type === 'attack') {
+        const screenX = p.x - game.camera.x;
+        const screenY = p.y - game.camera.y;
+        const alpha = p.life / p.maxLife;
+        const size = 40 * (1 - alpha * 0.5);
+
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.fillStyle = COLORS.ATTACK;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else {
+        const screenX = p.x - game.camera.x;
+        const screenY = p.y - game.camera.y;
+        const alpha = p.life / p.maxLife;
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // ============ 游戏循环 ============
+  function gameLoop(timestamp) {
+    if (!game.lastTime) game.lastTime = timestamp;
+    const dt = timestamp - game.lastTime;
+    game.lastTime = timestamp;
+
+    if (!game.gameOver) {
+      // 更新
+      game.player.update(dt);
+
+      for (const enemy of game.enemies) {
+        enemy.update(dt);
+      }
+
+      // 更新粒子
+      for (let i = game.particles.length - 1; i >= 0; i--) {
+        const p = game.particles[i];
+        p.life -= dt;
+        if (p.vx) p.x += p.vx;
+        if (p.vy) p.y += p.vy;
+        if (p.life <= 0) {
+          game.particles.splice(i, 1);
+        }
+      }
+
+      // 自动攻击
+      if (game.attack.isHolding && !game.attack.direction) {
+        const now = Date.now();
+        if (now - game.attack.holdStartTime > 200) {
+          performAttack(null);
+        }
+      }
+
+      // 更新小地图
+      updateMinimap();
+    }
+
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // ============ 输入处理 ============
+  function setupInput() {
+    const joystickArea = document.getElementById('joystickArea');
+    const joystickKnob = document.getElementById('joystickKnob');
+    const attackBtn = document.getElementById('attackBtn');
+
+    let joystickTouch = null;
+    let attackTouch = null;
+
+    // 摇杆
+    function handleJoystickStart(e) {
+      e.preventDefault();
+      const touch = e.changedTouches ? e.changedTouches[0] : e;
+      joystickTouch = touch.identifier !== undefined ? touch.identifier : 'mouse';
+      game.joystick.active = true;
+    }
+
+    function handleJoystickMove(e) {
+      if (!game.joystick.active) return;
+      e.preventDefault();
+
+      let touch;
+      if (e.changedTouches) {
+        for (const t of e.changedTouches) {
+          if (t.identifier === joystickTouch) {
+            touch = t;
+            break;
+          }
+        }
+        if (!touch) return;
+      } else {
+        touch = e;
+      }
+
+      const rect = joystickArea.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      let dx = touch.clientX - centerX;
+      let dy = touch.clientY - centerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const maxDist = rect.width / 2 - 25;
+
+      if (dist > maxDist) {
+        dx = (dx / dist) * maxDist;
+        dy = (dy / dist) * maxDist;
+      }
+
+      joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+
+      const normalizedDist = Math.min(dist, maxDist) / maxDist;
+      game.joystick.dx = (dx / maxDist) * normalizedDist;
+      game.joystick.dy = (dy / maxDist) * normalizedDist;
+    }
+
+    function handleJoystickEnd(e) {
+      if (e.changedTouches) {
+        let found = false;
+        for (const t of e.changedTouches) {
+          if (t.identifier === joystickTouch) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) return;
+      }
+
+      game.joystick.active = false;
+      game.joystick.dx = 0;
+      game.joystick.dy = 0;
+      joystickKnob.style.transform = 'translate(-50%, -50%)';
+      joystickTouch = null;
+    }
+
+    joystickArea.addEventListener('mousedown', handleJoystickStart);
+    joystickArea.addEventListener('touchstart', handleJoystickStart, { passive: false });
+    window.addEventListener('mousemove', handleJoystickMove);
+    window.addEventListener('touchmove', handleJoystickMove, { passive: false });
+    window.addEventListener('mouseup', handleJoystickEnd);
+    window.addEventListener('touchend', handleJoystickEnd);
+
+    // 攻击按钮
+    function handleAttackStart(e) {
+      e.preventDefault();
+      const touch = e.changedTouches ? e.changedTouches[0] : e;
+      attackTouch = touch.identifier !== undefined ? touch.identifier : 'mouse';
+
+      game.attack.isHolding = true;
+      game.attack.holdStartTime = Date.now();
+      game.attack.dragStart = { x: touch.clientX, y: touch.clientY };
+      game.attack.direction = null;
+
+      attackBtn.classList.add('active');
+    }
+
+    function handleAttackMove(e) {
+      if (!game.attack.isHolding) return;
+
+      let touch;
+      if (e.changedTouches) {
+        for (const t of e.changedTouches) {
+          if (t.identifier === attackTouch) {
+            touch = t;
+            break;
+          }
+        }
+        if (!touch) return;
+      } else {
+        touch = e;
+      }
+
+      const dx = touch.clientX - game.attack.dragStart.x;
+      const dy = touch.clientY - game.attack.dragStart.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 30) {
+        attackBtn.classList.add('dragging');
+        game.attack.direction = { x: dx / dist, y: dy / dist };
+      } else {
+        attackBtn.classList.remove('dragging');
+        game.attack.direction = null;
+      }
+    }
+
+    function handleAttackEnd(e) {
+      if (e.changedTouches) {
+        let found = false;
+        for (const t of e.changedTouches) {
+          if (t.identifier === attackTouch) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) return;
+      }
+
+      if (game.attack.isHolding) {
+        // 如果有拖动方向就按方向攻击，否则自动攻击
+        if (game.attack.direction) {
+          performAttack(game.attack.direction);
+        } else {
+          performAttack(null);
+        }
+      }
+
+      game.attack.isHolding = false;
+      game.attack.direction = null;
+      attackBtn.classList.remove('active', 'dragging');
+      attackTouch = null;
+    }
+
+    attackBtn.addEventListener('mousedown', handleAttackStart);
+    attackBtn.addEventListener('touchstart', handleAttackStart, { passive: false });
+    window.addEventListener('mousemove', handleAttackMove);
+    window.addEventListener('touchmove', handleAttackMove, { passive: false });
+    window.addEventListener('mouseup', handleAttackEnd);
+    window.addEventListener('touchend', handleAttackEnd);
+
+    // 重新开始按钮
+    document.getElementById('restartBtn').addEventListener('click', restartGame);
+
+    // 键盘控制
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      keys[e.code] = true;
+      updateKeyboardMovement();
+
+      if (e.code === 'Space' || e.code === 'KeyJ') {
+        performAttack(null);
+      }
+    });
+    window.addEventListener('keyup', e => {
+      keys[e.code] = false;
+      updateKeyboardMovement();
+    });
+
+    function updateKeyboardMovement() {
+      let dx = 0, dy = 0;
+      if (keys['ArrowUp'] || keys['KeyW']) dy -= 1;
+      if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
+      if (keys['ArrowLeft'] || keys['KeyA']) dx -= 1;
+      if (keys['ArrowRight'] || keys['KeyD']) dx += 1;
+
+      if (dx !== 0 || dy !== 0) {
+        const len = Math.sqrt(dx * dx + dy * dy);
+        game.joystick.dx = dx / len;
+        game.joystick.dy = dy / len;
+      } else if (!game.joystick.active) {
+        game.joystick.dx = 0;
+        game.joystick.dy = 0;
+      }
+    }
+  }
+
+  // ============ 工具函数 ============
+  function randomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  // ============ 初始化 ============
+  function init() {
+    game.canvas = document.getElementById('gameCanvas');
+    game.ctx = game.canvas.getContext('2d');
+    game.minimapCanvas = document.getElementById('minimapCanvas');
+    game.minimapCtx = game.minimapCanvas.getContext('2d');
+
+    function resize() {
+      game.dpr = Math.min(2, window.devicePixelRatio || 1);
+      game.width = window.innerWidth;
+      game.height = window.innerHeight;
+
+      game.canvas.width = game.width * game.dpr;
+      game.canvas.height = game.height * game.dpr;
+      game.canvas.style.width = game.width + 'px';
+      game.canvas.style.height = game.height + 'px';
+      game.ctx.scale(game.dpr, game.dpr);
+
+      game.minimapCanvas.width = 120 * game.dpr;
+      game.minimapCanvas.height = 120 * game.dpr;
+      game.minimapCtx.scale(game.dpr, game.dpr);
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    generateMap();
+
+    const startRoom = game.rooms[0];
+    game.player = new Player(
+      startRoom.cx * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2,
+      startRoom.cy * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2
+    );
+
+    spawnEnemies();
+    setupInput();
+    updateHUD();
+    updateMinimap();
+
+    // 显示层级提示
+    const indicator = document.getElementById('levelIndicator');
+    indicator.classList.add('show');
+    setTimeout(() => indicator.classList.remove('show'), 2000);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  init();
 })();
-});
 </script>
 </body>
 </html>
