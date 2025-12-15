@@ -65,6 +65,11 @@ class StickFigure {
     // 经验转化
     this.convertToExp = false;
     this.onExpReady = null;
+
+    // 粉末喷射回调
+    this.onDustSpray = null; // (x, y, amount, angle, force) => {}
+    this.dustSprayTimer = 0;
+    this.dustSprayInterval = 80; // 喷射间隔
   }
 
   /**
@@ -197,6 +202,26 @@ class StickFigure {
     this.isBisected = true;
 
     const currentBones = this.ragdollBones || this.getAnimatedBones(this.currentAnim, this.animTime, true);
+
+    // 获取断裂点的位置（用于粉末喷射）
+    let breakPointY = 0;
+    if (this.bisectPoint === 'neck') {
+      breakPointY = currentBones.neck.y;
+    } else if (this.bisectPoint === 'spine') {
+      breakPointY = currentBones.spine.y;
+    } else {
+      breakPointY = currentBones.hip.y;
+    }
+    this.breakPointOffset = { x: 0, y: breakPointY };
+
+    // 触发初始粉末喷射（断裂瞬间的大量喷射）
+    if (this.onDustSpray) {
+      // 多方向喷射
+      for (let i = 0; i < 5; i++) {
+        const sprayAngle = impactAngle + (Math.random() - 0.5) * Math.PI;
+        this.onDustSpray(0, breakPointY, 8, sprayAngle, force * 0.5 + Math.random() * 2);
+      }
+    }
 
     // 定义上下半身的骨骼
     const upperBones = ['head', 'neck', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'];
@@ -431,6 +456,29 @@ class StickFigure {
     // 更新两半身体
     this.updateBodyHalf(this.upperHalf, deltaTime, mergeX, mergeY, mergeStrength);
     this.updateBodyHalf(this.lowerHalf, deltaTime, mergeX, mergeY, mergeStrength);
+
+    // 持续从断裂处喷射粉末（falling和writhing阶段）
+    if (this.onDustSpray && (this.deathPhase === 'falling' || this.deathPhase === 'writhing')) {
+      this.dustSprayTimer += deltaTime;
+      if (this.dustSprayTimer >= this.dustSprayInterval) {
+        this.dustSprayTimer = 0;
+
+        // 计算两半之间的断裂点位置
+        if (this.upperHalf && this.lowerHalf) {
+          // 从上半身底部喷射
+          const upperBreakX = this.upperHalf.x;
+          const upperBreakY = this.upperHalf.y + 5;
+          const sprayAngle1 = Math.PI / 2 + (Math.random() - 0.5) * 0.5; // 向下
+          this.onDustSpray(upperBreakX, upperBreakY, 3, sprayAngle1, 1 + Math.random());
+
+          // 从下半身顶部喷射
+          const lowerBreakX = this.lowerHalf.x;
+          const lowerBreakY = this.lowerHalf.y - 5;
+          const sprayAngle2 = -Math.PI / 2 + (Math.random() - 0.5) * 0.5; // 向上
+          this.onDustSpray(lowerBreakX, lowerBreakY, 3, sprayAngle2, 1 + Math.random());
+        }
+      }
+    }
 
     // 淡出
     if (this.deathPhase === 'fading') {
@@ -702,6 +750,8 @@ class StickFigure {
     this.fadeAlpha = 1.0;
     this.convertToExp = false;
     this._expGiven = false;
+    this.dustSprayTimer = 0;
+    this.breakPointOffset = null;
   }
 
   /**

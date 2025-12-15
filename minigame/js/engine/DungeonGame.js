@@ -477,10 +477,14 @@ class DungeonGame {
       let stickFigure = this.enemyStickFigures.get(enemy);
       if (!stickFigure) {
         stickFigure = new StickFigure(enemy.color);
-        // 尸体消失时产生黑色粉末
+        // 尸体消失时产生黑色粉末（残留）
         stickFigure.onExpReady = () => {
-          // 在尸体位置产生黑色粉末
-          this.dustManager.addDustSource(enemy.x, enemy.y, 50 + (enemy.expReward || 20));
+          // 在尸体位置产生少量残留粉末
+          this.dustManager.addDustSource(enemy.x, enemy.y, 20 + (enemy.expReward || 10) * 0.3);
+        };
+        // 断裂处喷射粉末
+        stickFigure.onDustSpray = (offsetX, offsetY, amount, angle, force) => {
+          this.dustManager.sprayDust(enemy.x, enemy.y, offsetX, offsetY, amount, angle, force);
         };
         this.enemyStickFigures.set(enemy, stickFigure);
       }
