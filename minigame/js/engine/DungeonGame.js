@@ -12,6 +12,7 @@ import ItemManager from '../items/ItemManager.js';
 import ProjectileManager from '../combat/ProjectileManager.js';
 import StickFigure from '../entities/StickFigure.js';
 import DustManager from '../combat/DustManager.js';
+import CollisionManager from '../combat/CollisionManager.js';
 
 class DungeonGame {
   constructor() {
@@ -28,6 +29,7 @@ class DungeonGame {
     this.itemManager = new ItemManager();
     this.projectileManager = new ProjectileManager();
     this.dustManager = new DustManager();
+    this.collisionManager = new CollisionManager();
 
     // 火柴人渲染器
     this.playerStickFigure = new StickFigure('#FF8800'); // 橙色火柴人（Alan Becker风格）
@@ -110,6 +112,12 @@ class DungeonGame {
       if (stickFigure) {
         const impactAngle = Math.atan2(enemy.y - this.player.y, enemy.x - this.player.x);
         stickFigure.activateRagdoll(stickFigure.getAnimatedBones('idle', 0), impactAngle, 8);
+
+        // 添加尸体碰撞体
+        const corpseIndex = this.collisionManager.corpses.length;
+        this.collisionManager.addCorpse(enemy.x, enemy.y, 0.4);
+        // 存储碰撞索引用于更新位置
+        stickFigure.corpseCollisionIndex = corpseIndex;
       }
     };
 
@@ -181,10 +189,64 @@ class DungeonGame {
     this.combatManager.clear();
     this.projectileManager.clear();
     this.dustManager.clear();
+    this.collisionManager.clear();
     this.enemyStickFigures.clear();
+
+    // 生成墙壁实体
+    this.generateWallEntities();
 
     // 重置玩家火柴人
     this.playerStickFigure.reset();
+  }
+
+  /**
+   * 生成墙壁实体（房间内的装饰/障碍物）
+   */
+  generateWallEntities() {
+    const rooms = this.dungeon.rooms;
+
+    for (let i = 1; i < rooms.length; i++) {
+      const room = rooms[i];
+
+      // 跳过太小的房间
+      if (room.width < 6 || room.height < 6) continue;
+
+      // 30% 概率生成墙壁实体
+      if (Math.random() < 0.3) {
+        // 在房间中央生成短墙或柱子
+        const wallType = Math.random();
+
+        if (wallType < 0.5) {
+          // 水平短墙
+          const wallX = room.x + 2;
+          const wallY = room.centerY;
+          const wallLength = Math.min(room.width - 4, 3 + Math.floor(Math.random() * 2));
+          this.collisionManager.addWall(wallX, wallY, wallX + wallLength, wallY, 0.3);
+        } else {
+          // 柱子（矩形）
+          const pillarX = room.centerX - 0.4 + (Math.random() - 0.5) * 2;
+          const pillarY = room.centerY - 0.4 + (Math.random() - 0.5) * 2;
+          this.collisionManager.addRectWall(pillarX, pillarY, 0.8, 0.8);
+        }
+      }
+
+      // 大房间可能有多个障碍物
+      if (room.width >= 8 && room.height >= 8 && Math.random() < 0.4) {
+        // 角落柱子
+        const corners = [
+          { x: room.x + 1.5, y: room.y + 1.5 },
+          { x: room.x + room.width - 2, y: room.y + 1.5 },
+          { x: room.x + 1.5, y: room.y + room.height - 2 },
+          { x: room.x + room.width - 2, y: room.y + room.height - 2 }
+        ];
+
+        // 随机选择1-2个角落放柱子
+        const selectedCorners = corners.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(Math.random() * 2));
+        for (const corner of selectedCorners) {
+          this.collisionManager.addRectWall(corner.x, corner.y, 0.6, 0.6);
+        }
+      }
+    }
   }
 
   /**
@@ -453,8 +515,8 @@ class DungeonGame {
     // 更新攻击输入（长按自动攻击）
     this.updateAttackInput();
 
-    // 更新玩家
-    this.player.update(this.deltaTime, this.dungeonGenerator);
+    // 更新玩家（传入碰撞管理器）
+    this.player.update(this.deltaTime, this.dungeonGenerator, this.collisionManager);
 
     // 更新玩家火柴人动画
     this.playerStickFigure.update(this.deltaTime, {
@@ -470,7 +532,7 @@ class DungeonGame {
     // 更新敌人
     for (const enemy of this.enemies) {
       if (!enemy.isDead()) {
-        enemy.update(this.deltaTime, this.player, this.dungeonGenerator);
+        enemy.update(this.deltaTime, this.player, this.dungeonGenerator, this.collisionManager);
       }
 
       // 更新敌人火柴人动画
@@ -494,6 +556,17 @@ class DungeonGame {
         isDead: enemy.isDead(),
         isHit: enemy.hitFlash > 0
       });
+
+      // 更新尸体碰撞位置（跟随两半身体的中心）
+      if (stickFigure.isDying && stickFigure.corpseCollisionIndex !== undefined) {
+        const corpseIndex = stickFigure.corpseCollisionIndex;
+        if (stickFigure.upperHalf && stickFigure.lowerHalf) {
+          // 尸体位置为两半的中心
+          const corpseX = enemy.x + (stickFigure.upperHalf.x + stickFigure.lowerHalf.x) / 2 * 0.03;
+          const corpseY = enemy.y + (stickFigure.upperHalf.y + stickFigure.lowerHalf.y) / 2 * 0.03;
+          this.collisionManager.updateCorpsePosition(corpseIndex, corpseX, corpseY);
+        }
+      }
     }
 
     // 清理已完全转化为经验的敌人
@@ -517,6 +590,9 @@ class DungeonGame {
     // 处理敌人近战攻击（敌人仍然可以近战）
     this.combatManager.processEnemyAttacks(this.enemies, this.player);
     this.combatManager.update(this.deltaTime);
+
+    // 更新碰撞管理器（尸体消失等）
+    this.collisionManager.update(this.deltaTime);
 
     // 更新物品
     this.itemManager.update(this.deltaTime, this.player);
@@ -575,6 +651,9 @@ class DungeonGame {
 
     // 渲染地牢
     this.renderDungeon();
+
+    // 渲染墙壁实体
+    this.renderWallEntities();
 
     // 渲染实体（按深度排序）
     this.renderEntities();
@@ -643,6 +722,59 @@ class DungeonGame {
           ctx.textAlign = 'center';
           ctx.fillText('出口', pos.x, pos.y - 20);
         }
+      }
+    }
+  }
+
+  /**
+   * 渲染墙壁实体（柱子、短墙等障碍物）
+   */
+  renderWallEntities() {
+    const ctx = this.ctx;
+
+    for (const wall of this.collisionManager.walls) {
+      if (wall.type === 'rect') {
+        // 渲染矩形墙壁/柱子（使用等轴测3D方块）
+        const blockHeight = 15;
+
+        // 顶面
+        const topColor = '#5a5a6a';
+        const leftColor = '#3a3a4a';
+        const rightColor = '#454555';
+
+        this.renderer.drawBlock(ctx, wall.x + wall.width / 2, wall.y + wall.height / 2,
+          blockHeight, topColor, leftColor, rightColor);
+      } else {
+        // 渲染线段墙壁
+        const pos1 = this.renderer.worldToScreen(wall.x1, wall.y1, 0);
+        const pos2 = this.renderer.worldToScreen(wall.x2, wall.y2, 0);
+        const height = 12 * this.renderer.zoom;
+
+        // 墙壁侧面
+        ctx.fillStyle = '#3a3a4a';
+        ctx.beginPath();
+        ctx.moveTo(pos1.x, pos1.y);
+        ctx.lineTo(pos2.x, pos2.y);
+        ctx.lineTo(pos2.x, pos2.y - height);
+        ctx.lineTo(pos1.x, pos1.y - height);
+        ctx.closePath();
+        ctx.fill();
+
+        // 墙壁顶面
+        ctx.fillStyle = '#5a5a6a';
+        ctx.beginPath();
+        const topOffset = 3 * this.renderer.zoom;
+        ctx.moveTo(pos1.x, pos1.y - height);
+        ctx.lineTo(pos2.x, pos2.y - height);
+        ctx.lineTo(pos2.x + topOffset, pos2.y - height - topOffset * 0.5);
+        ctx.lineTo(pos1.x + topOffset, pos1.y - height - topOffset * 0.5);
+        ctx.closePath();
+        ctx.fill();
+
+        // 边框
+        ctx.strokeStyle = '#2a2a3a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
     }
   }

@@ -203,7 +203,7 @@ class Player {
   /**
    * 更新
    */
-  update(deltaTime, dungeon) {
+  update(deltaTime, dungeon, collisionManager = null) {
     // 更新冷却
     if (this.attackCooldown > 0) {
       this.attackCooldown -= deltaTime;
@@ -231,10 +231,17 @@ class Player {
       const rollMoveX = this.rollDirection.x * this.rollSpeed * deltaTime * 0.1;
       const rollMoveY = this.rollDirection.y * this.rollSpeed * deltaTime * 0.1;
 
-      const newX = this.x + rollMoveX;
-      const newY = this.y + rollMoveY;
+      let newX = this.x + rollMoveX;
+      let newY = this.y + rollMoveY;
 
+      // 地形碰撞
       if (dungeon.isWalkable(newX, newY)) {
+        // 尸体/墙壁实体碰撞
+        if (collisionManager) {
+          const resolved = collisionManager.resolveCollision(newX, newY, 0.3);
+          newX = resolved.x;
+          newY = resolved.y;
+        }
         this.x = newX;
         this.y = newY;
       }
@@ -257,15 +264,22 @@ class Player {
         const moveX = (dx / dist) * Math.min(moveSpeed, dist);
         const moveY = (dy / dist) * Math.min(moveSpeed, dist);
 
-        const newX = this.x + moveX;
-        const newY = this.y + moveY;
+        let newX = this.x + moveX;
+        let newY = this.y + moveY;
 
-        // 碰撞检测
+        // 地形碰撞检测
         if (dungeon.isWalkable(newX, this.y)) {
           this.x = newX;
         }
         if (dungeon.isWalkable(this.x, newY)) {
           this.y = newY;
+        }
+
+        // 尸体/墙壁实体碰撞
+        if (collisionManager) {
+          const resolved = collisionManager.resolveCollision(this.x, this.y, 0.3);
+          this.x = resolved.x;
+          this.y = resolved.y;
         }
 
         // 更新面朝方向

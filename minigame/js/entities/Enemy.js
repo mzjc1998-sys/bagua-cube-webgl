@@ -136,7 +136,7 @@ class Enemy {
   /**
    * 更新AI
    */
-  update(deltaTime, player, dungeon) {
+  update(deltaTime, player, dungeon, collisionManager = null) {
     // 更新冷却和动画
     if (this.attackCooldown > 0) this.attackCooldown -= deltaTime;
     if (this.attackAnimation > 0) {
@@ -148,9 +148,15 @@ class Enemy {
 
     // 处理击退
     if (this.knockbackX !== 0 || this.knockbackY !== 0) {
-      const newX = this.x + this.knockbackX * deltaTime * 0.01;
-      const newY = this.y + this.knockbackY * deltaTime * 0.01;
+      let newX = this.x + this.knockbackX * deltaTime * 0.01;
+      let newY = this.y + this.knockbackY * deltaTime * 0.01;
       if (dungeon.isWalkable(newX, newY)) {
+        // 墙壁实体碰撞
+        if (collisionManager) {
+          const resolved = collisionManager.resolveCollision(newX, newY, 0.25);
+          newX = resolved.x;
+          newY = resolved.y;
+        }
         this.x = newX;
         this.y = newY;
       }
@@ -170,7 +176,7 @@ class Enemy {
     this.updateAI(deltaTime, player, distToPlayer, dungeon);
 
     // 移动
-    this.updateMovement(deltaTime, dungeon);
+    this.updateMovement(deltaTime, dungeon, collisionManager);
   }
 
   /**
@@ -282,7 +288,7 @@ class Enemy {
   /**
    * 更新移动
    */
-  updateMovement(deltaTime, dungeon) {
+  updateMovement(deltaTime, dungeon, collisionManager = null) {
     if (this.isAttacking) return;
 
     const dx = this.targetX - this.x;
@@ -294,14 +300,22 @@ class Enemy {
       const moveX = (dx / dist) * Math.min(moveSpeed, dist);
       const moveY = (dy / dist) * Math.min(moveSpeed, dist);
 
-      const newX = this.x + moveX;
-      const newY = this.y + moveY;
+      let newX = this.x + moveX;
+      let newY = this.y + moveY;
 
+      // 地形碰撞
       if (dungeon.isWalkable(newX, this.y)) {
         this.x = newX;
       }
       if (dungeon.isWalkable(this.x, newY)) {
         this.y = newY;
+      }
+
+      // 墙壁实体碰撞
+      if (collisionManager) {
+        const resolved = collisionManager.resolveCollision(this.x, this.y, 0.25);
+        this.x = resolved.x;
+        this.y = resolved.y;
       }
 
       // 更新面朝方向
