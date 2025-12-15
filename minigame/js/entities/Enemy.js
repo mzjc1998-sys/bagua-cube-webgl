@@ -62,6 +62,7 @@ class Enemy {
         this.color = '#9C27B0';
         this.expReward = 50;
         this.dropChance = 0.6;
+        this.knockbackResistance = 0.6; // 60%击退抗性
         break;
 
       case 'boss':
@@ -77,6 +78,7 @@ class Enemy {
         this.color = '#F44336';
         this.expReward = 200;
         this.dropChance = 1.0;
+        this.knockbackResistance = 0.85; // 85%击退抗性
         break;
 
       case 'patrol':
@@ -93,6 +95,7 @@ class Enemy {
         this.expReward = 15;
         this.dropChance = 0.2;
         this.patrolRadius = 3;
+        this.knockbackResistance = 0.2; // 20%击退抗性
         break;
 
       case 'ranged':
@@ -110,6 +113,7 @@ class Enemy {
         this.dropChance = 0.25;
         this.isRanged = true;
         this.preferredDistance = 4;
+        this.knockbackResistance = 0.1; // 10%击退抗性
         break;
 
       default: // normal
@@ -125,6 +129,7 @@ class Enemy {
         this.color = '#E91E63';
         this.expReward = 20;
         this.dropChance = 0.3;
+        this.knockbackResistance = 0.3; // 30%击退抗性
     }
   }
 
@@ -343,9 +348,11 @@ class Enemy {
     this.hp -= actualDamage;
     this.hitFlash = 150;
 
-    // 击退
+    // 击退（应用击退抗性）
     if (knockbackAngle !== null) {
-      const knockbackForce = 5;
+      const baseKnockbackForce = 5;
+      const resistance = this.knockbackResistance || 0;
+      const knockbackForce = baseKnockbackForce * (1 - resistance);
       this.knockbackX = Math.cos(knockbackAngle) * knockbackForce;
       this.knockbackY = Math.sin(knockbackAngle) * knockbackForce;
     }

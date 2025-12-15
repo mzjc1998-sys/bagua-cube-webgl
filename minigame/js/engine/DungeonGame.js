@@ -632,9 +632,12 @@ class DungeonGame {
       depth: this.renderer.getDepth(this.player.x, this.player.y)
     });
 
-    // 添加敌人
+    // 添加敌人（包括死亡中的敌人，用于显示死亡动画）
     for (const enemy of this.enemies) {
-      if (!enemy.isDead()) {
+      const stickFigure = this.enemyStickFigures.get(enemy);
+      // 活着的敌人，或者死亡但动画未完成的敌人都需要渲染
+      const shouldRender = !enemy.isDead() || (stickFigure && !stickFigure.isFullyConverted());
+      if (shouldRender) {
         entities.push({
           type: 'enemy',
           entity: enemy,
@@ -718,8 +721,8 @@ class DungeonGame {
     const stickFigure = this.enemyStickFigures.get(enemy);
 
     if (stickFigure) {
-      // 受击闪白
-      if (enemy.hitFlash > 0) {
+      // 受击闪白（只有活着时才闪白）
+      if (!enemy.isDead() && enemy.hitFlash > 0) {
         stickFigure.setColor('#FFFFFF');
       } else {
         stickFigure.setColor(enemy.color);
@@ -733,16 +736,19 @@ class DungeonGame {
       stickFigure.render(ctx, pos.x, pos.y - 12 * scale, scale, facingRight);
     }
 
-    // 绘制血条
-    this.renderer.drawHealthBar(ctx, enemy.x, enemy.y, 25, enemy.hp, enemy.maxHP);
+    // 只有活着的敌人才显示血条和标记
+    if (!enemy.isDead()) {
+      // 绘制血条
+      this.renderer.drawHealthBar(ctx, enemy.x, enemy.y, 25, enemy.hp, enemy.maxHP);
 
-    // 精英/Boss标记
-    if (enemy.type === 'elite' || enemy.type === 'boss') {
-      const labelPos = this.renderer.worldToScreen(enemy.x, enemy.y, 50);
-      ctx.fillStyle = enemy.type === 'boss' ? '#F44336' : '#9C27B0';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(enemy.type === 'boss' ? 'BOSS' : '精英', labelPos.x, labelPos.y);
+      // 精英/Boss标记
+      if (enemy.type === 'elite' || enemy.type === 'boss') {
+        const labelPos = this.renderer.worldToScreen(enemy.x, enemy.y, 50);
+        ctx.fillStyle = enemy.type === 'boss' ? '#F44336' : '#9C27B0';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(enemy.type === 'boss' ? 'BOSS' : '精英', labelPos.x, labelPos.y);
+      }
     }
   }
 
