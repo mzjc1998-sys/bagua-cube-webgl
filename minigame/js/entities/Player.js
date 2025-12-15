@@ -58,6 +58,21 @@ class Player {
     this.bonusAttack = 0;
     this.bonusDefense = 0;
     this.bonusSpeed = 0;
+
+    // 黑色粉末/染黑系统
+    this.darkness = 0; // 总暗度 0-100
+    this.maxDarkness = 100;
+    this.blackenedParts = {
+      head: 0,      // 每个部位 0-100
+      bodyUpper: 0,
+      bodyLower: 0,
+      armL: 0,
+      armR: 0,
+      legL: 0,
+      legR: 0
+    };
+    this.evolutionReady = false;
+    this.evolutionChoices = null;
   }
 
   /**
@@ -268,6 +283,131 @@ class Player {
    */
   isDead() {
     return this.hp <= 0;
+  }
+
+  /**
+   * 收集黑色粉末
+   */
+  collectDust(amount) {
+    if (this.evolutionReady) return;
+
+    // 随机选择一个部位染黑
+    const parts = Object.keys(this.blackenedParts);
+    const availableParts = parts.filter(p => this.blackenedParts[p] < 100);
+
+    if (availableParts.length === 0) {
+      // 所有部位已染黑
+      this.checkEvolutionReady();
+      return;
+    }
+
+    // 随机选择部位
+    const targetPart = availableParts[Math.floor(Math.random() * availableParts.length)];
+    const addAmount = amount * 2; // 每个粉末增加的染黑度
+
+    this.blackenedParts[targetPart] = Math.min(100, this.blackenedParts[targetPart] + addAmount);
+
+    // 更新总暗度
+    this.updateTotalDarkness();
+  }
+
+  /**
+   * 更新总暗度
+   */
+  updateTotalDarkness() {
+    const parts = Object.keys(this.blackenedParts);
+    let total = 0;
+    for (const part of parts) {
+      total += this.blackenedParts[part];
+    }
+    this.darkness = total / parts.length;
+
+    // 检查是否可以进化
+    this.checkEvolutionReady();
+  }
+
+  /**
+   * 检查是否可以进化
+   */
+  checkEvolutionReady() {
+    const allBlackened = Object.values(this.blackenedParts).every(v => v >= 100);
+    if (allBlackened && !this.evolutionReady) {
+      this.evolutionReady = true;
+      // 生成进化选项
+      this.evolutionChoices = this.generateEvolutionChoices();
+    }
+  }
+
+  /**
+   * 生成进化选项
+   */
+  generateEvolutionChoices() {
+    const allChoices = [
+      { id: 'shadow', name: '暗影形态', desc: '移动速度+50%，攻击附带暗影伤害', color: '#2d1a4a' },
+      { id: 'void', name: '虚空之躯', desc: '生命上限+100，受伤时有几率闪避', color: '#1a0a2a' },
+      { id: 'abyss', name: '深渊之力', desc: '攻击力+80%，攻击范围增大', color: '#0a0a1a' },
+      { id: 'corruption', name: '腐化', desc: '攻击附带腐蚀，持续伤害敌人', color: '#3a1a3a' },
+      { id: 'darkness', name: '黑暗使徒', desc: '技能冷却减半，翻滚距离增加', color: '#1a1a2a' }
+    ];
+
+    // 随机选择3个
+    const shuffled = allChoices.sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 3);
+  }
+
+  /**
+   * 选择进化
+   */
+  evolve(choiceId) {
+    if (!this.evolutionReady || !this.evolutionChoices) return false;
+
+    const choice = this.evolutionChoices.find(c => c.id === choiceId);
+    if (!choice) return false;
+
+    // 应用进化效果
+    switch (choiceId) {
+      case 'shadow':
+        this.bonusSpeed += 0.04;
+        this.bonusAttack += 5;
+        this.color = choice.color;
+        break;
+      case 'void':
+        this.maxHP += 100;
+        this.hp = this.maxHP;
+        this.color = choice.color;
+        break;
+      case 'abyss':
+        this.attack = Math.floor(this.attack * 1.8);
+        this.attackRange *= 1.3;
+        this.color = choice.color;
+        break;
+      case 'corruption':
+        this.bonusAttack += 10;
+        this.color = choice.color;
+        break;
+      case 'darkness':
+        this.attackSpeed *= 0.5;
+        this.rollDuration *= 1.5;
+        this.color = choice.color;
+        break;
+    }
+
+    // 重置染黑状态，可以再次收集
+    this.evolutionReady = false;
+    this.evolutionChoices = null;
+    for (const part in this.blackenedParts) {
+      this.blackenedParts[part] = 0;
+    }
+    this.darkness = 0;
+
+    return true;
+  }
+
+  /**
+   * 获取部位染黑程度
+   */
+  getBlackenedParts() {
+    return this.blackenedParts;
   }
 
   /**

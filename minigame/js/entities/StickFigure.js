@@ -471,8 +471,9 @@ class StickFigure {
 
   /**
    * 渲染火柴人
+   * @param blackenedParts - 可选，染黑部位信息 { head: 0-100, armL: 0-100, ... }
    */
-  render(ctx, screenX, screenY, scale = 1, facingRight = true) {
+  render(ctx, screenX, screenY, scale = 1, facingRight = true, blackenedParts = null) {
     // 如果已断成两截，渲染两半
     if (this.isBisected) {
       this.renderBisectedBody(ctx, screenX, screenY, scale, facingRight);
@@ -485,8 +486,6 @@ class StickFigure {
     ctx.scale(scale * (facingRight ? 1 : -1), scale);
     ctx.globalAlpha = this.fadeAlpha;
 
-    ctx.strokeStyle = this.color;
-    ctx.fillStyle = this.color;
     ctx.lineWidth = this.lineWidth;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -495,28 +494,92 @@ class StickFigure {
       ? this.ragdollBones
       : this.getAnimatedBones(this.currentAnim, this.animTime, facingRight);
 
-    // 绘制身体
+    // 获取部位颜色（根据染黑程度）
+    const getPartColor = (part) => {
+      if (!blackenedParts || blackenedParts[part] === undefined) return this.color;
+      const darkness = blackenedParts[part] / 100;
+      return this.lerpColor(this.color, '#1a0a1a', darkness);
+    };
+
+    // 绘制身体（上身）
+    ctx.strokeStyle = getPartColor('bodyUpper');
+    ctx.fillStyle = getPartColor('bodyUpper');
     this.drawLimb(ctx, bones.neck, bones.spine);
+
+    // 绘制身体（下身）
+    ctx.strokeStyle = getPartColor('bodyLower');
+    ctx.fillStyle = getPartColor('bodyLower');
     this.drawLimb(ctx, bones.spine, bones.hip);
 
-    // 手臂
+    // 左手臂
+    ctx.strokeStyle = getPartColor('armL');
+    ctx.fillStyle = getPartColor('armL');
     this.drawLimb(ctx, bones.shoulderL, bones.elbowL);
     this.drawLimb(ctx, bones.elbowL, bones.handL);
+
+    // 右手臂
+    ctx.strokeStyle = getPartColor('armR');
+    ctx.fillStyle = getPartColor('armR');
     this.drawLimb(ctx, bones.shoulderR, bones.elbowR);
     this.drawLimb(ctx, bones.elbowR, bones.handR);
 
-    // 腿
+    // 左腿
+    ctx.strokeStyle = getPartColor('legL');
+    ctx.fillStyle = getPartColor('legL');
     this.drawLimb(ctx, bones.hipL, bones.kneeL);
     this.drawLimb(ctx, bones.kneeL, bones.footL);
+
+    // 右腿
+    ctx.strokeStyle = getPartColor('legR');
+    ctx.fillStyle = getPartColor('legR');
     this.drawLimb(ctx, bones.hipR, bones.kneeR);
     this.drawLimb(ctx, bones.kneeR, bones.footR);
 
     // 头部
+    ctx.fillStyle = getPartColor('head');
     ctx.beginPath();
     ctx.arc(bones.head.x, bones.head.y, bones.head.radius || 8, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
+  }
+
+  /**
+   * 颜色插值
+   */
+  lerpColor(color1, color2, t) {
+    // 解析颜色
+    const c1 = this.parseColor(color1);
+    const c2 = this.parseColor(color2);
+
+    const r = Math.round(c1.r + (c2.r - c1.r) * t);
+    const g = Math.round(c1.g + (c2.g - c1.g) * t);
+    const b = Math.round(c1.b + (c2.b - c1.b) * t);
+
+    return `rgb(${r},${g},${b})`;
+  }
+
+  /**
+   * 解析颜色为RGB
+   */
+  parseColor(color) {
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      if (hex.length === 3) {
+        return {
+          r: parseInt(hex[0] + hex[0], 16),
+          g: parseInt(hex[1] + hex[1], 16),
+          b: parseInt(hex[2] + hex[2], 16)
+        };
+      }
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+    // 默认返回橙色
+    return { r: 255, g: 136, b: 0 };
   }
 
   /**

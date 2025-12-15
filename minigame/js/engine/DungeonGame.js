@@ -11,6 +11,7 @@ import CombatManager from '../combat/CombatManager.js';
 import ItemManager from '../items/ItemManager.js';
 import ProjectileManager from '../combat/ProjectileManager.js';
 import StickFigure from '../entities/StickFigure.js';
+import DustManager from '../combat/DustManager.js';
 
 class DungeonGame {
   constructor() {
@@ -26,6 +27,7 @@ class DungeonGame {
     this.combatManager = new CombatManager();
     this.itemManager = new ItemManager();
     this.projectileManager = new ProjectileManager();
+    this.dustManager = new DustManager();
 
     // 火柴人渲染器
     this.playerStickFigure = new StickFigure('#FF8800'); // 橙色火柴人（Alan Becker风格）
@@ -180,6 +182,7 @@ class DungeonGame {
     this.itemManager.clear();
     this.combatManager.clear();
     this.projectileManager.clear();
+    this.dustManager.clear();
     this.enemyStickFigures.clear();
 
     // 重置玩家火柴人
@@ -213,6 +216,12 @@ class DungeonGame {
    * 处理触摸开始
    */
   handleTouchStart(id, x, y) {
+    // 进化选择界面
+    if (this.gameState === 'evolution') {
+      this.handleEvolutionTouch(x, y);
+      return;
+    }
+
     // 检查攻击按钮（支持长按和滑动）
     if (this.attackButton && this.isInCircle(x, y, this.attackButton)) {
       this.attackInput.active = true;
@@ -470,9 +479,10 @@ class DungeonGame {
       let stickFigure = this.enemyStickFigures.get(enemy);
       if (!stickFigure) {
         stickFigure = new StickFigure(enemy.color);
-        // 设置经验回调
-        stickFigure.onExpReady = (expAmount) => {
-          this.player.gainExp(expAmount + (enemy.expReward || 20));
+        // 尸体消失时产生黑色粉末
+        stickFigure.onExpReady = () => {
+          // 在尸体位置产生黑色粉末
+          this.dustManager.addDustSource(enemy.x, enemy.y, 50 + (enemy.expReward || 20));
         };
         this.enemyStickFigures.set(enemy, stickFigure);
       }
@@ -509,11 +519,22 @@ class DungeonGame {
     // 更新物品
     this.itemManager.update(this.deltaTime, this.player);
 
+    // 更新黑色粉末并检测收集
+    const collectedDust = this.dustManager.update(this.deltaTime, this.player);
+    if (collectedDust > 0) {
+      this.player.collectDust(collectedDust);
+    }
+
     // 相机跟随
     this.renderer.followTarget(this.player.x, this.player.y, 0.08);
 
     // 检查游戏状态
     this.checkGameState();
+
+    // 检查进化状态
+    if (this.player.evolutionReady) {
+      this.gameState = 'evolution';
+    }
   }
 
   /**
@@ -565,11 +586,19 @@ class DungeonGame {
     // 渲染物品
     this.itemManager.render(ctx, this.renderer);
 
+    // 渲染黑色粉末
+    this.dustManager.render(ctx, this.renderer);
+
     // 渲染伤害数字
     this.combatManager.renderDamageNumbers(ctx, this.renderer);
 
     // 渲染UI
     this.renderUI();
+
+    // 渲染进化选择界面
+    if (this.gameState === 'evolution') {
+      this.renderEvolutionUI();
+    }
   }
 
   /**
@@ -676,9 +705,9 @@ class DungeonGame {
     // 判断面朝方向（用于火柴人镜像）
     const facingRight = Math.cos(p.facingAngle) >= 0;
 
-    // 渲染火柴人
+    // 渲染火柴人（带染黑效果）
     const scale = this.renderer.zoom * 0.8;
-    this.playerStickFigure.render(ctx, pos.x, pos.y - 15 * scale, scale, facingRight);
+    this.playerStickFigure.render(ctx, pos.x, pos.y - 15 * scale, scale, facingRight, p.getBlackenedParts());
 
     // 绘制面朝方向指示器（射击方向）
     if (this.attackInput.active || p.isAttacking) {
@@ -796,16 +825,16 @@ class DungeonGame {
     ctx.font = '12px sans-serif';
     ctx.fillText(`HP: ${p.hp}/${p.maxHP}`, 145, 33);
 
-    // 经验条
+    // 暗度条（替代经验条）
     ctx.fillStyle = '#333';
     ctx.fillRect(20, 42, 120, 10);
-    ctx.fillStyle = '#9C27B0';
-    ctx.fillRect(20, 42, 120 * (p.exp / p.expToNextLevel), 10);
+    ctx.fillStyle = '#4a1a4a';
+    ctx.fillRect(20, 42, 120 * (p.darkness / 100), 10);
 
-    // 等级
-    ctx.fillStyle = '#FFD700';
+    // 暗度数值
+    ctx.fillStyle = '#A78BFA';
     ctx.font = 'bold 14px sans-serif';
-    ctx.fillText(`Lv.${p.level}`, 20, 70);
+    ctx.fillText(`暗度 ${Math.floor(p.darkness)}%`, 20, 70);
 
     // 楼层
     ctx.fillStyle = '#FFF';
@@ -987,6 +1016,106 @@ class DungeonGame {
 
     ctx.font = '18px sans-serif';
     ctx.fillText('点击屏幕重新开始', this.screenWidth / 2, this.screenHeight / 2 + 100);
+  }
+
+  /**
+   * 渲染进化选择界面
+   */
+  renderEvolutionUI() {
+    const ctx = this.ctx;
+    const choices = this.player.evolutionChoices;
+    if (!choices) return;
+
+    // 遮罩
+    ctx.fillStyle = 'rgba(10, 5, 20, 0.9)';
+    ctx.fillRect(0, 0, this.screenWidth, this.screenHeight);
+
+    // 标题
+    ctx.fillStyle = '#8B5CF6';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('黑暗觉醒', this.screenWidth / 2, 60);
+
+    ctx.fillStyle = '#A78BFA';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('你的身体已被黑暗完全侵蚀，选择你的进化形态', this.screenWidth / 2, 90);
+
+    // 保存进化选项按钮位置
+    this.evolutionButtons = [];
+
+    // 绘制选项
+    const cardWidth = Math.min(280, this.screenWidth * 0.8);
+    const cardHeight = 120;
+    const startY = 130;
+    const gap = 20;
+
+    for (let i = 0; i < choices.length; i++) {
+      const choice = choices[i];
+      const cardX = (this.screenWidth - cardWidth) / 2;
+      const cardY = startY + i * (cardHeight + gap);
+
+      // 保存按钮位置
+      this.evolutionButtons.push({
+        x: cardX,
+        y: cardY,
+        width: cardWidth,
+        height: cardHeight,
+        choiceId: choice.id
+      });
+
+      // 卡片背景
+      ctx.fillStyle = choice.color;
+      ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
+
+      // 边框发光
+      ctx.strokeStyle = '#8B5CF6';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cardX, cardY, cardWidth, cardHeight);
+
+      // 内部渐变
+      const gradient = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardHeight);
+      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)');
+      gradient.addColorStop(1, 'transparent');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
+
+      // 名称
+      ctx.fillStyle = '#E9D5FF';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(choice.name, cardX + 15, cardY + 35);
+
+      // 描述
+      ctx.fillStyle = '#C4B5FD';
+      ctx.font = '14px sans-serif';
+      ctx.fillText(choice.desc, cardX + 15, cardY + 65);
+
+      // 点击提示
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('点击选择', cardX + cardWidth - 15, cardY + cardHeight - 15);
+    }
+  }
+
+  /**
+   * 处理进化选择点击
+   */
+  handleEvolutionTouch(x, y) {
+    if (this.gameState !== 'evolution' || !this.evolutionButtons) return false;
+
+    for (const btn of this.evolutionButtons) {
+      if (x >= btn.x && x <= btn.x + btn.width &&
+          y >= btn.y && y <= btn.y + btn.height) {
+        // 选择进化
+        if (this.player.evolve(btn.choiceId)) {
+          this.gameState = 'playing';
+          this.evolutionButtons = null;
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }
 
