@@ -14,7 +14,7 @@ class GameEngine {
     this.dpr = 1;
 
     // 游戏状态
-    this.gameState = 'title'; // title, playing, paused, menu
+    this.gameState = 'playing'; // playing, paused, menu (跳过标题直接开始)
 
     // 模块引用
     this.dialogueManager = null;
@@ -80,7 +80,12 @@ class GameEngine {
     this.lastTime = Date.now();
     this.gameLoop();
 
-    console.log('[GameEngine] 初始化完成');
+    // 直接开始冒险（跳过标题）
+    if (this.storyData) {
+      this.jumpToNode(this.storyData.startNode || 'start');
+    }
+
+    console.log('[GameEngine] 初始化完成，直接开始冒险');
   }
 
   /**
@@ -183,11 +188,6 @@ class GameEngine {
     if (menuBtn && this.isInRect(x, y, menuBtn)) {
       this.openMenu();
       return;
-    }
-
-    // 推进对话
-    if (this.dialogueManager) {
-      this.dialogueManager.advance();
     }
   }
 
@@ -351,21 +351,18 @@ class GameEngine {
       this.audioManager.playSFX(node.sfx);
     }
 
-    // 处理对话
-    if (node.dialogues && this.dialogueManager) {
-      this.dialogueManager.setDialogues(node.dialogues, () => {
-        this.onDialoguesComplete(node);
-      });
-    }
-
-    // 处理选项
-    if (node.choices && this.choiceManager) {
-      this.choiceManager.setChoices(node.choices);
-    }
-
     // 处理变量设置
     if (node.setVariables) {
       Object.assign(this.gameVariables, node.setVariables);
+    }
+
+    // 直接显示选项（无对话）
+    if (node.choices && node.choices.length > 0 && this.choiceManager) {
+      this.choiceManager.setChoices(node.choices);
+      this.choiceManager.show();
+    } else if (node.next) {
+      // 无选项则自动跳转下一节点
+      this.jumpToNode(node.next);
     }
   }
 
@@ -485,14 +482,14 @@ class GameEngine {
     // 更新过渡动画
     this.updateTransition();
 
-    // 更新对话
-    if (this.dialogueManager) {
-      this.dialogueManager.update(this.deltaTime);
-    }
-
     // 更新场景
     if (this.sceneManager) {
       this.sceneManager.update(this.deltaTime);
+    }
+
+    // 更新选项动画
+    if (this.choiceManager) {
+      this.choiceManager.update(this.deltaTime);
     }
   }
 
@@ -539,11 +536,6 @@ class GameEngine {
     // 渲染场景背景
     if (this.sceneManager) {
       this.sceneManager.render(this.ctx, this.screenWidth, this.screenHeight);
-    }
-
-    // 渲染对话框
-    if (this.dialogueManager) {
-      this.dialogueManager.render(this.ctx, this.screenWidth, this.screenHeight);
     }
 
     // 渲染选项
