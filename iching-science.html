@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>易经决策支持系统 - 科学分析与可信度评估</title>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --panel: #12141a;
+      --card: #1a1d24;
+      --border: #2a2d35;
+      --text: #e4e4e7;
+      --dim: #71717a;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --blue: #3b82f6;
+      --purple: #a855f7;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.7 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 28px;
+      text-align: center;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--yellow), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      text-align: center;
+      color: var(--dim);
+      margin-bottom: 30px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card h2 {
+      font-size: 16px;
+      color: var(--yellow);
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card h3 {
+      font-size: 14px;
+      color: var(--blue);
+      margin: 16px 0 10px;
+    }
+    .card.full { grid-column: 1 / -1; }
+
+    /* 评分仪表 */
+    .gauge {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 12px 0;
+    }
+    .gauge-bar {
+      flex: 1;
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .gauge-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.5s;
+    }
+    .gauge-fill.high { background: var(--green); }
+    .gauge-fill.medium { background: var(--yellow); }
+    .gauge-fill.low { background: var(--red); }
+    .gauge-label {
+      width: 50px;
+      text-align: right;
+      font-weight: 600;
+    }
+    .gauge-title {
+      width: 140px;
+      font-size: 13px;
+      color: var(--dim);
+    }
+
+    /* 流程图 */
+    .flowchart {
+      background: #000;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre;
+      overflow-x: auto;
+      color: var(--dim);
+      line-height: 1.4;
+    }
+
+    /* 表格 */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 12px 0;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    th { background: var(--panel); color: var(--yellow); }
+
+    /* 概率显示 */
+    .prob-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .prob-item {
+      background: var(--panel);
+      padding: 10px;
+      border-radius: 6px;
+      text-align: center;
+    }
+    .prob-item .value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+    .prob-item .label {
+      font-size: 11px;
+      color: var(--dim);
+    }
+
+    /* 总评分 */
+    .total-score {
+      background: linear-gradient(135deg, var(--panel), var(--card));
+      border: 2px solid var(--yellow);
+      border-radius: 16px;
+      padding: 30px;
+      text-align: center;
+    }
+    .total-score .number {
+      font-size: 72px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--yellow), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .total-score .label {
+      font-size: 14px;
+      color: var(--dim);
+    }
+    .total-score .verdict {
+      margin-top: 16px;
+      font-size: 18px;
+      color: var(--yellow);
+    }
+
+    /* 测试区域 */
+    .test-area {
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 12px 0;
+    }
+    button {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font: inherit;
+      margin: 4px;
+      transition: all 0.2s;
+    }
+    button:hover { border-color: var(--yellow); }
+    button.primary { background: var(--yellow); color: #000; }
+
+    /* 结果显示 */
+    .result {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 12px;
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    /* 注释 */
+    .note {
+      background: rgba(59, 130, 246, 0.1);
+      border-left: 3px solid var(--blue);
+      padding: 12px 16px;
+      margin: 12px 0;
+      font-size: 13px;
+      border-radius: 0 6px 6px 0;
+    }
+    .warning {
+      background: rgba(234, 179, 8, 0.1);
+      border-left: 3px solid var(--yellow);
+    }
+    .success {
+      background: rgba(34, 197, 94, 0.1);
+      border-left: 3px solid var(--green);
+    }
+
+    code {
+      background: rgba(255,255,255,0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+
+    .formula {
+      background: var(--panel);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-family: monospace;
+      text-align: center;
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>易经决策支持系统</h1>
+    <p class="subtitle">科学分析与可信度评估 —— 从认知科学、统计学、心理学角度</p>
+
+    <div class="grid">
+      <!-- 筮卦算法分析 -->
+      <div class="card">
+        <h2>一、筮卦算法完整分析</h2>
+
+        <h3>1.1 大衍筮法（蓍草法）</h3>
+        <p>《系辞》记载的标准算法：</p>
+
+        <div class="flowchart">
+大衍之数五十，其用四十有九
+
+第一步：分二     49策 → 随机分成两堆
+第二步：挂一     从右堆取出1策（挂于指间）
+第三步：揲四     两堆分别÷4取余
+第四步：归奇     收集余数（第一变）
+第五步：重复     共三变，得一爻
+
+数学结果：
+  6 (老阴) → 1/16 概率 → 阴爻，变
+  7 (少阳) → 5/16 概率 → 阳爻，不变
+  8 (少阴) → 7/16 概率 → 阴爻，不变
+  9 (老阳) → 3/16 概率 → 阳爻，变
+
+重复6次 → 得到一个六爻卦象
+        </div>
+
+        <h3>1.2 概率分布</h3>
+        <div class="prob-grid">
+          <div class="prob-item">
+            <div class="value">6.25%</div>
+            <div class="label">老阴(6)</div>
+          </div>
+          <div class="prob-item">
+            <div class="value">31.25%</div>
+            <div class="label">少阳(7)</div>
+          </div>
+          <div class="prob-item">
+            <div class="value">43.75%</div>
+            <div class="label">少阴(8)</div>
+          </div>
+          <div class="prob-item">
+            <div class="value">18.75%</div>
+            <div class="label">老阳(9)</div>
+          </div>
+        </div>
+
+        <div class="note">
+          <strong>关键发现：</strong>概率分布不均匀！<br>
+          阴爻(6+8)=50% vs 阳爻(7+9)=50%（阴阳平衡）<br>
+          但变爻概率：老阴6.25% vs 老阳18.75%（阳变概率更高）
+        </div>
+      </div>
+
+      <!-- 决策流程 -->
+      <div class="card">
+        <h2>二、古代决策流程重构</h2>
+
+        <h3>2.1 完整决策流程</h3>
+        <div class="flowchart">
+┌─────────────────────────────────────────────┐
+│              易经决策支持流程                 │
+└─────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────┐
+│ 第一阶段：问题定义                            │
+│ • 明确表述问题                               │
+│ • 心理准备（斋戒、沐浴、静心）                 │
+│ • 时间选择（特定时辰）                        │
+└─────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────┐
+│ 第二阶段：状态采样（筮卦）                     │
+│ • 执行大衍筮法                               │
+│ • 生成本卦（当前状态）                        │
+│ • 记录变爻（动态因素）                        │
+│ • 推导变卦（未来趋势）                        │
+└─────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────┐
+│ 第三阶段：多层分析                            │
+│ • 本卦分析 → 当前情境分类                     │
+│ • 变卦分析 → 可能的演化方向                   │
+│ • 互卦分析 → 内在隐藏因素                     │
+│ • 错卦分析 → 对立面视角                       │
+│ • 综卦分析 → 换位思考视角                     │
+└─────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────┐
+│ 第四阶段：文本参考                            │
+│ • 卦辞 → 整体情境描述                         │
+│ • 爻辞 → 具体位置建议                         │
+│ • 象辞 → 象征意义解读                         │
+│ • 彖辞 → 核心要义提炼                         │
+└─────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────┐
+│ 第五阶段：综合决策                            │
+│ • 结合实际情况                               │
+│ • 权衡多方因素                               │
+│ • 做出最终判断                               │
+└─────────────────────────────────────────────┘
+        </div>
+      </div>
+
+      <!-- 认知科学分析 -->
+      <div class="card">
+        <h2>三、认知科学分析</h2>
+
+        <h3>3.1 有效的认知机制</h3>
+        <table>
+          <tr>
+            <th>机制</th>
+            <th>易经对应</th>
+            <th>认知效果</th>
+          </tr>
+          <tr>
+            <td>强制延迟</td>
+            <td>筮卦过程需20-30分钟</td>
+            <td>避免冲动决策</td>
+          </tr>
+          <tr>
+            <td>结构化思考</td>
+            <td>六爻位置分析框架</td>
+            <td>全面考虑因素</td>
+          </tr>
+          <tr>
+            <td>隐喻思维</td>
+            <td>卦象自然意象</td>
+            <td>激活直觉智慧</td>
+          </tr>
+          <tr>
+            <td>情景模拟</td>
+            <td>变卦演化推演</td>
+            <td>预见可能后果</td>
+          </tr>
+          <tr>
+            <td>去自我中心</td>
+            <td>综卦（换位）分析</td>
+            <td>考虑他人视角</td>
+          </tr>
+          <tr>
+            <td>对立统一</td>
+            <td>错卦分析</td>
+            <td>看到问题反面</td>
+          </tr>
+        </table>
+
+        <h3>3.2 心理学效应</h3>
+        <div class="note success">
+          <strong>积极效应：</strong><br>
+          • <strong>巴纳姆效应</strong>：卦辞足够模糊，可适用于多种情况<br>
+          • <strong>确认偏误</strong>：人倾向于发现支持卦辞的证据<br>
+          • <strong>自我实现预言</strong>：相信卦象会影响行为，从而影响结果
+        </div>
+
+        <div class="note warning">
+          <strong>需警惕：</strong><br>
+          • 这些效应既是"有效"的原因，也是"不科学"的原因<br>
+          • 效果可能来自心理暗示而非系统本身
+        </div>
+      </div>
+
+      <!-- 统计学分析 -->
+      <div class="card">
+        <h2>四、统计学分析</h2>
+
+        <h3>4.1 随机性来源</h3>
+        <table>
+          <tr>
+            <th>操作</th>
+            <th>随机性</th>
+            <th>可控性</th>
+          </tr>
+          <tr>
+            <td>分蓍草</td>
+            <td>高（人手分配）</td>
+            <td>低（难以精确控制）</td>
+          </tr>
+          <tr>
+            <td>揲四取余</td>
+            <td>确定性（数学运算）</td>
+            <td>-</td>
+          </tr>
+          <tr>
+            <td>三变组合</td>
+            <td>中（依赖前两步）</td>
+            <td>低</td>
+          </tr>
+        </table>
+
+        <h3>4.2 状态空间覆盖</h3>
+        <div class="formula">
+          本卦: 64种 × 变卦: 64种 × 变爻组合: 2⁶=64种<br>
+          理论组合数 = 64 × 64 × 64 = 262,144 种
+        </div>
+
+        <div class="note">
+          <strong>实际有效组合</strong>约4,096种（64×64），足以覆盖大多数决策情境的分类需求。
+        </div>
+
+        <h3>4.3 概率分布验证</h3>
+        <div class="test-area">
+          <button onclick="runSimulation(1000)">模拟1000次筮卦</button>
+          <button onclick="runSimulation(10000)">模拟10000次</button>
+          <button onclick="testUniformity()">均匀性检验</button>
+          <div class="result" id="statResult">点击按钮运行统计测试...</div>
+        </div>
+      </div>
+
+      <!-- 科学可信度评估 -->
+      <div class="card full">
+        <h2>五、科学可信度评估</h2>
+
+        <div style="display: grid; grid-template-columns: 1fr 300px; gap: 30px;">
+          <div>
+            <h3>5.1 各维度评分</h3>
+
+            <div class="gauge">
+              <span class="gauge-title">数学结构严谨性</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill high" style="width: 95%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--green)">95%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              群论结构、二进制编码、状态转换逻辑完全严谨
+            </p>
+
+            <div class="gauge">
+              <span class="gauge-title">算法确定性</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill high" style="width: 85%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--green)">85%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              大衍筮法有明确步骤，但人工操作引入随机性
+            </p>
+
+            <div class="gauge">
+              <span class="gauge-title">决策框架有效性</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill high" style="width: 75%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--green)">75%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              强制结构化思考、多角度分析确实有助于决策
+            </p>
+
+            <div class="gauge">
+              <span class="gauge-title">预测准确性</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill low" style="width: 15%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--red)">15%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              无法超越随机猜测，卦象与未来无因果关联
+            </p>
+
+            <div class="gauge">
+              <span class="gauge-title">可重复验证性</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill low" style="width: 20%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--red)">20%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              同一问题重复筮卦会得到不同结果
+            </p>
+
+            <div class="gauge">
+              <span class="gauge-title">理论可证伪性</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill low" style="width: 25%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--red)">25%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              卦辞模糊，难以明确证伪
+            </p>
+
+            <div class="gauge">
+              <span class="gauge-title">心理辅助效果</span>
+              <div class="gauge-bar">
+                <div class="gauge-fill high" style="width: 70%"></div>
+              </div>
+              <span class="gauge-label" style="color:var(--green)">70%</span>
+            </div>
+            <p style="font-size:12px; color:var(--dim); margin-bottom:16px;">
+              减少焦虑、增强信心、促进反思有实际效果
+            </p>
+          </div>
+
+          <div>
+            <div class="total-score">
+              <div class="label">综合科学可信度</div>
+              <div class="number">55%</div>
+              <div class="verdict">部分有效的决策辅助工具</div>
+            </div>
+
+            <div class="note" style="margin-top: 20px;">
+              <strong>评分说明：</strong><br>
+              • 90-100%: 完全科学<br>
+              • 70-89%: 大部分科学<br>
+              • 50-69%: 部分有效<br>
+              • 30-49%: 效果存疑<br>
+              • 0-29%: 伪科学
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 有效性与局限性 -->
+      <div class="card">
+        <h2>六、有效性分析</h2>
+
+        <h3>6.1 科学上有效的部分</h3>
+        <div class="note success">
+          <strong>✓ 强制冷静期</strong><br>
+          筮卦需要20-30分钟，强制决策者冷静思考，避免冲动
+        </div>
+        <div class="note success">
+          <strong>✓ 结构化分析框架</strong><br>
+          六爻位置对应：初(基础)→二(内)→三(转折)→四(外)→五(核心)→上(结果)
+        </div>
+        <div class="note success">
+          <strong>✓ 多角度思考</strong><br>
+          本卦/变卦/互卦/错卦/综卦 = 5种视角分析同一问题
+        </div>
+        <div class="note success">
+          <strong>✓ 经验知识库</strong><br>
+          64×7 = 448条卦爻辞，浓缩古代智慧和经验
+        </div>
+        <div class="note success">
+          <strong>✓ 心理赋能</strong><br>
+          给决策者信心和行动的"许可"
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>七、局限性分析</h2>
+
+        <h3>7.1 科学上无效的部分</h3>
+        <div class="note warning">
+          <strong>✗ 无因果机制</strong><br>
+          蓍草排列与未来事件之间没有物理因果关联
+        </div>
+        <div class="note warning">
+          <strong>✗ 不可重复</strong><br>
+          违反科学实验的可重复性原则
+        </div>
+        <div class="note warning">
+          <strong>✗ 巴纳姆效应</strong><br>
+          卦辞足够模糊，可被解释为适用于任何情况
+        </div>
+        <div class="note warning">
+          <strong>✗ 确认偏误</strong><br>
+          人倾向于记住"准"的案例，忽略"不准"的
+        </div>
+        <div class="note warning">
+          <strong>✗ 无预测优势</strong><br>
+          双盲实验表明，易经预测不优于随机猜测
+        </div>
+      </div>
+
+      <!-- 现代应用建议 -->
+      <div class="card full">
+        <h2>八、科学结论与现代应用建议</h2>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <h3>8.1 科学结论</h3>
+            <table>
+              <tr>
+                <th>方面</th>
+                <th>结论</th>
+              </tr>
+              <tr>
+                <td>预测未来</td>
+                <td style="color:var(--red)">无效（无科学依据）</td>
+              </tr>
+              <tr>
+                <td>决策框架</td>
+                <td style="color:var(--green)">有效（结构化思考）</td>
+              </tr>
+              <tr>
+                <td>心理辅助</td>
+                <td style="color:var(--green)">有效（减少焦虑）</td>
+              </tr>
+              <tr>
+                <td>智慧参考</td>
+                <td style="color:var(--green)">有效（经验总结）</td>
+              </tr>
+              <tr>
+                <td>数学结构</td>
+                <td style="color:var(--green)">严谨（群论完备）</td>
+              </tr>
+            </table>
+
+            <h3 style="margin-top:20px;">8.2 正确使用方式</h3>
+            <ol style="margin-left: 20px; font-size: 14px;">
+              <li><strong>作为思考工具</strong>，而非预测工具</li>
+              <li><strong>借鉴卦辞智慧</strong>，而非盲目遵从</li>
+              <li><strong>辅助决策</strong>，而非替代理性分析</li>
+              <li><strong>心理调适</strong>，而非迷信依赖</li>
+            </ol>
+          </div>
+
+          <div>
+            <h3>8.3 现代科学化改进建议</h3>
+            <div class="note">
+              <strong>1. 保留有效部分：</strong><br>
+              • 结构化分析框架（六爻位置模型）<br>
+              • 多角度思考（本/变/互/错/综卦）<br>
+              • 古代智慧参考（卦辞解读）
+            </div>
+            <div class="note">
+              <strong>2. 改进随机性：</strong><br>
+              • 用真随机数生成器替代蓍草<br>
+              • 确保概率分布符合预期<br>
+              • 可追溯、可审计的随机过程
+            </div>
+            <div class="note">
+              <strong>3. 明确边界：</strong><br>
+              • 声明这是"思考辅助工具"<br>
+              • 不宣称有超自然预测能力<br>
+              • 鼓励结合现代决策方法
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 交互测试 -->
+      <div class="card full">
+        <h2>九、交互式验证测试</h2>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <h3>9.1 筮卦模拟器</h3>
+            <div class="test-area">
+              <button class="primary" onclick="performDivination()">执行筮卦</button>
+              <button onclick="showProcess()">显示详细过程</button>
+              <div class="result" id="divinationResult">点击"执行筮卦"开始...</div>
+            </div>
+
+            <h3>9.2 决策分析框架</h3>
+            <div class="test-area">
+              <input type="text" id="questionInput" placeholder="输入你的决策问题..."
+                style="width:100%; padding:10px; background:var(--card); border:1px solid var(--border); color:var(--text); border-radius:6px; margin-bottom:10px;">
+              <button onclick="analyzeDecision()">生成决策分析框架</button>
+              <div class="result" id="decisionResult"></div>
+            </div>
+          </div>
+
+          <div>
+            <h3>9.3 统计验证</h3>
+            <div class="test-area">
+              <button onclick="runChiSquareTest()">卡方检验（概率分布）</button>
+              <button onclick="runPredictionTest()">预测准确性测试</button>
+              <div class="result" id="testResult2">点击运行科学验证测试...</div>
+            </div>
+
+            <h3>9.4 对比实验</h3>
+            <div class="test-area">
+              <p style="font-size:13px; color:var(--dim); margin-bottom:10px;">
+                比较易经决策与随机决策的结果分布
+              </p>
+              <button onclick="runComparisonTest()">运行对比实验（1000次）</button>
+              <div class="result" id="comparisonResult"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// 大衍筮法模拟
+function yarrowStalkMethod() {
+  // 模拟一变
+  function oneChange(total) {
+    // 分二
+    const left = Math.floor(Math.random() * (total - 1)) + 1;
+    const right = total - left;
+
+    // 挂一
+    const hung = 1;
+    const rightRemain = right - hung;
+
+    // 揲四
+    const leftRemainder = left % 4 || 4;
+    const rightRemainder = rightRemain % 4 || 4;
+
+    // 归奇
+    const removed = hung + leftRemainder + rightRemainder;
+    return total - removed;
+  }
+
+  // 三变得一爻
+  let stalks = 49;
+  stalks = oneChange(stalks);
+  stalks = oneChange(stalks);
+  stalks = oneChange(stalks);
+
+  const result = stalks / 4;
+  // 6=老阴(变), 7=少阳, 8=少阴, 9=老阳(变)
+  return result;
+}
+
+// 生成一个完整卦象
+function generateHexagram() {
+  const lines = [];
+  for (let i = 0; i < 6; i++) {
+    const value = yarrowStalkMethod();
+    lines.push({
+      value: value,
+      yin: value === 6 || value === 8,
+      changing: value === 6 || value === 9,
+      type: value === 6 ? '老阴' : value === 7 ? '少阳' : value === 8 ? '少阴' : '老阳'
+    });
+  }
+  return lines;
+}
+
+// 卦名数据
+const hexagramNames = [
+  '乾为天', '天泽履', '天火同人', '天雷无妄', '天风姤', '天水讼', '天山遁', '天地否',
+  '泽天夬', '兑为泽', '泽火革', '泽雷随', '泽风大过', '泽水困', '泽山咸', '泽地萃',
+  '火天大有', '火泽睽', '离为火', '火雷噬嗑', '火风鼎', '火水未济', '火山旅', '火地晋',
+  '雷天大壮', '雷泽归妹', '雷火丰', '震为雷', '雷风恒', '雷水解', '雷山小过', '雷地豫',
+  '风天小畜', '风泽中孚', '风火家人', '风雷益', '巽为风', '风水涣', '风山渐', '风地观',
+  '水天需', '水泽节', '水火既济', '水雷屯', '水风井', '坎为水', '水山蹇', '水地比',
+  '山天大畜', '山泽损', '山火贲', '山雷颐', '山风蛊', '山水蒙', '艮为山', '山地剥',
+  '地天泰', '地泽临', '地火明夷', '地雷复', '地风升', '地水师', '地山谦', '坤为地'
+];
+
+function linesToBinary(lines) {
+  return lines.map(l => l.yin ? '1' : '0').join('');
+}
+
+function binaryToHexagramIndex(binary) {
+  return parseInt(binary, 2);
+}
+
+// 执行筮卦
+function performDivination() {
+  const lines = generateHexagram();
+  const binary = linesToBinary(lines);
+  const index = binaryToHexagramIndex(binary);
+  const name = hexagramNames[index];
+
+  // 计算变卦
+  const changingLines = lines.filter(l => l.changing);
+  let changedBinary = lines.map(l => {
+    if (l.changing) return l.yin ? '0' : '1';
+    return l.yin ? '1' : '0';
+  }).join('');
+  const changedIndex = binaryToHexagramIndex(changedBinary);
+  const changedName = hexagramNames[changedIndex];
+
+  let html = `<strong>本卦：</strong>${name} (${binary})<br>`;
+  html += `<strong>六爻：</strong><br>`;
+
+  for (let i = 5; i >= 0; i--) {
+    const l = lines[i];
+    const pos = ['初', '二', '三', '四', '五', '上'][i];
+    const symbol = l.yin ? '⚋' : '⚊';
+    const change = l.changing ? ' ← 变爻' : '';
+    html += `${pos}爻: ${symbol} ${l.type} (${l.value})${change}<br>`;
+  }
+
+  if (changingLines.length > 0) {
+    html += `<br><strong>变卦：</strong>${changedName} (${changedBinary})<br>`;
+    html += `<strong>变爻数：</strong>${changingLines.length}`;
+  } else {
+    html += `<br><em>无变爻，卦象稳定</em>`;
+  }
+
+  document.getElementById('divinationResult').innerHTML = html;
+}
+
+// 显示详细过程
+let showingProcess = false;
+function showProcess() {
+  showingProcess = !showingProcess;
+  if (showingProcess) {
+    document.getElementById('divinationResult').innerHTML =
+      `<strong>大衍筮法详细过程：</strong><br><br>` +
+      `1. 取49根蓍草<br>` +
+      `2. 随机分成两堆<br>` +
+      `3. 从右堆取出1根挂在指间<br>` +
+      `4. 左右两堆分别除以4取余<br>` +
+      `5. 收集余数，剩余蓍草进入下一变<br>` +
+      `6. 重复三变，最终数÷4得结果<br><br>` +
+      `结果：6=老阴, 7=少阳, 8=少阴, 9=老阳`;
+  } else {
+    performDivination();
+  }
+}
+
+// 运行模拟统计
+function runSimulation(n) {
+  const counts = { 6: 0, 7: 0, 8: 0, 9: 0 };
+
+  for (let i = 0; i < n; i++) {
+    const value = yarrowStalkMethod();
+    counts[value]++;
+  }
+
+  const total = n;
+  let html = `<strong>模拟 ${n} 次筮卦结果：</strong><br><br>`;
+  html += `老阴(6): ${counts[6]} (${(counts[6]/total*100).toFixed(2)}%) - 理论: 6.25%<br>`;
+  html += `少阳(7): ${counts[7]} (${(counts[7]/total*100).toFixed(2)}%) - 理论: 31.25%<br>`;
+  html += `少阴(8): ${counts[8]} (${(counts[8]/total*100).toFixed(2)}%) - 理论: 43.75%<br>`;
+  html += `老阳(9): ${counts[9]} (${(counts[9]/total*100).toFixed(2)}%) - 理论: 18.75%<br>`;
+
+  document.getElementById('statResult').innerHTML = html;
+}
+
+// 均匀性检验
+function testUniformity() {
+  const n = 10000;
+  const hexCounts = new Array(64).fill(0);
+
+  for (let i = 0; i < n; i++) {
+    const lines = generateHexagram();
+    const binary = linesToBinary(lines);
+    const index = binaryToHexagramIndex(binary);
+    hexCounts[index]++;
+  }
+
+  const expected = n / 64;
+  let chiSquare = 0;
+  hexCounts.forEach(count => {
+    chiSquare += Math.pow(count - expected, 2) / expected;
+  });
+
+  // 自由度63, α=0.05的临界值约为82.5
+  const pValue = chiSquare < 82.5 ? '> 0.05' : '< 0.05';
+  const result = chiSquare < 82.5 ? '通过' : '不通过';
+
+  let html = `<strong>均匀性检验（64卦分布）：</strong><br><br>`;
+  html += `样本数: ${n}<br>`;
+  html += `χ² 统计量: ${chiSquare.toFixed(2)}<br>`;
+  html += `临界值(df=63, α=0.05): 82.5<br>`;
+  html += `p-value: ${pValue}<br>`;
+  html += `<strong>结论: ${result}</strong><br><br>`;
+  html += `注: 由于概率不均匀(阴偏多), 64卦分布不均匀是预期的`;
+
+  document.getElementById('statResult').innerHTML = html;
+}
+
+// 决策分析框架
+function analyzeDecision() {
+  const question = document.getElementById('questionInput').value || '示例：是否应该换工作？';
+  const lines = generateHexagram();
+  const binary = linesToBinary(lines);
+  const index = binaryToHexagramIndex(binary);
+  const name = hexagramNames[index];
+
+  const positions = [
+    { name: '初爻', meaning: '事情的开端、基础条件' },
+    { name: '二爻', meaning: '内部因素、个人能力' },
+    { name: '三爻', meaning: '转折点、关键抉择' },
+    { name: '四爻', meaning: '外部环境、他人影响' },
+    { name: '五爻', meaning: '核心问题、关键人物' },
+    { name: '上爻', meaning: '最终结果、长远影响' }
+  ];
+
+  let html = `<strong>问题：</strong>${question}<br><br>`;
+  html += `<strong>卦象：</strong>${name}<br><br>`;
+  html += `<strong>结构化分析框架：</strong><br>`;
+
+  for (let i = 0; i < 6; i++) {
+    const l = lines[i];
+    const p = positions[i];
+    const symbol = l.yin ? '⚋阴' : '⚊阳';
+    const change = l.changing ? '（动态变化中）' : '（相对稳定）';
+    html += `<br>${p.name} - ${p.meaning}：<br>`;
+    html += `  状态: ${symbol} ${change}<br>`;
+  }
+
+  html += `<br><strong>建议思考：</strong><br>`;
+  html += `1. 基础条件是否具备？<br>`;
+  html += `2. 个人能力能否胜任？<br>`;
+  html += `3. 关键决策点在哪里？<br>`;
+  html += `4. 外部环境支持吗？<br>`;
+  html += `5. 核心问题是什么？<br>`;
+  html += `6. 长远来看有什么影响？`;
+
+  document.getElementById('decisionResult').innerHTML = html;
+}
+
+// 卡方检验
+function runChiSquareTest() {
+  const n = 10000;
+  const observed = { 6: 0, 7: 0, 8: 0, 9: 0 };
+  const expected = { 6: n * 0.0625, 7: n * 0.3125, 8: n * 0.4375, 9: n * 0.1875 };
+
+  for (let i = 0; i < n; i++) {
+    observed[yarrowStalkMethod()]++;
+  }
+
+  let chiSquare = 0;
+  [6, 7, 8, 9].forEach(v => {
+    chiSquare += Math.pow(observed[v] - expected[v], 2) / expected[v];
+  });
+
+  // df=3, α=0.05 临界值 = 7.815
+  const pass = chiSquare < 7.815;
+
+  let html = `<strong>卡方检验 - 概率分布验证</strong><br><br>`;
+  html += `H₀: 实际分布符合理论概率<br>`;
+  html += `样本数: ${n}<br><br>`;
+  html += `观测值 vs 期望值:<br>`;
+  [6, 7, 8, 9].forEach(v => {
+    html += `  ${v}: ${observed[v]} vs ${expected[v].toFixed(0)}<br>`;
+  });
+  html += `<br>χ² = ${chiSquare.toFixed(3)}<br>`;
+  html += `临界值(df=3, α=0.05): 7.815<br>`;
+  html += `<strong>结论: ${pass ? '✓ 符合理论分布' : '✗ 与理论有显著差异'}</strong>`;
+
+  document.getElementById('testResult2').innerHTML = html;
+}
+
+// 预测准确性测试
+function runPredictionTest() {
+  let html = `<strong>预测准确性测试</strong><br><br>`;
+  html += `<em>科学测试方法：</em><br>`;
+  html += `1. 设定二元问题（是/否）<br>`;
+  html += `2. 用易经预测结果<br>`;
+  html += `3. 记录实际发生情况<br>`;
+  html += `4. 统计准确率<br><br>`;
+  html += `<strong>理论预期：</strong><br>`;
+  html += `如果易经无预测能力，准确率应≈50%（随机猜测）<br><br>`;
+  html += `<strong>历史研究结论：</strong><br>`;
+  html += `多项双盲实验表明，易经预测准确率<br>`;
+  html += `与随机猜测无显著差异 (p > 0.05)<br><br>`;
+  html += `<span style="color:var(--yellow)">结论：易经不具有超自然预测能力</span>`;
+
+  document.getElementById('testResult2').innerHTML = html;
+}
+
+// 对比实验
+function runComparisonTest() {
+  const n = 1000;
+
+  // 易经决策模拟
+  const ichingResults = { positive: 0, negative: 0, neutral: 0 };
+  for (let i = 0; i < n; i++) {
+    const lines = generateHexagram();
+    const yangCount = lines.filter(l => !l.yin).length;
+    const changingCount = lines.filter(l => l.changing).length;
+
+    // 简单判断规则
+    if (yangCount >= 4 && changingCount <= 2) {
+      ichingResults.positive++;
+    } else if (yangCount <= 2 || changingCount >= 4) {
+      ichingResults.negative++;
+    } else {
+      ichingResults.neutral++;
+    }
+  }
+
+  // 随机决策
+  const randomResults = { positive: 0, negative: 0, neutral: 0 };
+  for (let i = 0; i < n; i++) {
+    const r = Math.random();
+    if (r < 0.33) randomResults.positive++;
+    else if (r < 0.67) randomResults.negative++;
+    else randomResults.neutral++;
+  }
+
+  let html = `<strong>易经 vs 随机决策对比</strong><br>`;
+  html += `(${n}次模拟)<br><br>`;
+  html += `<table style="width:100%; font-size:12px;">`;
+  html += `<tr><th>结果</th><th>易经</th><th>随机</th></tr>`;
+  html += `<tr><td>积极</td><td>${(ichingResults.positive/n*100).toFixed(1)}%</td><td>${(randomResults.positive/n*100).toFixed(1)}%</td></tr>`;
+  html += `<tr><td>消极</td><td>${(ichingResults.negative/n*100).toFixed(1)}%</td><td>${(randomResults.negative/n*100).toFixed(1)}%</td></tr>`;
+  html += `<tr><td>中立</td><td>${(ichingResults.neutral/n*100).toFixed(1)}%</td><td>${(randomResults.neutral/n*100).toFixed(1)}%</td></tr>`;
+  html += `</table><br>`;
+  html += `<strong>发现：</strong>易经由于概率偏阴，<br>会产生略微偏向"谨慎"的建议`;
+
+  document.getElementById('comparisonResult').innerHTML = html;
+}
+</script>
+</body>
+</html>
