@@ -89,17 +89,14 @@ class StickFigure {
         break;
 
       case 'walk':
-        // 专业走路循环动画 - 1秒循环，包含完整步态周期
-        // 关键姿势：contact → down → passing → up → 对侧循环
-        const walkT = (t * 3) % (Math.PI * 2); // 标准化到0-2π
+        // 专业走路循环动画 - 约1秒循环
+        const walkT = (t * 2.5) % (Math.PI * 2); // 稍慢的节奏
         const walkPhase = walkT / (Math.PI * 2); // 0-1 相位
 
-        // ===== 腿部动画 =====
-        // 左腿周期（0-0.5为左腿支撑，0.5-1为右腿支撑）
+        // ===== 腿部动画（左右腿相位差0.5）=====
         const leftLegPhase = walkPhase;
         const rightLegPhase = (walkPhase + 0.5) % 1;
 
-        // 计算每条腿的关键姿势
         const leftLeg = this.calculateLegPose(leftLegPhase, mirror);
         const rightLeg = this.calculateLegPose(rightLegPhase, mirror);
 
@@ -117,25 +114,30 @@ class StickFigure {
         bones.footR.x += rightLeg.footX;
         bones.footR.y += rightLeg.footY;
 
-        // ===== 身体重心起伏 =====
-        // 双脚支撑期（contact）身体下沉，单脚过腿期（passing）身体上升
+        // ===== 身体动态 =====
+        // 1. 重心起伏
         const bodyBob = this.calculateBodyBob(walkPhase);
         bones.head.y += bodyBob;
         bones.neck.y += bodyBob * 0.8;
         bones.spine.y += bodyBob * 0.6;
         bones.hip.y += bodyBob * 0.4;
-        bones.hipL.y += bodyBob * 0.4;
-        bones.hipR.y += bodyBob * 0.4;
+        bones.hipL.y += bodyBob * 0.3;
+        bones.hipR.y += bodyBob * 0.3;
 
-        // 身体轻微左右摇摆（重心转移）
-        const bodySway = Math.sin(walkT) * 1;
-        bones.spine.x += bodySway * mirror;
-        bones.head.x += bodySway * 1.2 * mirror;
+        // 2. 左右摇摆（重心转移到支撑腿）
+        const walkSway = Math.sin(walkT) * 1.2;
+        bones.spine.x += walkSway * mirror;
+        bones.head.x += walkSway * 1.3 * mirror;
+        bones.hip.x += walkSway * 0.4 * mirror;
+
+        // 3. 髋部扭转（走路时骨盆会随腿摆动）
+        const hipTwist = Math.sin(walkT) * 0.8;
+        bones.hipL.x += hipTwist * mirror;
+        bones.hipR.x -= hipTwist * mirror;
 
         // ===== 手臂反向摆动 =====
-        // 手臂与对侧腿同步（左腿前伸时右臂前摆）
-        const armSwingL = this.calculateArmSwing(rightLegPhase, mirror); // 与右腿反向
-        const armSwingR = this.calculateArmSwing(leftLegPhase, mirror);  // 与左腿反向
+        const armSwingL = this.calculateArmSwing(rightLegPhase, mirror);
+        const armSwingR = this.calculateArmSwing(leftLegPhase, mirror);
 
         bones.shoulderL.y += armSwingL.shoulderY;
         bones.elbowL.x += armSwingL.elbowX;
@@ -277,89 +279,148 @@ class StickFigure {
   }
 
   /**
-   * 计算腿部姿势（完整步态周期）
+   * 计算走路腿部姿势（专业步态周期）
    * phase: 0-1，一条腿的完整周期
-   * 0.0-0.1: contact（脚跟触地）
-   * 0.1-0.3: down（吸收下沉，脚掌落地）
-   * 0.3-0.5: passing（过腿，支撑腿垂直）
-   * 0.5-0.7: up（回弹，脚趾离地）
-   * 0.7-1.0: swing（摆动腿向前）
+   *
+   * 走路特点：始终有一只脚在地面（无腾空期）
+   * 0.00-0.15: Contact（脚跟触地）
+   * 0.15-0.30: Loading（承重，脚掌落地）
+   * 0.30-0.50: Mid-stance（中支撑，重心经过）
+   * 0.50-0.60: Terminal stance（末支撑，脚跟离地）
+   * 0.60-1.00: Swing（摆动期）
    */
   calculateLegPose(phase, mirror) {
     const result = { hipX: 0, kneeX: 0, kneeY: 0, footX: 0, footY: 0 };
 
-    if (phase < 0.5) {
-      // 支撑阶段 (0-0.5): 脚在地面，身体经过
-      const supportPhase = phase / 0.5; // 0-1
+    // 走路步幅（比跑步小）
+    const strideLength = 8;
 
-      // 脚从前方滑到后方（相对身体）
-      result.footX = (0.5 - supportPhase) * 8 * mirror;
-      result.footY = 0; // 脚锁定在地面
+    if (phase < 0.15) {
+      // === Contact 脚跟触地 ===
+      const t = phase / 0.15;
 
-      // 膝盖随之移动，在中间(passing)时最直
-      result.kneeX = (0.5 - supportPhase) * 4 * mirror;
-      const bendAmount = Math.abs(supportPhase - 0.5) * 2; // 两端弯曲多，中间少
-      result.kneeY = -bendAmount * 3;
+      // 脚在前方，脚跟先着地
+      result.footX = strideLength * 0.4 * mirror;
+      result.footY = 0;
+
+      // 膝微屈准备承重
+      result.kneeX = strideLength * 0.25 * mirror;
+      result.kneeY = -2 - t * 1;
+
+    } else if (phase < 0.30) {
+      // === Loading 承重期 ===
+      const t = (phase - 0.15) / 0.15;
+
+      // 脚掌完全落地，开始承重
+      result.footX = strideLength * (0.4 - t * 0.15) * mirror;
+      result.footY = 0;
+
+      // 膝弯曲吸收冲击
+      result.kneeX = strideLength * (0.25 - t * 0.1) * mirror;
+      result.kneeY = -3 - t * 2; // 最大弯曲
+
+    } else if (phase < 0.50) {
+      // === Mid-stance 中支撑期 ===
+      const t = (phase - 0.30) / 0.20;
+
+      // 脚保持稳定，身体经过
+      result.footX = strideLength * (0.25 - t * 0.35) * mirror;
+      result.footY = 0;
+
+      // 膝伸直，身体正上方
+      result.kneeX = strideLength * (0.15 - t * 0.25) * mirror;
+      result.kneeY = -5 + t * 3; // 逐渐伸直
+
+    } else if (phase < 0.60) {
+      // === Terminal stance 末支撑期 ===
+      const t = (phase - 0.50) / 0.10;
+
+      // 脚跟开始抬起
+      result.footX = strideLength * (-0.1 - t * 0.15) * mirror;
+      result.footY = -t * 2; // 脚跟抬起
+
+      result.kneeX = strideLength * (-0.1 - t * 0.05) * mirror;
+      result.kneeY = -2 - t * 1;
 
     } else {
-      // 摆动阶段 (0.5-1): 脚离地向前摆
-      const swingPhase = (phase - 0.5) / 0.5; // 0-1
+      // === Swing 摆动期 ===
+      const t = (phase - 0.60) / 0.40;
+      const swingEase = this.easeInOutQuad(t);
 
-      // 脚从后方摆到前方，中间抬高
-      result.footX = (-0.5 + swingPhase) * 8 * mirror;
-      // 脚离地高度：中间最高（passing position）
-      const liftHeight = Math.sin(swingPhase * Math.PI) * 6;
-      result.footY = -liftHeight;
+      // 脚离地向前摆动
+      result.footX = strideLength * (-0.25 + swingEase * 0.65) * mirror;
+      // 摆动中期抬高，两端靠近地面
+      const liftCurve = Math.sin(t * Math.PI);
+      result.footY = -liftCurve * 4;
 
-      // 膝盖弯曲：摆动中期弯曲最大
-      result.kneeX = (-0.3 + swingPhase * 0.6) * 4 * mirror;
-      const kneeBend = Math.sin(swingPhase * Math.PI) * 5;
-      result.kneeY = -kneeBend - 2;
+      // 膝盖弯曲带动小腿
+      result.kneeX = strideLength * (-0.15 + swingEase * 0.4) * mirror;
+      result.kneeY = -3 - liftCurve * 3;
     }
 
     return result;
   }
 
   /**
-   * 计算身体重心起伏
-   * 双脚支撑期下沉，单脚过腿期上升
+   * 计算走路身体重心起伏
+   * 走路特点：双支撑期下沉，单支撑期上升
    */
   calculateBodyBob(phase) {
-    // 每半周期有一次起伏
-    // phase 0 和 0.5 是 contact（下沉）
-    // phase 0.25 和 0.75 是 passing（上升）
-    const doublePhase = phase * 2; // 转换为两倍频率
-    const bob = Math.cos(doublePhase * Math.PI * 2) * 1.5;
-    return bob; // 正值下沉，负值上升
+    // 走路的重心起伏比跑步小
+    // phase 0.15 和 0.65: 双支撑期（下沉）
+    // phase 0.40 和 0.90: 单支撑期（上升）
+    const doublePhase = phase * 2 % 1;
+
+    let bob = 0;
+    if (doublePhase < 0.30) {
+      // 触地到承重 - 下沉
+      const t = doublePhase / 0.30;
+      bob = this.easeOutQuad(t) * 2;
+    } else if (doublePhase < 0.50) {
+      // 中支撑 - 上升
+      const t = (doublePhase - 0.30) / 0.20;
+      bob = 2 - this.easeInOutQuad(t) * 3;
+    } else if (doublePhase < 0.70) {
+      // 末支撑到摆动初期 - 最高点
+      const t = (doublePhase - 0.50) / 0.20;
+      bob = -1 + Math.sin(t * Math.PI) * -0.5;
+    } else {
+      // 摆动末期 - 下落准备触地
+      const t = (doublePhase - 0.70) / 0.30;
+      bob = -1.5 + this.easeInOutQuad(t) * 3.5;
+    }
+
+    return bob;
   }
 
   /**
-   * 计算手臂摆动（与腿反向）
-   * 包含follow-through滞后效果
+   * 计算走路手臂摆动（与腿反向，自然放松）
    */
   calculateArmSwing(legPhase, mirror) {
     const result = { shoulderY: 0, elbowX: 0, elbowY: 0, handX: 0, handY: 0 };
 
-    // 手臂摆动与腿相位相反
+    // 走路手臂摆动幅度小于跑步
     const armPhase = legPhase;
-
-    // 手臂前后摆动
-    const swingAmount = Math.sin(armPhase * Math.PI * 2);
+    const mainSwing = Math.sin(armPhase * Math.PI * 2);
 
     // 肩膀轻微移动
-    result.shoulderY = swingAmount * 0.5;
+    result.shoulderY = mainSwing * 0.3;
 
-    // 肘部跟随但有滞后
-    const elbowDelay = 0.1;
-    const elbowSwing = Math.sin((armPhase - elbowDelay) * Math.PI * 2);
+    // 肘部自然下垂，轻微摆动
+    const elbowDelay = 0.08;
+    const elbowPhase = (armPhase - elbowDelay + 1) % 1;
+    const elbowSwing = Math.sin(elbowPhase * Math.PI * 2);
+
     result.elbowX = elbowSwing * 3 * mirror;
-    result.elbowY = Math.abs(elbowSwing) * -1; // 向后摆时稍抬起
+    result.elbowY = Math.abs(elbowSwing) * -0.5; // 微微抬起
 
-    // 手部更大滞后（follow-through）
-    const handDelay = 0.15;
-    const handSwing = Math.sin((armPhase - handDelay) * Math.PI * 2);
-    result.handX = handSwing * 5 * mirror;
-    result.handY = Math.abs(handSwing) * -1.5 + swingAmount * 1;
+    // 手部跟随，有滞后
+    const handDelay = 0.12;
+    const handPhase = (armPhase - handDelay + 1) % 1;
+    const handSwing = Math.sin(handPhase * Math.PI * 2);
+
+    result.handX = handSwing * 4 * mirror;
+    result.handY = Math.abs(handSwing) * -0.5 + handSwing * 0.5;
 
     return result;
   }
