@@ -197,9 +197,9 @@ class StickFigure {
         bones.hipR.y += runBodyBob * 0.4;
 
         // 3. 轻微左右摇摆（重心转移）
-        const bodySway = Math.sin(runT) * 0.8;
-        bones.spine.x += bodySway * mirror;
-        bones.head.x += bodySway * 1.1 * mirror;
+        const runBodySway = Math.sin(runT) * 0.8;
+        bones.spine.x += runBodySway * mirror;
+        bones.head.x += runBodySway * 1.1 * mirror;
 
         // ===== 手臂反向摆动 =====
         // 左臂与右腿反向，右臂与左腿反向
