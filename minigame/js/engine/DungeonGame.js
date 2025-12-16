@@ -539,20 +539,16 @@ class DungeonGame {
       let stickFigure = this.enemyStickFigures.get(enemy);
       if (!stickFigure) {
         stickFigure = new StickFigure(enemy.color);
-        // 尸体蜷缩后产生寄生虫和经验球
-        stickFigure.onExpReady = (exp, worldOffsetX = 0, worldOffsetY = 0) => {
-          // 计算蜷缩完成的实际位置
-          const spawnX = enemy.x + worldOffsetX;
-          const spawnY = enemy.y + worldOffsetY;
+        // 尸体蜷缩后产生寄生虫和经验球（直接在敌人位置）
+        stickFigure.onExpReady = () => {
+          // 在敌人位置产生一些寄生虫
+          this.parasiteManager.addParasiteSource(enemy.x, enemy.y, 15 + (enemy.expReward || 10) * 0.2);
 
-          // 在蜷缩位置产生一些寄生虫
-          this.parasiteManager.addParasiteSource(spawnX, spawnY, 15 + (enemy.expReward || 10) * 0.2);
-
-          // 在蜷缩位置产生像素风经验球
+          // 在敌人位置产生像素风经验球
           this.itemManager.addDrop({
             type: 'exp',
-            x: spawnX,
-            y: spawnY,
+            x: enemy.x,
+            y: enemy.y,
             value: enemy.expReward || 10
           });
         };

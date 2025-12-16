@@ -518,24 +518,12 @@ class StickFigure {
     } else if (this.deathPhase === 'fading' && this.deathTimer > 4800) {
       this.deathPhase = 'curling'; // 新增蜷缩阶段
       this.curlProgress = 0;
-      // 记录蜷缩开始位置
-      if (this.upperHalf && this.lowerHalf) {
-        this.curlCenterX = (this.upperHalf.x + this.lowerHalf.x) / 2;
-        this.curlCenterY = (this.upperHalf.y + this.lowerHalf.y) / 2;
-      } else {
-        this.curlCenterX = 0;
-        this.curlCenterY = this.groundY;
-      }
     } else if (this.deathPhase === 'curling' && this.deathTimer > 5800) {
       this.convertToExp = true;
-      // 在蜷缩完成位置生成经验球
+      // 蜷缩完成，生成经验球（位置由外部enemy.x/y决定）
       if (this.onExpReady && !this._expGiven) {
         this._expGiven = true;
-        // 传递蜷缩中心的世界坐标偏移
-        const coordScale = 0.025;
-        const worldOffsetX = this.curlCenterX * coordScale;
-        const worldOffsetY = this.curlCenterY * coordScale;
-        this.onExpReady(50, worldOffsetX, worldOffsetY);
+        this.onExpReady(50);
       }
     }
 
@@ -548,38 +536,31 @@ class StickFigure {
       this.writheIntensity = 1.5 - (this.deathTimer - 2500) / 3000;
       this.tentacleSpeed = 0.03;
     } else if (this.deathPhase === 'fading') {
-      this.writheIntensity *= 0.98;
-      this.tentacleSpeed = 0.01;
-    } else if (this.deathPhase === 'curling') {
-      // 蜷缩阶段：快速收缩，停止蠕动
-      this.curlProgress = Math.min(1, (this.deathTimer - 4800) / 1000);
-      this.writheIntensity = 0.1 * (1 - this.curlProgress);
+      // 淡出阶段停止移动，只保留轻微蠕动
+      this.writheIntensity *= 0.95;
       this.tentacleSpeed = 0.005;
+    } else if (this.deathPhase === 'curling') {
+      // 蜷缩阶段：停止蠕动，原地缩小
+      this.curlProgress = Math.min(1, (this.deathTimer - 4800) / 1000);
+      this.writheIntensity = 0;
+      this.tentacleSpeed = 0;
       // 蜷缩时缩小
       this.curlScale = 1 - this.curlProgress * 0.9; // 缩小到10%
     }
 
     // 计算合并目标点
     let mergeX = 0, mergeY = this.groundY;
-    if (this.deathPhase === 'curling' && this.curlCenterX !== undefined) {
-      // 蜷缩阶段使用固定的蜷缩中心
-      mergeX = this.curlCenterX;
-      mergeY = this.curlCenterY;
-    } else if (this.upperHalf && this.lowerHalf) {
+    if (this.upperHalf && this.lowerHalf) {
       mergeX = (this.upperHalf.x + this.lowerHalf.x) / 2;
       mergeY = (this.upperHalf.y + this.lowerHalf.y) / 2;
     }
 
-    // 合并强度（蜷缩阶段强度最大）
+    // 合并强度 - fading和curling阶段停止位移
     let mergeStrength = 0;
     if (this.deathPhase === 'merging') {
       mergeStrength = 0.03;
-    } else if (this.deathPhase === 'fading') {
-      mergeStrength = 0.05;
-    } else if (this.deathPhase === 'curling') {
-      // 蜷缩时快速收拢到中心
-      mergeStrength = 0.15 + this.curlProgress * 0.2;
     }
+    // fading 和 curling 阶段不再移动 (mergeStrength = 0)
 
     // 更新两半身体
     this.updateBodyHalf(this.upperHalf, deltaTime, mergeX, mergeY, mergeStrength);
