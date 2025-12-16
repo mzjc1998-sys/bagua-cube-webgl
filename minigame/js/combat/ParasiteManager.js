@@ -45,9 +45,9 @@ class ParasiteManager {
         emergeProgress: 0,
         emergeSpeed: 0.0008 + Math.random() * 0.0005, // 缓慢钻出
         emergeAngle: emergeAngle,
-        size: 0.07 + Math.random() * 0.04,
+        size: 0.035 + Math.random() * 0.02, // 更小的蚯蚓
         phase: Math.random() * Math.PI * 2,
-        length: 4 + Math.floor(Math.random() * 2)
+        length: 5 + Math.floor(Math.random() * 3) // 更细长
       });
     }
   }
@@ -66,10 +66,10 @@ class ParasiteManager {
       this.parasites.push({
         x: x + Math.cos(angle) * radius,
         y: y + Math.sin(angle) * radius,
-        size: 0.06 + Math.random() * 0.03,
+        size: 0.03 + Math.random() * 0.015, // 更小的蚯蚓
         phase: Math.random() * Math.PI * 2,
         phaseSpeed: 0.012 + Math.random() * 0.008,
-        length: 4 + Math.floor(Math.random() * 2),
+        length: 5 + Math.floor(Math.random() * 3), // 更细长
         angle: Math.random() * Math.PI * 2,
         life: 25000 + Math.random() * 10000,
         maxLife: 25000 + Math.random() * 10000,
@@ -102,9 +102,9 @@ class ParasiteManager {
           this.parasites.push({
             x: p.x,
             y: p.y,
-            size: p.size,
+            size: p.size * 0.8, // 钻出后稍微小一点
             phase: p.phase,
-            phaseSpeed: 0.012 + Math.random() * 0.008,
+            phaseSpeed: 0.015 + Math.random() * 0.01, // 蠕动更快
             length: p.length,
             angle: p.emergeAngle,
             life: 20000 + Math.random() * 10000,
@@ -275,14 +275,17 @@ class ParasiteManager {
   }
 
   /**
-   * 绘制蠕虫身体
+   * 绘制蠕虫身体 - 简化蚯蚓风格
    */
   drawWormBody(ctx, points, baseSize, screenAngle) {
     if (points.length < 2) return;
 
-    // 连接线
-    ctx.strokeStyle = 'rgba(20, 8, 15, 0.9)';
-    ctx.lineWidth = baseSize * 1.4;
+    // 蚯蚓体型更小
+    const wormWidth = baseSize * 0.6;
+
+    // 绘制平滑的蚯蚓身体曲线
+    ctx.strokeStyle = 'rgba(45, 25, 20, 0.95)';
+    ctx.lineWidth = wormWidth;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -292,43 +295,32 @@ class ParasiteManager {
     }
     ctx.stroke();
 
-    // 身体节
-    for (let i = points.length - 1; i >= 0; i--) {
-      const pt = points[i];
-      const segSize = Math.max(2, pt.size);
-      const brightness = 12 + Math.floor((1 - i / points.length) * 18);
+    // 身体高光线（模拟蚯蚓的湿润光泽）
+    ctx.strokeStyle = 'rgba(80, 45, 35, 0.6)';
+    ctx.lineWidth = wormWidth * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
 
+    // 头部稍微变尖（蚯蚓特征）
+    const head = points[0];
+    const tipSize = wormWidth * 0.35;
+    ctx.beginPath();
+    ctx.arc(head.x, head.y, tipSize, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(35, 18, 15, 0.9)';
+    ctx.fill();
+
+    // 尾部也稍微变尖
+    if (points.length > 1) {
+      const tail = points[points.length - 1];
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, segSize, 0, Math.PI * 2);
-      ctx.fillStyle = `rgb(${brightness}, ${Math.floor(brightness * 0.3)}, ${Math.floor(brightness * 0.4)})`;
+      ctx.arc(tail.x, tail.y, tipSize * 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(35, 18, 15, 0.9)';
       ctx.fill();
     }
-
-    // 头部
-    const head = points[0];
-    const headSize = Math.max(3, head.size * 1.1);
-    ctx.beginPath();
-    ctx.arc(head.x, head.y, headSize, 0, Math.PI * 2);
-    ctx.fillStyle = '#1a0808';
-    ctx.fill();
-
-    // 眼睛
-    const eyeOffset = headSize * 0.35;
-    ctx.fillStyle = '#3a1515';
-    ctx.beginPath();
-    ctx.arc(
-      head.x + Math.cos(screenAngle - 0.4) * eyeOffset,
-      head.y + Math.sin(screenAngle - 0.4) * eyeOffset * 0.5,
-      headSize * 0.18, 0, Math.PI * 2
-    );
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(
-      head.x + Math.cos(screenAngle + 0.4) * eyeOffset,
-      head.y + Math.sin(screenAngle + 0.4) * eyeOffset * 0.5,
-      headSize * 0.18, 0, Math.PI * 2
-    );
-    ctx.fill();
   }
 
   /**
