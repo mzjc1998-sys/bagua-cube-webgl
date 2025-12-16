@@ -19,22 +19,28 @@ class ParasiteManager {
   }
 
   /**
-   * 从断裂处钻出寄生虫（缓慢爬出效果）
+   * 从断裂处钻出寄生虫（缓慢爬出效果）- 旧接口，保留兼容
    */
   sprayParasite(worldX, worldY, offsetX, offsetY, amount, angle, force) {
+    const spawnX = worldX + offsetX * 0.03;
+    const spawnY = worldY + offsetY * 0.03;
+    this.sprayParasiteAt(spawnX, spawnY, amount, angle, force);
+  }
+
+  /**
+   * 在指定世界坐标处钻出寄生虫
+   */
+  sprayParasiteAt(worldX, worldY, amount, angle, force) {
     // 大幅减少数量
     const toSpawn = Math.min(Math.ceil(amount * 0.3), this.maxEmergingParasites - this.emergingParasites.length, 2);
 
     for (let i = 0; i < toSpawn; i++) {
-      // 钻出方向（沿着断裂面的方向）
+      // 钻出方向（沿着断裂面的方向，加入随机散布）
       const emergeAngle = angle + (Math.random() - 0.5) * 0.4;
 
-      const spawnX = worldX + offsetX * 0.03;
-      const spawnY = worldY + offsetY * 0.03;
-
       this.emergingParasites.push({
-        x: spawnX,
-        y: spawnY,
+        x: worldX + (Math.random() - 0.5) * 0.1,
+        y: worldY + (Math.random() - 0.5) * 0.1,
         // 钻出进度 0-1
         emergeProgress: 0,
         emergeSpeed: 0.0008 + Math.random() * 0.0005, // 缓慢钻出

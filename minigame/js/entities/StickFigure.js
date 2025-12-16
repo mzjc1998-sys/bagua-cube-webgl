@@ -241,11 +241,14 @@ class StickFigure {
     }
     this.breakPointOffset = { x: breakPointX, y: breakPointY };
 
-    // 触发初始粉末喷射（断裂瞬间的大量喷射）
+    // 触发初始寄生虫喷射（断裂瞬间）
+    // 骨骼坐标转换为世界坐标偏移
+    const coordScale = 0.025;
     if (this.onDustSpray) {
       for (let i = 0; i < 5; i++) {
         const sprayAngle = impactAngle + (Math.random() - 0.5) * Math.PI;
-        this.onDustSpray(breakPointX, breakPointY, 8, sprayAngle, force * 0.5 + Math.random() * 2);
+        // 传递世界坐标偏移
+        this.onDustSpray(breakPointX * coordScale, breakPointY * coordScale, 8, sprayAngle, force * 0.5 + Math.random() * 2);
       }
     }
 
@@ -556,25 +559,39 @@ class StickFigure {
       }
     }
 
-    // 持续从断裂处喷射粉末（falling和writhing阶段）
+    // 持续从断裂处喷射寄生虫（falling和writhing阶段）
     if (this.onDustSpray && (this.deathPhase === 'falling' || this.deathPhase === 'writhing')) {
       this.dustSprayTimer += deltaTime;
       if (this.dustSprayTimer >= this.dustSprayInterval) {
         this.dustSprayTimer = 0;
 
-        // 计算两半之间的断裂点位置
-        if (this.upperHalf && this.lowerHalf) {
-          // 从上半身底部喷射
-          const upperBreakX = this.upperHalf.x;
-          const upperBreakY = this.upperHalf.y + 5;
-          const sprayAngle1 = Math.PI / 2 + (Math.random() - 0.5) * 0.5; // 向下
-          this.onDustSpray(upperBreakX, upperBreakY, 3, sprayAngle1, 1 + Math.random());
+        // 计算断裂点的世界坐标偏移
+        // half.x/y 是火柴人坐标，需要转换为世界坐标偏移
+        // 转换系数：火柴人坐标 * 0.025 ≈ 世界坐标偏移
+        const coordScale = 0.025;
 
-          // 从下半身顶部喷射
-          const lowerBreakX = this.lowerHalf.x;
-          const lowerBreakY = this.lowerHalf.y - 5;
-          const sprayAngle2 = -Math.PI / 2 + (Math.random() - 0.5) * 0.5; // 向上
-          this.onDustSpray(lowerBreakX, lowerBreakY, 3, sprayAngle2, 1 + Math.random());
+        if (this.upperHalf && this.lowerHalf) {
+          // 从上半身断裂处喷射
+          const upperWorldX = this.upperHalf.x * coordScale;
+          const upperWorldY = this.upperHalf.y * coordScale;
+          const sprayAngle1 = Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+          this.onDustSpray(upperWorldX, upperWorldY, 3, sprayAngle1, 1 + Math.random());
+
+          // 从下半身断裂处喷射
+          const lowerWorldX = this.lowerHalf.x * coordScale;
+          const lowerWorldY = this.lowerHalf.y * coordScale;
+          const sprayAngle2 = -Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+          this.onDustSpray(lowerWorldX, lowerWorldY, 3, sprayAngle2, 1 + Math.random());
+        }
+
+        // 额外断开的肢体也喷射
+        if (this.detachedLimbs) {
+          for (const limb of this.detachedLimbs) {
+            const limbWorldX = limb.x * coordScale;
+            const limbWorldY = limb.y * coordScale;
+            const limbAngle = Math.random() * Math.PI * 2;
+            this.onDustSpray(limbWorldX, limbWorldY, 2, limbAngle, 0.5 + Math.random());
+          }
         }
       }
     }

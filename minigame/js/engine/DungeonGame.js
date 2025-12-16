@@ -544,9 +544,11 @@ class DungeonGame {
           // 在尸体位置产生一些寄生虫
           this.parasiteManager.addParasiteSource(enemy.x, enemy.y, 15 + (enemy.expReward || 10) * 0.2);
         };
-        // 断裂处喷射寄生虫
-        stickFigure.onDustSpray = (offsetX, offsetY, amount, angle, force) => {
-          this.parasiteManager.sprayParasite(enemy.x, enemy.y, offsetX, offsetY, amount, angle, force);
+        // 断裂处喷射寄生虫（offsetX/Y 已经是世界坐标偏移）
+        stickFigure.onDustSpray = (worldOffsetX, worldOffsetY, amount, angle, force) => {
+          const spawnX = enemy.x + worldOffsetX;
+          const spawnY = enemy.y + worldOffsetY;
+          this.parasiteManager.sprayParasiteAt(spawnX, spawnY, amount, angle, force);
         };
         this.enemyStickFigures.set(enemy, stickFigure);
       }
