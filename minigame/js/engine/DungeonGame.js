@@ -539,10 +539,19 @@ class DungeonGame {
       let stickFigure = this.enemyStickFigures.get(enemy);
       if (!stickFigure) {
         stickFigure = new StickFigure(enemy.color);
-        // 尸体消失时产生寄生虫（残留）
+        // 尸体消失时产生寄生虫和经验球
         stickFigure.onExpReady = () => {
           // 在尸体位置产生一些寄生虫
           this.parasiteManager.addParasiteSource(enemy.x, enemy.y, 15 + (enemy.expReward || 10) * 0.2);
+
+          // 在尸体位置产生彩虹色经验球（大小和寄生虫一样）
+          this.itemManager.addDrop({
+            type: 'exp',
+            x: enemy.x,
+            y: enemy.y,
+            value: enemy.expReward || 10,
+            size: 0.035 + Math.random() * 0.015 // 和寄生虫大小一致
+          });
         };
         // 断裂处喷射寄生虫（offsetX/Y 已经是世界坐标偏移）
         stickFigure.onDustSpray = (worldOffsetX, worldOffsetY, amount, angle, force) => {

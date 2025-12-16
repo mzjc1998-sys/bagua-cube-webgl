@@ -162,6 +162,12 @@ class ItemManager {
       const bob = Math.sin(time + item.bobOffset) * 3;
       const pos = renderer.worldToScreen(item.x, item.y, 5 + bob);
 
+      // 经验球使用彩虹色特殊渲染
+      if (item.type === 'exp') {
+        this.renderRainbowExpOrb(ctx, pos, item, time, renderer.zoom);
+        continue;
+      }
+
       // 光晕效果
       const glowRadius = 15 * renderer.zoom;
       const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowRadius);
@@ -198,6 +204,72 @@ class ItemManager {
         ctx.lineWidth = 2;
         ctx.stroke();
       }
+    }
+  }
+
+  /**
+   * 渲染彩虹色经验球（大小和寄生虫类似）
+   */
+  renderRainbowExpOrb(ctx, pos, item, time, zoom) {
+    // 和寄生虫一样小的尺寸
+    const baseSize = (item.size || 0.04) * zoom * 800;
+    const coreRadius = Math.max(3, baseSize);
+
+    // 彩虹色相位随时间变化
+    const hueOffset = time * 60 + (item.bobOffset || 0) * 100;
+
+    // 外层彩虹光晕
+    const glowRadius = coreRadius * 3;
+    const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowRadius);
+
+    // 彩虹渐变光晕
+    const hue1 = (hueOffset) % 360;
+    const hue2 = (hueOffset + 60) % 360;
+    const hue3 = (hueOffset + 120) % 360;
+
+    gradient.addColorStop(0, `hsla(${hue1}, 100%, 70%, 0.9)`);
+    gradient.addColorStop(0.3, `hsla(${hue2}, 100%, 60%, 0.6)`);
+    gradient.addColorStop(0.6, `hsla(${hue3}, 100%, 50%, 0.3)`);
+    gradient.addColorStop(1, `hsla(${hue1}, 100%, 50%, 0)`);
+
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, glowRadius, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // 核心球体 - 彩虹色渐变填充
+    const coreGradient = ctx.createRadialGradient(
+      pos.x - coreRadius * 0.3, pos.y - coreRadius * 0.3, 0,
+      pos.x, pos.y, coreRadius
+    );
+    coreGradient.addColorStop(0, `hsla(${hue1}, 100%, 90%, 1)`);
+    coreGradient.addColorStop(0.5, `hsla(${hue2}, 100%, 70%, 1)`);
+    coreGradient.addColorStop(1, `hsla(${hue3}, 100%, 50%, 1)`);
+
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, coreRadius, 0, Math.PI * 2);
+    ctx.fillStyle = coreGradient;
+    ctx.fill();
+
+    // 白色高光点
+    ctx.beginPath();
+    ctx.arc(pos.x - coreRadius * 0.3, pos.y - coreRadius * 0.3, coreRadius * 0.25, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fill();
+
+    // 闪烁粒子效果
+    const particleCount = 3;
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (time * 2 + i * (Math.PI * 2 / particleCount)) % (Math.PI * 2);
+      const dist = coreRadius * 1.5 + Math.sin(time * 3 + i) * coreRadius * 0.3;
+      const px = pos.x + Math.cos(angle) * dist;
+      const py = pos.y + Math.sin(angle) * dist * 0.6; // 椭圆轨道
+
+      const particleHue = (hueOffset + i * 120) % 360;
+      ctx.beginPath();
+      ctx.arc(px, py, coreRadius * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${particleHue}, 100%, 70%, 0.7)`;
+      ctx.fill();
     }
   }
 
