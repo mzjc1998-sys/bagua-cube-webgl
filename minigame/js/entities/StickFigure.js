@@ -89,8 +89,8 @@ class StickFigure {
         break;
 
       case 'walk':
-        // 简洁走路动画
-        const walkT = (t * 3) % (Math.PI * 2);
+        // 自然放松的日常走路 - 1秒循环
+        const walkT = (t * 2) % (Math.PI * 2); // 较慢节奏
         const walkPhase = walkT / (Math.PI * 2);
 
         // 左右腿相位差0.5
@@ -100,7 +100,7 @@ class StickFigure {
         const leftLeg = this.calculateLegPose(leftLegPhase, mirror);
         const rightLeg = this.calculateLegPose(rightLegPhase, mirror);
 
-        // 应用腿部
+        // 应用腿部动画
         bones.kneeL.x += leftLeg.kneeX;
         bones.kneeL.y += leftLeg.kneeY;
         bones.footL.x += leftLeg.footX;
@@ -111,12 +111,12 @@ class StickFigure {
         bones.footR.x += rightLeg.footX;
         bones.footR.y += rightLeg.footY;
 
-        // 轻微身体起伏
+        // 极小的身体起伏（几乎直立）
         const bodyBob = this.calculateBodyBob(walkPhase);
-        bones.head.y += bodyBob * 0.5;
-        bones.spine.y += bodyBob * 0.3;
+        bones.head.y += bodyBob * 0.3;
+        bones.spine.y += bodyBob * 0.2;
 
-        // 手臂轻微摆动（与腿反向）
+        // 极小的手臂摆动（与腿反向）
         const armSwingL = this.calculateArmSwing(rightLegPhase, mirror);
         const armSwingR = this.calculateArmSwing(leftLegPhase, mirror);
 
@@ -256,71 +256,83 @@ class StickFigure {
   }
 
   /**
-   * 计算走路腿部姿势（自然步态）
-   * phase: 0-1，一条腿的完整周期
+   * 计算走路腿部姿势（自然放松的日常走路）
+   *
+   * 关键规则：
+   * - 步幅短、抬脚低
+   * - 必须有双脚支撑期，无腾空
+   * - 脚底锁定地面，不滑步
+   * - contact → down → passing → up → 对称切换
    */
   calculateLegPose(phase, mirror) {
     const result = { hipX: 0, kneeX: 0, kneeY: 0, footX: 0, footY: 0 };
 
-    // 走路步幅要小，保持自然
-    const strideLength = 5;
+    // 步幅极小（日常放松走路）
+    const strideLength = 3;
+    // 抬脚高度极低
+    const liftHeight = 1.5;
 
-    if (phase < 0.5) {
-      // === 支撑期：脚在地面，身体经过 ===
-      const t = phase / 0.5;
+    // 走路有60%支撑期，40%摆动期（双脚支撑期存在）
+    if (phase < 0.6) {
+      // === 支撑期（脚在地面）===
+      const t = phase / 0.6;
 
-      // 脚从前方移到后方（相对身体），始终贴地
+      // 脚从前方滑到后方，始终贴地
+      // 脚跟触地 → 滚动脚掌 → 脚尖离地
       result.footX = (0.5 - t) * strideLength * mirror;
-      result.footY = 0;
+      result.footY = 0; // 锁定地面
 
-      // 膝盖：中间时最直，两端微屈
-      result.kneeX = (0.4 - t * 0.8) * strideLength * 0.5 * mirror;
-      const bendAmount = Math.abs(t - 0.5) * 2;
-      result.kneeY = -bendAmount * 2;
+      // 膝盖轻微弯曲（中间最直）
+      result.kneeX = (0.35 - t * 0.7) * strideLength * 0.6 * mirror;
+      // contact和up时微屈，passing时最直
+      const bendCurve = Math.abs(t - 0.5) * 2;
+      result.kneeY = -bendCurve * 1.5;
 
     } else {
-      // === 摆动期：脚离地向前摆 ===
-      const t = (phase - 0.5) / 0.5;
+      // === 摆动期（脚离地向前）===
+      const t = (phase - 0.6) / 0.4;
 
       // 脚从后方摆到前方
       result.footX = (-0.5 + t) * strideLength * mirror;
-      // 中间稍微抬高
-      const lift = Math.sin(t * Math.PI) * 3;
+      // 抬脚高度很低，中间稍高
+      const lift = Math.sin(t * Math.PI) * liftHeight;
       result.footY = -lift;
 
-      // 膝盖随之弯曲
-      result.kneeX = (-0.3 + t * 0.7) * strideLength * 0.5 * mirror;
-      result.kneeY = -Math.sin(t * Math.PI) * 3 - 1;
+      // 膝盖轻微弯曲带动小腿
+      result.kneeX = (-0.3 + t * 0.65) * strideLength * 0.6 * mirror;
+      result.kneeY = -Math.sin(t * Math.PI) * 2 - 0.5;
     }
 
     return result;
   }
 
   /**
-   * 计算走路身体重心起伏（轻微）
+   * 计算走路身体重心起伏（极小）
+   * 双脚支撑期下沉，单脚支撑期上升，但幅度极小
    */
   calculateBodyBob(phase) {
-    // 走路起伏很小
+    // 走路起伏极小（几乎看不出）
     const doublePhase = phase * 2 % 1;
-    return Math.cos(doublePhase * Math.PI * 2) * 1;
+    return Math.cos(doublePhase * Math.PI * 2) * 0.5;
   }
 
   /**
-   * 计算走路手臂摆动（自然下垂，轻微摆动）
+   * 计算走路手臂摆动（极小幅度，靠近身体）
+   * 肘部轻微弯曲，手不超过肩高
    */
   calculateArmSwing(legPhase, mirror) {
     const result = { shoulderY: 0, elbowX: 0, elbowY: 0, handX: 0, handY: 0 };
 
-    // 走路手臂自然下垂，轻微前后摆动
+    // 摆臂幅度极小
     const swing = Math.sin(legPhase * Math.PI * 2);
 
-    // 肘部轻微摆动
-    result.elbowX = swing * 2 * mirror;
+    // 肘部靠近身体，轻微前后
+    result.elbowX = swing * 1.5 * mirror;
     result.elbowY = 0;
 
-    // 手部跟随
-    result.handX = swing * 3 * mirror;
-    result.handY = swing * 0.5;
+    // 手部跟随，幅度小
+    result.handX = swing * 2 * mirror;
+    result.handY = swing * 0.3;
 
     return result;
   }
