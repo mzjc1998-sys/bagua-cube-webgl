@@ -191,45 +191,67 @@ class StickFigure {
   }
 
   /**
-   * 将身体断成两截
+   * 将身体断成两截（或多截）
    */
   bisectBody(impactAngle, force) {
     if (this.isBisected) return;
 
-    // 随机选择断裂点
-    const bisectPoints = ['neck', 'spine', 'hip'];
-    this.bisectPoint = bisectPoints[Math.floor(Math.random() * bisectPoints.length)];
+    // 更多随机断裂点，包括四肢
+    const bisectTypes = [
+      'neck',      // 头飞出
+      'spine',     // 腰断
+      'hip',       // 臀部断
+      'armL',      // 左臂断
+      'armR',      // 右臂断
+      'legL',      // 左腿断
+      'legR',      // 右腿断
+      'shoulder',  // 双臂断
+      'legs'       // 双腿断
+    ];
+    this.bisectPoint = bisectTypes[Math.floor(Math.random() * bisectTypes.length)];
     this.isBisected = true;
+
+    // 断开的肢体列表（用于多肢体断裂）
+    this.detachedLimbs = [];
 
     const currentBones = this.ragdollBones || this.getAnimatedBones(this.currentAnim, this.animTime, true);
 
     // 获取断裂点的位置（用于粉末喷射）
-    let breakPointY = 0;
+    let breakPointX = 0, breakPointY = 0;
     if (this.bisectPoint === 'neck') {
       breakPointY = currentBones.neck.y;
     } else if (this.bisectPoint === 'spine') {
       breakPointY = currentBones.spine.y;
-    } else {
+    } else if (this.bisectPoint === 'hip' || this.bisectPoint === 'legs') {
       breakPointY = currentBones.hip.y;
+    } else if (this.bisectPoint === 'armL') {
+      breakPointX = currentBones.shoulderL.x;
+      breakPointY = currentBones.shoulderL.y;
+    } else if (this.bisectPoint === 'armR') {
+      breakPointX = currentBones.shoulderR.x;
+      breakPointY = currentBones.shoulderR.y;
+    } else if (this.bisectPoint === 'legL') {
+      breakPointX = currentBones.hipL.x;
+      breakPointY = currentBones.hipL.y;
+    } else if (this.bisectPoint === 'legR') {
+      breakPointX = currentBones.hipR.x;
+      breakPointY = currentBones.hipR.y;
+    } else if (this.bisectPoint === 'shoulder') {
+      breakPointY = currentBones.neck.y;
     }
-    this.breakPointOffset = { x: 0, y: breakPointY };
+    this.breakPointOffset = { x: breakPointX, y: breakPointY };
 
     // 触发初始粉末喷射（断裂瞬间的大量喷射）
     if (this.onDustSpray) {
-      // 多方向喷射
       for (let i = 0; i < 5; i++) {
         const sprayAngle = impactAngle + (Math.random() - 0.5) * Math.PI;
-        this.onDustSpray(0, breakPointY, 8, sprayAngle, force * 0.5 + Math.random() * 2);
+        this.onDustSpray(breakPointX, breakPointY, 8, sprayAngle, force * 0.5 + Math.random() * 2);
       }
     }
 
-    // 定义上下半身的骨骼
-    const upperBones = ['head', 'neck', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'];
-    const lowerBones = ['hip', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'];
-
-    // 根据断裂点调整
+    // 根据断裂类型分割身体
     if (this.bisectPoint === 'neck') {
-      // 脖子断 - 头单独飞出
+      // 头飞出
       this.upperHalf = this.createBodyHalf(['head'], currentBones, impactAngle, force * 1.5);
       this.lowerHalf = this.createBodyHalf(
         ['neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
@@ -245,7 +267,7 @@ class StickFigure {
         ['hip', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
         currentBones, impactAngle + Math.PI * 0.8, force * 0.8
       );
-    } else {
+    } else if (this.bisectPoint === 'hip') {
       // 臀部断
       this.upperHalf = this.createBodyHalf(
         ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'],
@@ -255,6 +277,76 @@ class StickFigure {
         ['hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
         currentBones, impactAngle + Math.PI * 1.2, force * 0.7
       );
+    } else if (this.bisectPoint === 'armL') {
+      // 左臂断开
+      this.upperHalf = this.createBodyHalf(
+        ['elbowL', 'handL'],
+        currentBones, impactAngle - 0.5, force * 1.2
+      );
+      this.lowerHalf = this.createBodyHalf(
+        ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowR', 'handR', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
+        currentBones, impactAngle + Math.PI, force * 0.4
+      );
+    } else if (this.bisectPoint === 'armR') {
+      // 右臂断开
+      this.upperHalf = this.createBodyHalf(
+        ['elbowR', 'handR'],
+        currentBones, impactAngle + 0.5, force * 1.2
+      );
+      this.lowerHalf = this.createBodyHalf(
+        ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'handL', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
+        currentBones, impactAngle + Math.PI, force * 0.4
+      );
+    } else if (this.bisectPoint === 'legL') {
+      // 左腿断开
+      this.upperHalf = this.createBodyHalf(
+        ['kneeL', 'footL'],
+        currentBones, impactAngle + Math.PI * 0.7, force * 1.0
+      );
+      this.lowerHalf = this.createBodyHalf(
+        ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR', 'hipL', 'hipR', 'kneeR', 'footR'],
+        currentBones, impactAngle + Math.PI, force * 0.4
+      );
+    } else if (this.bisectPoint === 'legR') {
+      // 右腿断开
+      this.upperHalf = this.createBodyHalf(
+        ['kneeR', 'footR'],
+        currentBones, impactAngle + Math.PI * 1.3, force * 1.0
+      );
+      this.lowerHalf = this.createBodyHalf(
+        ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR', 'hipL', 'hipR', 'kneeL', 'footL'],
+        currentBones, impactAngle + Math.PI, force * 0.4
+      );
+    } else if (this.bisectPoint === 'shoulder') {
+      // 双臂同时断开
+      this.upperHalf = this.createBodyHalf(
+        ['head', 'neck', 'spine', 'hip', 'hipL', 'hipR', 'kneeL', 'kneeR', 'footL', 'footR'],
+        currentBones, impactAngle + Math.PI, force * 0.5
+      );
+      this.lowerHalf = this.createBodyHalf(
+        ['shoulderL', 'elbowL', 'handL'],
+        currentBones, impactAngle - 0.8, force * 1.0
+      );
+      // 第三块：右臂
+      this.detachedLimbs.push(this.createBodyHalf(
+        ['shoulderR', 'elbowR', 'handR'],
+        currentBones, impactAngle + 0.8, force * 1.0
+      ));
+    } else if (this.bisectPoint === 'legs') {
+      // 双腿同时断开
+      this.upperHalf = this.createBodyHalf(
+        ['head', 'neck', 'spine', 'hip', 'shoulderL', 'shoulderR', 'elbowL', 'elbowR', 'handL', 'handR'],
+        currentBones, impactAngle, force * 0.6
+      );
+      this.lowerHalf = this.createBodyHalf(
+        ['hipL', 'kneeL', 'footL'],
+        currentBones, impactAngle + Math.PI * 0.6, force * 0.9
+      );
+      // 第三块：右腿
+      this.detachedLimbs.push(this.createBodyHalf(
+        ['hipR', 'kneeR', 'footR'],
+        currentBones, impactAngle + Math.PI * 1.4, force * 0.9
+      ));
     }
   }
 
@@ -457,6 +549,13 @@ class StickFigure {
     this.updateBodyHalf(this.upperHalf, deltaTime, mergeX, mergeY, mergeStrength);
     this.updateBodyHalf(this.lowerHalf, deltaTime, mergeX, mergeY, mergeStrength);
 
+    // 更新额外断开的肢体
+    if (this.detachedLimbs) {
+      for (const limb of this.detachedLimbs) {
+        this.updateBodyHalf(limb, deltaTime, mergeX, mergeY, mergeStrength);
+      }
+    }
+
     // 持续从断裂处喷射粉末（falling和writhing阶段）
     if (this.onDustSpray && (this.deathPhase === 'falling' || this.deathPhase === 'writhing')) {
       this.dustSprayTimer += deltaTime;
@@ -631,7 +730,7 @@ class StickFigure {
   }
 
   /**
-   * 渲染断成两截的身体
+   * 渲染断成两截（或多截）的身体
    */
   renderBisectedBody(ctx, screenX, screenY, scale, facingRight) {
     ctx.globalAlpha = this.fadeAlpha;
@@ -646,11 +745,18 @@ class StickFigure {
       this.renderBodyHalf(ctx, screenX, screenY, scale, facingRight, this.lowerHalf, false);
     }
 
+    // 渲染额外断开的肢体
+    if (this.detachedLimbs) {
+      for (const limb of this.detachedLimbs) {
+        this.renderBodyHalf(ctx, screenX, screenY, scale, facingRight, limb, false);
+      }
+    }
+
     ctx.globalAlpha = 1;
   }
 
   /**
-   * 渲染身体半截
+   * 渲染身体半截（支持任意骨骼组合）
    */
   renderBodyHalf(ctx, screenX, screenY, scale, facingRight, half, isUpper) {
     ctx.save();
@@ -666,32 +772,41 @@ class StickFigure {
 
     const bones = half.bones;
 
-    // 绘制连接
-    if (isUpper) {
-      // 上半身连接
-      if (bones.neck && bones.spine) this.drawLimb(ctx, bones.neck, bones.spine);
-      if (bones.spine && bones.hip) this.drawLimb(ctx, bones.spine, bones.hip);
-      if (bones.shoulderL && bones.elbowL) this.drawLimb(ctx, bones.shoulderL, bones.elbowL);
-      if (bones.elbowL && bones.handL) this.drawLimb(ctx, bones.elbowL, bones.handL);
-      if (bones.shoulderR && bones.elbowR) this.drawLimb(ctx, bones.shoulderR, bones.elbowR);
-      if (bones.elbowR && bones.handR) this.drawLimb(ctx, bones.elbowR, bones.handR);
+    // 智能绘制所有存在的骨骼连接
+    // 躯干连接
+    if (bones.head && bones.neck) this.drawLimb(ctx, bones.head, bones.neck);
+    if (bones.neck && bones.spine) this.drawLimb(ctx, bones.neck, bones.spine);
+    if (bones.spine && bones.hip) this.drawLimb(ctx, bones.spine, bones.hip);
 
-      // 头部
-      if (bones.head) {
-        ctx.beginPath();
-        ctx.arc(bones.head.x, bones.head.y, bones.head.radius || 8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else {
-      // 下半身连接
-      if (bones.hip) {
-        if (bones.hipL) this.drawLimb(ctx, bones.hip, bones.hipL);
-        if (bones.hipR) this.drawLimb(ctx, bones.hip, bones.hipR);
-      }
-      if (bones.hipL && bones.kneeL) this.drawLimb(ctx, bones.hipL, bones.kneeL);
-      if (bones.kneeL && bones.footL) this.drawLimb(ctx, bones.kneeL, bones.footL);
-      if (bones.hipR && bones.kneeR) this.drawLimb(ctx, bones.hipR, bones.kneeR);
-      if (bones.kneeR && bones.footR) this.drawLimb(ctx, bones.kneeR, bones.footR);
+    // 肩膀连接到躯干
+    if (bones.neck && bones.shoulderL) this.drawLimb(ctx, bones.neck, bones.shoulderL);
+    if (bones.neck && bones.shoulderR) this.drawLimb(ctx, bones.neck, bones.shoulderR);
+
+    // 左臂
+    if (bones.shoulderL && bones.elbowL) this.drawLimb(ctx, bones.shoulderL, bones.elbowL);
+    if (bones.elbowL && bones.handL) this.drawLimb(ctx, bones.elbowL, bones.handL);
+
+    // 右臂
+    if (bones.shoulderR && bones.elbowR) this.drawLimb(ctx, bones.shoulderR, bones.elbowR);
+    if (bones.elbowR && bones.handR) this.drawLimb(ctx, bones.elbowR, bones.handR);
+
+    // 髋部连接
+    if (bones.hip && bones.hipL) this.drawLimb(ctx, bones.hip, bones.hipL);
+    if (bones.hip && bones.hipR) this.drawLimb(ctx, bones.hip, bones.hipR);
+
+    // 左腿
+    if (bones.hipL && bones.kneeL) this.drawLimb(ctx, bones.hipL, bones.kneeL);
+    if (bones.kneeL && bones.footL) this.drawLimb(ctx, bones.kneeL, bones.footL);
+
+    // 右腿
+    if (bones.hipR && bones.kneeR) this.drawLimb(ctx, bones.hipR, bones.kneeR);
+    if (bones.kneeR && bones.footR) this.drawLimb(ctx, bones.kneeR, bones.footR);
+
+    // 头部（圆形）
+    if (bones.head) {
+      ctx.beginPath();
+      ctx.arc(bones.head.x, bones.head.y, bones.head.radius || 8, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // 断裂处血迹/肉末效果
@@ -742,6 +857,7 @@ class StickFigure {
     this.bisectPoint = null;
     this.upperHalf = null;
     this.lowerHalf = null;
+    this.detachedLimbs = [];
     this.isDying = false;
     this.deathTimer = 0;
     this.deathPhase = 'falling';
