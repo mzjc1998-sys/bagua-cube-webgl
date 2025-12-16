@@ -47,7 +47,11 @@ class DungeonGame {
       startY: 0,
       currentX: 0,
       currentY: 0,
-      radius: 60
+      radius: 60,
+      // 存储当前方向和力度，用于持续移动
+      dirX: 0,
+      dirY: 0,
+      strength: 0
     };
 
     // 攻击输入状态
@@ -323,6 +327,10 @@ class DungeonGame {
       this.joystick.currentX = x;
       this.joystick.currentY = y;
       this.joystick.touchId = id;
+      // 初始化方向为零（刚触摸时还没有移动）
+      this.joystick.dirX = 0;
+      this.joystick.dirY = 0;
+      this.joystick.strength = 0;
     }
   }
 
@@ -354,39 +362,47 @@ class DungeonGame {
     if (this.joystick.active && this.joystick.touchId === id) {
       this.joystick.currentX = x;
       this.joystick.currentY = y;
-
-      // 计算移动方向
-      const dx = x - this.joystick.startX;
-      const dy = y - this.joystick.startY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist > 5) {
-        // 直接使用屏幕方向，更直观
-        // 屏幕上方 = 世界坐标左上 (-x, -y)
-        // 屏幕下方 = 世界坐标右下 (+x, +y)
-        // 屏幕左方 = 世界坐标左下 (-x, +y)
-        // 屏幕右方 = 世界坐标右上 (+x, -y)
-
-        // 简化的等轴测转换：
-        // 屏幕X影响世界X正方向 + 世界Y负方向
-        // 屏幕Y影响世界X正方向 + 世界Y正方向
-        const worldDirX = (dx + dy) * 0.7071; // 1/sqrt(2)
-        const worldDirY = (dy - dx) * 0.7071;
-
-        // 归一化并应用移动距离
-        const worldDist = Math.sqrt(worldDirX * worldDirX + worldDirY * worldDirY);
-        if (worldDist > 0) {
-          const normalizedX = worldDirX / worldDist;
-          const normalizedY = worldDirY / worldDist;
-          const moveStrength = Math.min(dist / this.joystick.radius, 1);
-
-          const targetX = this.player.x + normalizedX * moveStrength * 0.15;
-          const targetY = this.player.y + normalizedY * moveStrength * 0.15;
-
-          this.player.setMoveTarget(targetX, targetY);
-        }
-      }
+      this.updateJoystickDirection();
     }
+  }
+
+  /**
+   * 更新摇杆方向（存储方向供持续移动使用）
+   */
+  updateJoystickDirection() {
+    const dx = this.joystick.currentX - this.joystick.startX;
+    const dy = this.joystick.currentY - this.joystick.startY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 5) {
+      // 等轴测坐标转换
+      const worldDirX = (dx + dy) * 0.7071;
+      const worldDirY = (dy - dx) * 0.7071;
+
+      // 归一化
+      const worldDist = Math.sqrt(worldDirX * worldDirX + worldDirY * worldDirY);
+      if (worldDist > 0) {
+        this.joystick.dirX = worldDirX / worldDist;
+        this.joystick.dirY = worldDirY / worldDist;
+        this.joystick.strength = Math.min(dist / this.joystick.radius, 1);
+      }
+    } else {
+      this.joystick.dirX = 0;
+      this.joystick.dirY = 0;
+      this.joystick.strength = 0;
+    }
+  }
+
+  /**
+   * 应用摇杆输入（在update中持续调用）
+   */
+  applyJoystickInput() {
+    if (!this.joystick.active || this.joystick.strength === 0) return;
+
+    const targetX = this.player.x + this.joystick.dirX * this.joystick.strength * 0.15;
+    const targetY = this.player.y + this.joystick.dirY * this.joystick.strength * 0.15;
+
+    this.player.setMoveTarget(targetX, targetY);
   }
 
   /**
@@ -408,6 +424,9 @@ class DungeonGame {
     // 摇杆松开
     if (this.joystick.touchId === id) {
       this.joystick.active = false;
+      this.joystick.dirX = 0;
+      this.joystick.dirY = 0;
+      this.joystick.strength = 0;
       this.player.isMoving = false;
     }
   }
@@ -511,6 +530,9 @@ class DungeonGame {
    */
   update() {
     if (this.gameState !== 'playing') return;
+
+    // 持续应用摇杆输入（修复：即使不滑动也能持续移动）
+    this.applyJoystickInput();
 
     // 更新攻击输入（长按自动攻击）
     this.updateAttackInput();
