@@ -357,11 +357,11 @@ class Player {
    */
   generateEvolutionChoices() {
     const allChoices = [
-      { id: 'shadow', name: '暗影形态', desc: '移动速度+50%，攻击附带暗影伤害', color: '#2d1a4a' },
-      { id: 'void', name: '虚空之躯', desc: '生命上限+100，受伤时有几率闪避', color: '#1a0a2a' },
-      { id: 'abyss', name: '深渊之力', desc: '攻击力+80%，攻击范围增大', color: '#0a0a1a' },
-      { id: 'corruption', name: '腐化', desc: '攻击附带腐蚀，持续伤害敌人', color: '#3a1a3a' },
-      { id: 'darkness', name: '黑暗使徒', desc: '技能冷却减半，翻滚距离增加', color: '#1a1a2a' }
+      { id: 'shadow', name: '疾行寄生', desc: '移动速度+50%，攻击附带毒素', color: '#2a1a1a' },
+      { id: 'void', name: '铁壳宿主', desc: '生命上限+100，受伤时有几率闪避', color: '#1a1a1a' },
+      { id: 'abyss', name: '狂暴变异', desc: '攻击力+80%，攻击范围增大', color: '#2a0a0a' },
+      { id: 'corruption', name: '腐蚀血脉', desc: '攻击附带腐蚀，持续伤害敌人', color: '#3a1a1a' },
+      { id: 'darkness', name: '完全共生', desc: '技能冷却减半，翻滚距离增加', color: '#1a0a0a' }
     ];
 
     // 随机选择3个

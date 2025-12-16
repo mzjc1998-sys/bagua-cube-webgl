@@ -11,7 +11,7 @@ import CombatManager from '../combat/CombatManager.js';
 import ItemManager from '../items/ItemManager.js';
 import ProjectileManager from '../combat/ProjectileManager.js';
 import StickFigure from '../entities/StickFigure.js';
-import DustManager from '../combat/DustManager.js';
+import ParasiteManager from '../combat/ParasiteManager.js';
 import CollisionManager from '../combat/CollisionManager.js';
 
 class DungeonGame {
@@ -28,7 +28,7 @@ class DungeonGame {
     this.combatManager = new CombatManager();
     this.itemManager = new ItemManager();
     this.projectileManager = new ProjectileManager();
-    this.dustManager = new DustManager();
+    this.parasiteManager = new ParasiteManager();
     this.collisionManager = new CollisionManager();
 
     // 火柴人渲染器
@@ -188,7 +188,7 @@ class DungeonGame {
     this.itemManager.clear();
     this.combatManager.clear();
     this.projectileManager.clear();
-    this.dustManager.clear();
+    this.parasiteManager.clear();
     this.collisionManager.clear();
     this.enemyStickFigures.clear();
 
@@ -539,14 +539,14 @@ class DungeonGame {
       let stickFigure = this.enemyStickFigures.get(enemy);
       if (!stickFigure) {
         stickFigure = new StickFigure(enemy.color);
-        // 尸体消失时产生黑色粉末（残留）
+        // 尸体消失时产生寄生虫（残留）
         stickFigure.onExpReady = () => {
-          // 在尸体位置产生少量残留粉末
-          this.dustManager.addDustSource(enemy.x, enemy.y, 20 + (enemy.expReward || 10) * 0.3);
+          // 在尸体位置产生一些寄生虫
+          this.parasiteManager.addParasiteSource(enemy.x, enemy.y, 15 + (enemy.expReward || 10) * 0.2);
         };
-        // 断裂处喷射粉末
+        // 断裂处喷射寄生虫
         stickFigure.onDustSpray = (offsetX, offsetY, amount, angle, force) => {
-          this.dustManager.sprayDust(enemy.x, enemy.y, offsetX, offsetY, amount, angle, force);
+          this.parasiteManager.sprayParasite(enemy.x, enemy.y, offsetX, offsetY, amount, angle, force);
         };
         this.enemyStickFigures.set(enemy, stickFigure);
       }
@@ -597,10 +597,10 @@ class DungeonGame {
     // 更新物品
     this.itemManager.update(this.deltaTime, this.player);
 
-    // 更新黑色粉末并检测收集
-    const collectedDust = this.dustManager.update(this.deltaTime, this.player);
-    if (collectedDust > 0) {
-      this.player.collectDust(collectedDust);
+    // 更新寄生虫并检测收集
+    const collectedParasites = this.parasiteManager.update(this.deltaTime, this.player);
+    if (collectedParasites > 0) {
+      this.player.collectDust(collectedParasites); // 复用染黑逻辑
     }
 
     // 相机跟随
@@ -667,8 +667,8 @@ class DungeonGame {
     // 渲染物品
     this.itemManager.render(ctx, this.renderer);
 
-    // 渲染黑色粉末
-    this.dustManager.render(ctx, this.renderer);
+    // 渲染寄生虫
+    this.parasiteManager.render(ctx, this.renderer);
 
     // 渲染伤害数字
     this.combatManager.renderDamageNumbers(ctx, this.renderer);
@@ -959,16 +959,16 @@ class DungeonGame {
     ctx.font = '12px sans-serif';
     ctx.fillText(`HP: ${p.hp}/${p.maxHP}`, 145, 33);
 
-    // 暗度条（替代经验条）
+    // 寄生度条（替代经验条）
     ctx.fillStyle = '#333';
     ctx.fillRect(20, 42, 120, 10);
-    ctx.fillStyle = '#4a1a4a';
+    ctx.fillStyle = '#3a1a2a';
     ctx.fillRect(20, 42, 120 * (p.darkness / 100), 10);
 
-    // 暗度数值
-    ctx.fillStyle = '#A78BFA';
+    // 寄生度数值
+    ctx.fillStyle = '#E57373';
     ctx.font = 'bold 14px sans-serif';
-    ctx.fillText(`暗度 ${Math.floor(p.darkness)}%`, 20, 70);
+    ctx.fillText(`寄生 ${Math.floor(p.darkness)}%`, 20, 70);
 
     // 楼层
     ctx.fillStyle = '#FFF';
@@ -1165,14 +1165,14 @@ class DungeonGame {
     ctx.fillRect(0, 0, this.screenWidth, this.screenHeight);
 
     // 标题
-    ctx.fillStyle = '#8B5CF6';
+    ctx.fillStyle = '#E57373';
     ctx.font = 'bold 32px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('黑暗觉醒', this.screenWidth / 2, 60);
+    ctx.fillText('寄生觉醒', this.screenWidth / 2, 60);
 
-    ctx.fillStyle = '#A78BFA';
+    ctx.fillStyle = '#EF9A9A';
     ctx.font = '16px sans-serif';
-    ctx.fillText('你的身体已被黑暗完全侵蚀，选择你的进化形态', this.screenWidth / 2, 90);
+    ctx.fillText('寄生虫已完全侵蚀你的身体，选择变异形态', this.screenWidth / 2, 90);
 
     // 保存进化选项按钮位置
     this.evolutionButtons = [];
@@ -1202,25 +1202,25 @@ class DungeonGame {
       ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
 
       // 边框发光
-      ctx.strokeStyle = '#8B5CF6';
+      ctx.strokeStyle = '#E57373';
       ctx.lineWidth = 2;
       ctx.strokeRect(cardX, cardY, cardWidth, cardHeight);
 
       // 内部渐变
       const gradient = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardHeight);
-      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)');
+      gradient.addColorStop(0, 'rgba(229, 115, 115, 0.3)');
       gradient.addColorStop(1, 'transparent');
       ctx.fillStyle = gradient;
       ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
 
       // 名称
-      ctx.fillStyle = '#E9D5FF';
+      ctx.fillStyle = '#FFCDD2';
       ctx.font = 'bold 20px sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText(choice.name, cardX + 15, cardY + 35);
 
       // 描述
-      ctx.fillStyle = '#C4B5FD';
+      ctx.fillStyle = '#EF9A9A';
       ctx.font = '14px sans-serif';
       ctx.fillText(choice.desc, cardX + 15, cardY + 65);
 
