@@ -852,35 +852,6 @@ class DungeonGame {
     // 渲染火柴人（带染黑效果）
     const scale = this.renderer.zoom * 0.8;
     this.playerStickFigure.render(ctx, pos.x, pos.y - 15 * scale, scale, facingRight, p.getBlackenedParts());
-
-    // 绘制面朝方向指示器（射击方向）
-    if (this.attackInput.active || p.isAttacking) {
-      const indicatorLen = 25 * this.renderer.zoom;
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y - 10 * scale);
-
-      // 等轴测角度转换
-      const screenAngleX = Math.cos(p.facingAngle);
-      const screenAngleY = Math.sin(p.facingAngle) * 0.5;
-
-      ctx.lineTo(
-        pos.x + screenAngleX * indicatorLen,
-        pos.y - 10 * scale + screenAngleY * indicatorLen
-      );
-      ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // 瞄准点
-      ctx.beginPath();
-      ctx.arc(
-        pos.x + screenAngleX * indicatorLen,
-        pos.y - 10 * scale + screenAngleY * indicatorLen,
-        4, 0, Math.PI * 2
-      );
-      ctx.fillStyle = '#FFD700';
-      ctx.fill();
-    }
   }
 
   /**
