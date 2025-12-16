@@ -151,11 +151,12 @@ class StickFigure {
         break;
 
       case 'run':
-        // 专业跑步动画 - 包含腾空期，强调关节运动
-        const runT = (t * 5) % (Math.PI * 2); // 更快的周期
+        // 专业跑步动画 - 16帧循环，包含腾空期
+        // 24fps，每循环16帧 = 0.67秒/循环
+        const runT = (t * 4.5) % (Math.PI * 2); // 约0.7秒循环
         const runPhase = runT / (Math.PI * 2); // 0-1 相位
 
-        // ===== 腿部动画（跑步有腾空期）=====
+        // ===== 腿部动画（左右腿相位差0.5）=====
         const leftRunPhase = runPhase;
         const rightRunPhase = (runPhase + 0.5) % 1;
 
@@ -178,23 +179,30 @@ class StickFigure {
         bones.footR.x += rightRunLeg.footX;
         bones.footR.y += rightRunLeg.footY;
 
-        // ===== 身体动态（前倾+起伏）=====
-        // 跑步时身体前倾
-        const forwardLean = 3 * mirror;
+        // ===== 身体动态 =====
+        // 1. 前倾（跑步特征，约15-20度）
+        const forwardLean = 4 * mirror;
         bones.head.x += forwardLean;
-        bones.neck.x += forwardLean * 0.7;
-        bones.spine.x += forwardLean * 0.4;
+        bones.neck.x += forwardLean * 0.75;
+        bones.spine.x += forwardLean * 0.5;
+        bones.hip.x += forwardLean * 0.2;
 
-        // 腾空期身体上升，触地时下沉
+        // 2. 重心起伏（弹性）
         const runBodyBob = this.calculateRunBodyBob(runPhase);
-        bones.head.y += runBodyBob - 2;
+        bones.head.y += runBodyBob - 1;
         bones.neck.y += runBodyBob * 0.9;
         bones.spine.y += runBodyBob * 0.7;
         bones.hip.y += runBodyBob * 0.5;
-        bones.hipL.y += runBodyBob * 0.5;
-        bones.hipR.y += runBodyBob * 0.5;
+        bones.hipL.y += runBodyBob * 0.4;
+        bones.hipR.y += runBodyBob * 0.4;
 
-        // ===== 手臂大幅摆动（体现速度）=====
+        // 3. 轻微左右摇摆（重心转移）
+        const bodySway = Math.sin(runT) * 0.8;
+        bones.spine.x += bodySway * mirror;
+        bones.head.x += bodySway * 1.1 * mirror;
+
+        // ===== 手臂反向摆动 =====
+        // 左臂与右腿反向，右臂与左腿反向
         const leftRunArm = this.calculateRunArmPose(rightRunPhase, mirror);
         const rightRunArm = this.calculateRunArmPose(leftRunPhase, mirror);
 
@@ -357,94 +365,217 @@ class StickFigure {
   }
 
   /**
-   * 计算跑步腿部姿势（包含腾空期）
-   * 跑步特点：膝盖抬高、步幅大、有腾空
+   * 计算跑步腿部姿势（专业跑步周期，16帧循环）
+   *
+   * 关键相位：
+   * 0.00-0.10: Contact（触地）- 脚跟触地，膝微屈，身体前倾
+   * 0.10-0.20: Down/Loading（承重压缩）- 膝进一步弯曲，重心下沉，吸收冲击
+   * 0.20-0.30: Mid-stance（中支撑）- 重心越过支撑脚，膝开始伸展
+   * 0.30-0.40: Push-off（蹬离）- 踝跖屈，脚尖最后离地
+   * 0.40-0.50: 腾空期开始 + 收腿
+   * 0.50-0.70: Swing（摆动）- 膝屈曲收短，髋屈曲前摆
+   * 0.70-0.90: 前伸准备
+   * 0.90-1.00: 落地准备
    */
   calculateRunLegPose(phase, mirror) {
     const result = { hipX: 0, hipY: 0, kneeX: 0, kneeY: 0, footX: 0, footY: 0 };
 
-    // 跑步周期更紧凑
-    // 0-0.3: 支撑期（脚触地推进）
-    // 0.3-0.5: 腾空起始（脚趾离地）
-    // 0.5-0.8: 摆动期（腿向前摆，膝盖高抬）
-    // 0.8-1.0: 落地准备
+    // 步幅参数（跑步比走路大）
+    const strideLength = 12;
+    const kneeHeight = 14;
 
-    if (phase < 0.3) {
-      // 支撑推进期
-      const supportPhase = phase / 0.3;
+    if (phase < 0.10) {
+      // === Contact 触地期 ===
+      // 脚在身体前方触地，膝微屈准备吸收冲击
+      const t = phase / 0.10;
 
-      // 脚从前方推到后方（比走路幅度更大）
-      result.footX = (0.6 - supportPhase * 1.2) * 10 * mirror;
+      // 脚刚触地，在前方（世界坐标锁定点开始）
+      result.footX = strideLength * 0.5 * mirror;
       result.footY = 0; // 触地
 
-      // 膝盖伸直推进
-      result.kneeX = (0.4 - supportPhase * 0.8) * 6 * mirror;
-      result.kneeY = -2 - supportPhase * 2; // 逐渐伸直
+      // 膝微屈，在脚后上方
+      result.kneeX = strideLength * 0.35 * mirror;
+      result.kneeY = -4 - t * 2; // 开始弯曲
 
-      // 髋部前移
-      result.hipX = supportPhase * 2 * mirror;
-      result.hipY = supportPhase * 1;
+      // 髋部
+      result.hipX = 1 * mirror;
+      result.hipY = t * 2; // 开始下沉
 
-    } else if (phase < 0.5) {
-      // 腾空起始（后蹬）
-      const liftPhase = (phase - 0.3) / 0.2;
+    } else if (phase < 0.20) {
+      // === Down/Loading 承重压缩期 ===
+      // 膝进一步弯曲，踝背屈，吸收冲击
+      const t = (phase - 0.10) / 0.10;
 
-      result.footX = (-0.6 + liftPhase * 0.3) * 10 * mirror;
-      result.footY = -liftPhase * 8; // 快速抬起
+      // 脚保持锁定，身体经过
+      result.footX = strideLength * (0.5 - t * 0.25) * mirror;
+      result.footY = 0;
 
-      // 膝盖开始弯曲
-      result.kneeX = (-0.4 + liftPhase * 0.2) * 6 * mirror;
-      result.kneeY = -4 - liftPhase * 6;
+      // 膝盖最大弯曲点
+      result.kneeX = strideLength * (0.35 - t * 0.2) * mirror;
+      result.kneeY = -6 - t * 3; // 压缩下沉
 
-      result.hipY = 1 - liftPhase * 1;
+      result.hipX = (1 - t * 0.5) * mirror;
+      result.hipY = 2 + t * 2; // 最低点接近
 
-    } else if (phase < 0.8) {
-      // 摆动期（高抬膝）
-      const swingPhase = (phase - 0.5) / 0.3;
+    } else if (phase < 0.30) {
+      // === Mid-stance 中支撑期 ===
+      // 重心越过支撑脚，膝开始回弹伸展
+      const t = (phase - 0.20) / 0.10;
 
-      // 膝盖高抬向前
-      result.kneeX = (-0.2 + swingPhase * 0.8) * 8 * mirror;
-      result.kneeY = -10 - Math.sin(swingPhase * Math.PI) * 4; // 最高点
+      // 脚继续后移（相对身体）
+      result.footX = strideLength * (0.25 - t * 0.35) * mirror;
+      result.footY = 0;
 
-      // 小腿折叠（关节弯曲明显）
-      const foldAngle = Math.sin(swingPhase * Math.PI);
-      result.footX = result.kneeX - foldAngle * 4 * mirror;
-      result.footY = result.kneeY + 4 + foldAngle * 6; // 脚跟靠近臀部
+      // 膝伸展回弹
+      result.kneeX = strideLength * (0.15 - t * 0.25) * mirror;
+      result.kneeY = -9 + t * 3; // 回弹上升
 
-      result.hipX = swingPhase * 1 * mirror;
-      result.hipY = -swingPhase * 1;
+      result.hipY = 4 - t * 2; // 从最低点回升
+
+    } else if (phase < 0.40) {
+      // === Push-off 蹬离期 ===
+      // 踝跖屈（脚跟抬起），脚尖最后离地
+      const t = (phase - 0.30) / 0.10;
+
+      // 脚跟开始抬起
+      result.footX = strideLength * (-0.1 - t * 0.4) * mirror;
+      result.footY = -t * 6; // 脚尖离地
+
+      // 膝向后伸展
+      result.kneeX = strideLength * (-0.1 - t * 0.3) * mirror;
+      result.kneeY = -6 - t * 4;
+
+      result.hipY = 2 - t * 3;
+
+    } else if (phase < 0.50) {
+      // === 腾空期 + 收腿 ===
+      // 快速屈膝收短，准备前摆
+      const t = (phase - 0.40) / 0.10;
+
+      // 脚快速上收，脚跟靠近臀部
+      result.footX = strideLength * (-0.5 + t * 0.2) * mirror;
+      result.footY = -6 - t * 8; // 高速上提
+
+      // 膝快速屈曲
+      result.kneeX = strideLength * (-0.4 + t * 0.15) * mirror;
+      result.kneeY = -10 - t * 4;
+
+      result.hipY = -1 - t * 1;
+
+    } else if (phase < 0.70) {
+      // === Swing 摆动期 ===
+      // 髋屈曲抬膝前送，小腿折叠
+      const t = (phase - 0.50) / 0.20;
+      const swingEase = this.easeInOutQuad(t);
+
+      // 膝高抬向前
+      result.kneeX = strideLength * (-0.25 + swingEase * 0.6) * mirror;
+      result.kneeY = -kneeHeight - Math.sin(t * Math.PI) * 2; // 最高点
+
+      // 小腿折叠，脚跟接近臀部
+      const foldAmount = Math.sin(t * Math.PI) * 0.8;
+      result.footX = result.kneeX - foldAmount * 6 * mirror;
+      result.footY = result.kneeY + 6 + foldAmount * 5;
+
+      result.hipX = (-0.5 + swingEase * 1) * mirror;
+      result.hipY = -2 + t * 0.5;
+
+    } else if (phase < 0.90) {
+      // === 前伸准备期 ===
+      // 膝伸展，腿向前伸准备触地
+      const t = (phase - 0.70) / 0.20;
+      const extendEase = this.easeOutQuad(t);
+
+      // 膝向前伸展
+      result.kneeX = strideLength * (0.35 + extendEase * 0.1) * mirror;
+      result.kneeY = -kneeHeight + extendEase * 8;
+
+      // 脚从折叠位置伸出
+      result.footX = strideLength * (0.2 + extendEase * 0.3) * mirror;
+      result.footY = -10 + extendEase * 6;
+
+      result.hipX = (0.5 + extendEase * 0.5) * mirror;
+      result.hipY = -1.5 + extendEase * 0.5;
 
     } else {
-      // 落地准备
-      const landPhase = (phase - 0.8) / 0.2;
+      // === 落地准备期 ===
+      // 保持微屈准备触地，脚调整角度
+      const t = (phase - 0.90) / 0.10;
 
-      // 腿向前伸准备触地
-      result.footX = (0.6 - landPhase * 0.1) * 10 * mirror;
-      result.footY = -8 + landPhase * 8; // 下落
+      // 腿伸直但保留微屈，准备触地
+      result.footX = strideLength * 0.5 * mirror;
+      result.footY = -4 + t * 4; // 下落触地
 
-      result.kneeX = 0.5 * 6 * mirror;
-      result.kneeY = -6 + landPhase * 4;
+      result.kneeX = strideLength * 0.4 * mirror;
+      result.kneeY = -6 + t * 2;
 
-      result.hipY = -1 + landPhase * 1;
+      result.hipX = 1 * mirror;
+      result.hipY = -1 + t * 1;
     }
 
     return result;
   }
 
   /**
-   * 计算跑步身体起伏（腾空期更明显）
+   * 缓动函数 - 缓入缓出
    */
-  calculateRunBodyBob(phase) {
-    // 跑步起伏更大，腾空期身体上升
-    // 支撑期（0-0.3, 0.5-0.8）下沉
-    // 腾空期（0.3-0.5, 0.8-1.0）上升
-    const doublePhase = phase * 2;
-    const bob = Math.sin(doublePhase * Math.PI * 2) * 3;
-    return -bob; // 负值为上升
+  easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
   }
 
   /**
-   * 计算跑步手臂姿势（大幅摆动，关节明显）
+   * 缓动函数 - 缓出
+   */
+  easeOutQuad(t) {
+    return 1 - (1 - t) * (1 - t);
+  }
+
+  /**
+   * 计算跑步身体起伏（弹性重心）
+   *
+   * 触地后压缩下沉 → 蹬地时回弹上提 → 腾空期最高
+   * 双周期（左右脚各一次）
+   */
+  calculateRunBodyBob(phase) {
+    // 每个脚触地时下沉，腾空时上升
+    // phase 0.10-0.20: 左脚承重压缩（下沉）
+    // phase 0.40-0.50: 左脚蹬离腾空（上升）
+    // phase 0.60-0.70: 右脚承重压缩（下沉）
+    // phase 0.90-1.00: 右脚蹬离腾空（上升）
+
+    const doublePhase = phase * 2 % 1; // 双频率
+
+    // 使用更精确的相位控制
+    let bob = 0;
+    if (doublePhase < 0.20) {
+      // 触地压缩期 - 下沉
+      const t = doublePhase / 0.20;
+      bob = this.easeOutQuad(t) * 4; // 正值=下沉
+    } else if (doublePhase < 0.40) {
+      // 中支撑到蹬离 - 回弹
+      const t = (doublePhase - 0.20) / 0.20;
+      bob = 4 - this.easeInOutQuad(t) * 6; // 从下沉到上升
+    } else if (doublePhase < 0.60) {
+      // 腾空期 - 最高点
+      const t = (doublePhase - 0.40) / 0.20;
+      bob = -2 + Math.sin(t * Math.PI) * -1; // 负值=上升
+    } else {
+      // 落地准备 - 下落
+      const t = (doublePhase - 0.60) / 0.40;
+      bob = -3 + this.easeInOutQuad(t) * 7;
+    }
+
+    return bob;
+  }
+
+  /**
+   * 计算跑步手臂姿势（与腿反向对摆，保持节奏）
+   *
+   * 规则：
+   * - 右腿前摆/触地时，左臂在前，右臂在后
+   * - 肘保持约90度屈曲
+   * - 摆臂有末端滞后（follow-through）
+   * - 幅度适中，稳定躯干平衡
    */
   calculateRunArmPose(legPhase, mirror) {
     const result = {
@@ -453,26 +584,35 @@ class StickFigure {
       handX: 0, handY: 0
     };
 
-    // 手臂大幅前后摆动
-    const swingPhase = legPhase;
-    const mainSwing = Math.sin(swingPhase * Math.PI * 2);
+    // 手臂与对侧腿反向摆动
+    // 使用缓动使动作更自然，避免机械感
+    const armPhase = legPhase;
 
-    // 肩膀带动
-    result.shoulderX = mainSwing * 2 * mirror;
-    result.shoulderY = Math.abs(mainSwing) * -1;
+    // 主摆动（使用平滑正弦）
+    const mainSwing = Math.sin(armPhase * Math.PI * 2);
 
-    // 肘部90度弯曲，大幅摆动
-    const elbowDelay = 0.08;
-    const elbowSwing = Math.sin((swingPhase - elbowDelay) * Math.PI * 2);
-    result.elbowX = elbowSwing * 8 * mirror;
-    result.elbowY = -6 + Math.abs(elbowSwing) * -3; // 保持高位
+    // 肩膀轻微移动（驱动手臂）
+    result.shoulderX = mainSwing * 1.5 * mirror;
+    result.shoulderY = Math.abs(mainSwing) * -0.5; // 向后摆时稍抬
 
-    // 手部（拳头）跟随，有滞后
-    const handDelay = 0.12;
-    const handSwing = Math.sin((swingPhase - handDelay) * Math.PI * 2);
-    result.handX = handSwing * 10 * mirror;
-    // 前摆时手向上，后摆时手向下（自然摆臂）
-    result.handY = -4 + handSwing * 4;
+    // 肘部保持约90度弯曲，大幅前后摆动
+    // 有轻微滞后（惯性效果）
+    const elbowDelay = 0.06;
+    const elbowPhase = (armPhase - elbowDelay + 1) % 1;
+    const elbowSwing = Math.sin(elbowPhase * Math.PI * 2);
+
+    result.elbowX = elbowSwing * 7 * mirror;
+    // 保持高位，向前时稍高
+    result.elbowY = -5 + elbowSwing * -2;
+
+    // 手部（拳头）跟随，更大滞后（follow-through效果）
+    const handDelay = 0.10;
+    const handPhase = (armPhase - handDelay + 1) % 1;
+    const handSwing = Math.sin(handPhase * Math.PI * 2);
+
+    result.handX = handSwing * 9 * mirror;
+    // 前摆时手靠近脸，后摆时手靠近髋
+    result.handY = -3 + handSwing * 3;
 
     return result;
   }
