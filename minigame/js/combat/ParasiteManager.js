@@ -1,49 +1,47 @@
 /**
  * 寄生虫管理器
- * 管理从尸体喷出的寄生虫，会在地上扭曲蠕动并追击玩家
+ * 管理从尸体断肢处钻出的寄生虫，会在地上扭曲蠕动并追击玩家
  */
 class ParasiteManager {
   constructor() {
-    // 地面上的寄生虫（已落地，会追击玩家）
+    // 地面上的寄生虫（会追击玩家）
     this.parasites = [];
 
-    // 飞行中的寄生虫（喷射动画）
-    this.flyingParasites = [];
+    // 正在钻出的寄生虫（从断肢处爬出）
+    this.emergingParasites = [];
 
     // 最大数量
-    this.maxParasites = 300;
-    this.maxFlyingParasites = 150;
-
-    // 重力
-    this.gravity = 0.02;
+    this.maxParasites = 80;
+    this.maxEmergingParasites = 30;
 
     // 追击速度
-    this.chaseSpeed = 0.008;
+    this.chaseSpeed = 0.012;
   }
 
   /**
-   * 从断裂处喷射寄生虫
+   * 从断裂处钻出寄生虫（缓慢爬出效果）
    */
   sprayParasite(worldX, worldY, offsetX, offsetY, amount, angle, force) {
-    const toSpawn = Math.min(amount, this.maxFlyingParasites - this.flyingParasites.length);
+    // 大幅减少数量
+    const toSpawn = Math.min(Math.ceil(amount * 0.3), this.maxEmergingParasites - this.emergingParasites.length, 2);
 
     for (let i = 0; i < toSpawn; i++) {
-      const spreadAngle = angle + (Math.random() - 0.5) * 0.8;
-      const spreadForce = force * (0.5 + Math.random() * 0.5);
+      // 钻出方向（沿着断裂面的方向）
+      const emergeAngle = angle + (Math.random() - 0.5) * 0.4;
 
       const spawnX = worldX + offsetX * 0.03;
       const spawnY = worldY + offsetY * 0.03;
 
-      this.flyingParasites.push({
+      this.emergingParasites.push({
         x: spawnX,
         y: spawnY,
-        z: 0.5 + Math.random() * 0.3,
-        vx: Math.cos(spreadAngle) * spreadForce * 0.025,
-        vy: Math.sin(spreadAngle) * spreadForce * 0.015,
-        vz: -0.04 - Math.random() * 0.02,
-        size: 0.08 + Math.random() * 0.06,
-        phase: Math.random() * Math.PI * 2, // 蠕动相位
-        length: 3 + Math.floor(Math.random() * 3) // 身体节数
+        // 钻出进度 0-1
+        emergeProgress: 0,
+        emergeSpeed: 0.0008 + Math.random() * 0.0005, // 缓慢钻出
+        emergeAngle: emergeAngle,
+        size: 0.07 + Math.random() * 0.04,
+        phase: Math.random() * Math.PI * 2,
+        length: 4 + Math.floor(Math.random() * 2)
       });
     }
   }
@@ -51,25 +49,26 @@ class ParasiteManager {
   /**
    * 在尸体消失位置产生寄生虫
    */
-  addParasiteSource(x, y, amount = 30) {
-    const toSpawn = Math.min(amount, this.maxParasites - this.parasites.length);
+  addParasiteSource(x, y, amount = 10) {
+    // 减少数量
+    const toSpawn = Math.min(Math.ceil(amount * 0.4), this.maxParasites - this.parasites.length, 5);
 
     for (let i = 0; i < toSpawn; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * 0.6;
+      const radius = Math.random() * 0.3;
 
       this.parasites.push({
         x: x + Math.cos(angle) * radius,
         y: y + Math.sin(angle) * radius,
-        size: 0.06 + Math.random() * 0.04,
+        size: 0.06 + Math.random() * 0.03,
         phase: Math.random() * Math.PI * 2,
-        phaseSpeed: 0.015 + Math.random() * 0.01,
-        length: 3 + Math.floor(Math.random() * 3),
-        angle: Math.random() * Math.PI * 2, // 朝向
-        life: 20000 + Math.random() * 10000,
-        maxLife: 20000 + Math.random() * 10000,
+        phaseSpeed: 0.012 + Math.random() * 0.008,
+        length: 4 + Math.floor(Math.random() * 2),
+        angle: Math.random() * Math.PI * 2,
+        life: 25000 + Math.random() * 10000,
+        maxLife: 25000 + Math.random() * 10000,
         collected: false,
-        chaseDelay: 500 + Math.random() * 1000 // 落地后延迟追击
+        chaseDelay: 800 + Math.random() * 500
       });
     }
   }
@@ -78,44 +77,37 @@ class ParasiteManager {
    * 更新寄生虫系统
    */
   update(deltaTime, player) {
-    const dt = deltaTime * 0.1;
+    // 更新正在钻出的寄生虫
+    for (let i = this.emergingParasites.length - 1; i >= 0; i--) {
+      const p = this.emergingParasites[i];
 
-    // 更新飞行中的寄生虫
-    for (let i = this.flyingParasites.length - 1; i >= 0; i--) {
-      const p = this.flyingParasites[i];
+      // 缓慢钻出
+      p.emergeProgress += p.emergeSpeed * deltaTime;
+      p.phase += 0.015 * deltaTime;
 
-      // 应用速度
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.z += p.vz * dt;
+      // 沿钻出方向缓慢移动
+      const emergeSpeed = 0.0003 * deltaTime;
+      p.x += Math.cos(p.emergeAngle) * emergeSpeed;
+      p.y += Math.sin(p.emergeAngle) * emergeSpeed * 0.5;
 
-      // 重力
-      p.vz += this.gravity * dt;
-
-      // 蠕动
-      p.phase += 0.02 * deltaTime;
-
-      // 空气阻力
-      p.vx *= 0.97;
-      p.vy *= 0.97;
-
-      // 落地
-      if (p.z >= 0) {
-        // 转换为地面寄生虫
-        this.parasites.push({
-          x: p.x,
-          y: p.y,
-          size: p.size,
-          phase: p.phase,
-          phaseSpeed: 0.015 + Math.random() * 0.01,
-          length: p.length,
-          angle: Math.atan2(p.vy, p.vx),
-          life: 18000 + Math.random() * 8000,
-          maxLife: 18000 + Math.random() * 8000,
-          collected: false,
-          chaseDelay: 300 + Math.random() * 500
-        });
-        this.flyingParasites.splice(i, 1);
+      // 完全钻出后变成地面寄生虫
+      if (p.emergeProgress >= 1) {
+        if (this.parasites.length < this.maxParasites) {
+          this.parasites.push({
+            x: p.x,
+            y: p.y,
+            size: p.size,
+            phase: p.phase,
+            phaseSpeed: 0.012 + Math.random() * 0.008,
+            length: p.length,
+            angle: p.emergeAngle,
+            life: 20000 + Math.random() * 10000,
+            maxLife: 20000 + Math.random() * 10000,
+            collected: false,
+            chaseDelay: 500 + Math.random() * 300
+          });
+        }
+        this.emergingParasites.splice(i, 1);
       }
     }
 
@@ -139,22 +131,22 @@ class ParasiteManager {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist > 0.3) {
-          // 追击移动
-          const speed = this.chaseSpeed * dt * (1 + Math.sin(p.phase) * 0.3);
+          // 蠕动式移动
+          const wriggle = Math.sin(p.phase * 2) * 0.3;
+          const speed = this.chaseSpeed * deltaTime * 0.1 * (1 + wriggle);
           p.x += (dx / dist) * speed;
           p.y += (dy / dist) * speed;
 
-          // 更新朝向（平滑转向）
+          // 平滑转向
           const targetAngle = Math.atan2(dy, dx);
           let angleDiff = targetAngle - p.angle;
-          // 归一化角度差
           while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
           while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-          p.angle += angleDiff * 0.1;
+          p.angle += angleDiff * 0.08;
         }
 
         // 碰到玩家
-        if (dist < 0.4) {
+        if (dist < 0.35) {
           p.collected = true;
           collectedCount++;
         }
@@ -173,92 +165,118 @@ class ParasiteManager {
    * 渲染寄生虫
    */
   render(ctx, renderer) {
-    // 渲染地面寄生虫
-    for (const p of this.parasites) {
-      this.renderWorm(ctx, renderer, p, false);
+    // 渲染正在钻出的寄生虫
+    for (const p of this.emergingParasites) {
+      this.renderEmergingWorm(ctx, renderer, p);
     }
 
-    // 渲染飞行中的寄生虫
-    for (const p of this.flyingParasites) {
-      this.renderWorm(ctx, renderer, p, true);
+    // 渲染地面寄生虫
+    for (const p of this.parasites) {
+      this.renderWorm(ctx, renderer, p);
     }
   }
 
   /**
-   * 渲染单个蠕虫
+   * 渲染正在钻出的蠕虫
    */
-  renderWorm(ctx, renderer, p, isFlying) {
-    const screenZ = isFlying ? -p.z * 30 * renderer.zoom : 0;
+  renderEmergingWorm(ctx, renderer, p) {
     const pos = renderer.worldToScreen(p.x, p.y, 0);
     const baseSize = p.size * renderer.zoom * 25;
+    const visibleLength = Math.floor(p.length * p.emergeProgress);
+
+    if (visibleLength < 1) return;
 
     ctx.save();
+    ctx.globalAlpha = 0.9;
 
-    // 透明度（生命值低时淡出）
-    let alpha = 1;
-    if (!isFlying && p.life < 3000) {
-      alpha = p.life / 3000;
-    }
-    ctx.globalAlpha = alpha;
-
-    // 蠕虫身体 - 多节扭曲
-    const segments = p.length || 4;
-    const segmentLength = baseSize * 1.2;
-
-    // 计算每个身体节点的位置
-    const points = [];
-    let currentX = pos.x;
-    let currentY = pos.y + screenZ;
-    let currentAngle = p.angle || 0;
-
-    // 转换为屏幕角度（等轴测）
+    const segmentLength = baseSize * 1.0;
     const screenAngle = Math.atan2(
-      Math.sin(currentAngle) * 0.5,
-      Math.cos(currentAngle)
+      Math.sin(p.emergeAngle) * 0.5,
+      Math.cos(p.emergeAngle)
     );
 
-    for (let i = 0; i <= segments; i++) {
-      // 蠕动偏移
-      const waveOffset = Math.sin(p.phase + i * 1.2) * baseSize * 0.6;
+    // 只绘制已钻出的部分
+    const points = [];
+    let currentX = pos.x;
+    let currentY = pos.y;
+
+    for (let i = 0; i <= visibleLength; i++) {
+      const waveOffset = Math.sin(p.phase + i * 1.5) * baseSize * 0.5;
       const perpAngle = screenAngle + Math.PI / 2;
 
       points.push({
         x: currentX + Math.cos(perpAngle) * waveOffset,
         y: currentY + Math.sin(perpAngle) * waveOffset,
-        size: baseSize * (1 - i * 0.12) // 头大尾小
+        size: baseSize * (1 - i * 0.1)
       });
 
-      // 下一节位置
+      currentX += Math.cos(screenAngle) * segmentLength;
+      currentY += Math.sin(screenAngle) * segmentLength;
+    }
+
+    // 绘制身体
+    this.drawWormBody(ctx, points, baseSize, screenAngle);
+
+    ctx.restore();
+  }
+
+  /**
+   * 渲染完整蠕虫
+   */
+  renderWorm(ctx, renderer, p) {
+    const pos = renderer.worldToScreen(p.x, p.y, 0);
+    const baseSize = p.size * renderer.zoom * 25;
+
+    ctx.save();
+
+    // 透明度
+    let alpha = 1;
+    if (p.life < 3000) {
+      alpha = p.life / 3000;
+    }
+    ctx.globalAlpha = alpha;
+
+    const segments = p.length || 4;
+    const segmentLength = baseSize * 1.0;
+
+    const screenAngle = Math.atan2(
+      Math.sin(p.angle) * 0.5,
+      Math.cos(p.angle)
+    );
+
+    // 计算身体节点
+    const points = [];
+    let currentX = pos.x;
+    let currentY = pos.y;
+
+    for (let i = 0; i <= segments; i++) {
+      const waveOffset = Math.sin(p.phase + i * 1.5) * baseSize * 0.5;
+      const perpAngle = screenAngle + Math.PI / 2;
+
+      points.push({
+        x: currentX + Math.cos(perpAngle) * waveOffset,
+        y: currentY + Math.sin(perpAngle) * waveOffset,
+        size: baseSize * (1 - i * 0.1)
+      });
+
       currentX -= Math.cos(screenAngle) * segmentLength;
       currentY -= Math.sin(screenAngle) * segmentLength;
     }
 
-    // 绘制身体（从尾到头）
-    for (let i = points.length - 1; i >= 0; i--) {
-      const pt = points[i];
-      const segSize = Math.max(2, pt.size);
+    this.drawWormBody(ctx, points, baseSize, screenAngle);
 
-      // 身体节
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, segSize, 0, Math.PI * 2);
+    ctx.restore();
+  }
 
-      // 颜色渐变（头部较亮）
-      const brightness = 10 + Math.floor((1 - i / segments) * 20);
-      ctx.fillStyle = `rgb(${brightness}, ${brightness * 0.4}, ${brightness})`;
-      ctx.fill();
+  /**
+   * 绘制蠕虫身体
+   */
+  drawWormBody(ctx, points, baseSize, screenAngle) {
+    if (points.length < 2) return;
 
-      // 高光
-      if (i === 0) {
-        ctx.beginPath();
-        ctx.arc(pt.x - segSize * 0.3, pt.y - segSize * 0.3, segSize * 0.3, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(60, 30, 60, 0.8)';
-        ctx.fill();
-      }
-    }
-
-    // 连接线（让身体更连贯）
-    ctx.strokeStyle = 'rgba(15, 8, 15, 0.9)';
-    ctx.lineWidth = baseSize * 1.5;
+    // 连接线
+    ctx.strokeStyle = 'rgba(20, 8, 15, 0.9)';
+    ctx.lineWidth = baseSize * 1.4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -268,41 +286,50 @@ class ParasiteManager {
     }
     ctx.stroke();
 
-    // 重新绘制头部（确保在最上层）
+    // 身体节
+    for (let i = points.length - 1; i >= 0; i--) {
+      const pt = points[i];
+      const segSize = Math.max(2, pt.size);
+      const brightness = 12 + Math.floor((1 - i / points.length) * 18);
+
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, segSize, 0, Math.PI * 2);
+      ctx.fillStyle = `rgb(${brightness}, ${Math.floor(brightness * 0.3)}, ${Math.floor(brightness * 0.4)})`;
+      ctx.fill();
+    }
+
+    // 头部
     const head = points[0];
-    const headSize = Math.max(3, head.size * 1.2);
+    const headSize = Math.max(3, head.size * 1.1);
     ctx.beginPath();
     ctx.arc(head.x, head.y, headSize, 0, Math.PI * 2);
-    ctx.fillStyle = '#1a0a1a';
+    ctx.fillStyle = '#1a0808';
     ctx.fill();
 
-    // 眼睛（两个小红点）
-    const eyeOffset = headSize * 0.4;
-    const eyeAngle = screenAngle;
-    ctx.fillStyle = '#4a1a2a';
+    // 眼睛
+    const eyeOffset = headSize * 0.35;
+    ctx.fillStyle = '#3a1515';
     ctx.beginPath();
     ctx.arc(
-      head.x + Math.cos(eyeAngle - 0.5) * eyeOffset,
-      head.y + Math.sin(eyeAngle - 0.5) * eyeOffset * 0.5,
-      headSize * 0.2, 0, Math.PI * 2
+      head.x + Math.cos(screenAngle - 0.4) * eyeOffset,
+      head.y + Math.sin(screenAngle - 0.4) * eyeOffset * 0.5,
+      headSize * 0.18, 0, Math.PI * 2
     );
     ctx.fill();
     ctx.beginPath();
     ctx.arc(
-      head.x + Math.cos(eyeAngle + 0.5) * eyeOffset,
-      head.y + Math.sin(eyeAngle + 0.5) * eyeOffset * 0.5,
-      headSize * 0.2, 0, Math.PI * 2
+      head.x + Math.cos(screenAngle + 0.4) * eyeOffset,
+      head.y + Math.sin(screenAngle + 0.4) * eyeOffset * 0.5,
+      headSize * 0.18, 0, Math.PI * 2
     );
     ctx.fill();
-
-    ctx.restore();
   }
 
   /**
    * 获取寄生虫数量
    */
   getParasiteCount() {
-    return this.parasites.length + this.flyingParasites.length;
+    return this.parasites.length + this.emergingParasites.length;
   }
 
   /**
@@ -310,7 +337,7 @@ class ParasiteManager {
    */
   clear() {
     this.parasites = [];
-    this.flyingParasites = [];
+    this.emergingParasites = [];
   }
 }
 

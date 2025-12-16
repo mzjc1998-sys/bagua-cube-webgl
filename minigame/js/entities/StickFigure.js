@@ -66,10 +66,10 @@ class StickFigure {
     this.convertToExp = false;
     this.onExpReady = null;
 
-    // 粉末喷射回调
+    // 寄生虫钻出回调
     this.onDustSpray = null; // (x, y, amount, angle, force) => {}
     this.dustSprayTimer = 0;
-    this.dustSprayInterval = 80; // 喷射间隔
+    this.dustSprayInterval = 400; // 钻出间隔（更慢）
   }
 
   /**
