@@ -536,14 +536,14 @@ class StickFigure {
       this.writheIntensity = 1.5 - (this.deathTimer - 2500) / 3000;
       this.tentacleSpeed = 0.03;
     } else if (this.deathPhase === 'fading') {
-      // 淡出阶段停止移动，只保留轻微蠕动
-      this.writheIntensity *= 0.95;
-      this.tentacleSpeed = 0.005;
+      // 淡出阶段继续抽搐，逐渐减弱
+      this.writheIntensity = Math.max(0.3, 1.0 - (this.deathTimer - 4000) / 1500);
+      this.tentacleSpeed = 0.025;
     } else if (this.deathPhase === 'curling') {
-      // 蜷缩阶段：停止蠕动，原地缩小
+      // 蜷缩阶段：持续抽搐卷成一团
       this.curlProgress = Math.min(1, (this.deathTimer - 4800) / 1000);
-      this.writheIntensity = 0;
-      this.tentacleSpeed = 0;
+      this.writheIntensity = 0.5 * (1 - this.curlProgress * 0.8); // 逐渐减弱但不停止
+      this.tentacleSpeed = 0.02;
       // 蜷缩时缩小
       this.curlScale = 1 - this.curlProgress * 0.9; // 缩小到10%
     }
@@ -555,12 +555,17 @@ class StickFigure {
       mergeY = (this.upperHalf.y + this.lowerHalf.y) / 2;
     }
 
-    // 合并强度 - fading和curling阶段停止位移
+    // 合并强度 - 全程持续卷成一团
     let mergeStrength = 0;
     if (this.deathPhase === 'merging') {
       mergeStrength = 0.03;
+    } else if (this.deathPhase === 'fading') {
+      // 淡出阶段继续合并
+      mergeStrength = 0.05;
+    } else if (this.deathPhase === 'curling') {
+      // 蜷缩阶段快速收拢
+      mergeStrength = 0.1 + this.curlProgress * 0.15;
     }
-    // fading 和 curling 阶段不再移动 (mergeStrength = 0)
 
     // 更新两半身体
     this.updateBodyHalf(this.upperHalf, deltaTime, mergeX, mergeY, mergeStrength);
