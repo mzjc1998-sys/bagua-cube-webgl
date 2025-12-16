@@ -150,12 +150,24 @@ class Enemy {
     if (this.knockbackX !== 0 || this.knockbackY !== 0) {
       let newX = this.x + this.knockbackX * deltaTime * 0.01;
       let newY = this.y + this.knockbackY * deltaTime * 0.01;
-      if (dungeon.isWalkable(newX, newY)) {
+
+      // 使用带半径的碰撞检测
+      const canMove = dungeon.isWalkableWithRadius ?
+        dungeon.isWalkableWithRadius(newX, newY, 0.25) :
+        dungeon.isWalkable(newX, newY);
+
+      if (canMove) {
         // 墙壁实体碰撞
         if (collisionManager) {
           const resolved = collisionManager.resolveCollision(newX, newY, 0.25);
           newX = resolved.x;
           newY = resolved.y;
+        }
+        // 墙壁碰撞修正
+        if (dungeon.resolveWallCollision) {
+          const wallResolved = dungeon.resolveWallCollision(newX, newY, 0.25);
+          newX = wallResolved.x;
+          newY = wallResolved.y;
         }
         this.x = newX;
         this.y = newY;
@@ -303,12 +315,24 @@ class Enemy {
       let newX = this.x + moveX;
       let newY = this.y + moveY;
 
-      // 地形碰撞
-      if (dungeon.isWalkable(newX, this.y)) {
-        this.x = newX;
-      }
-      if (dungeon.isWalkable(this.x, newY)) {
-        this.y = newY;
+      // 地形碰撞（使用带半径的检测）
+      if (dungeon.isWalkableWithRadius) {
+        // X轴移动
+        if (dungeon.isWalkableWithRadius(newX, this.y, 0.25)) {
+          this.x = newX;
+        }
+        // Y轴移动
+        if (dungeon.isWalkableWithRadius(this.x, newY, 0.25)) {
+          this.y = newY;
+        }
+      } else {
+        // 兼容旧方法
+        if (dungeon.isWalkable(newX, this.y)) {
+          this.x = newX;
+        }
+        if (dungeon.isWalkable(this.x, newY)) {
+          this.y = newY;
+        }
       }
 
       // 墙壁实体碰撞
@@ -316,6 +340,13 @@ class Enemy {
         const resolved = collisionManager.resolveCollision(this.x, this.y, 0.25);
         this.x = resolved.x;
         this.y = resolved.y;
+      }
+
+      // 墙壁碰撞修正（防止卡墙角）
+      if (dungeon.resolveWallCollision) {
+        const wallResolved = dungeon.resolveWallCollision(this.x, this.y, 0.25);
+        this.x = wallResolved.x;
+        this.y = wallResolved.y;
       }
 
       // 更新面朝方向

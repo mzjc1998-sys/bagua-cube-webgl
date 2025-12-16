@@ -234,16 +234,44 @@ class Player {
       let newX = this.x + rollMoveX;
       let newY = this.y + rollMoveY;
 
-      // 地形碰撞
-      if (dungeon.isWalkable(newX, newY)) {
-        // 尸体/墙壁实体碰撞
-        if (collisionManager) {
-          const resolved = collisionManager.resolveCollision(newX, newY, 0.3);
-          newX = resolved.x;
-          newY = resolved.y;
+      // 分步检测翻滚碰撞（防止穿墙）
+      const steps = 4;
+      const stepX = rollMoveX / steps;
+      const stepY = rollMoveY / steps;
+
+      for (let i = 0; i < steps; i++) {
+        const testX = this.x + stepX;
+        const testY = this.y + stepY;
+
+        // 地形碰撞检测（带半径）
+        if (dungeon.isWalkableWithRadius) {
+          if (!dungeon.isWalkableWithRadius(testX, testY, 0.3)) {
+            // 碰到墙壁，解决碰撞
+            const resolved = dungeon.resolveWallCollision(testX, testY, 0.3);
+            this.x = resolved.x;
+            this.y = resolved.y;
+            break;
+          }
+        } else if (!dungeon.isWalkable(testX, testY)) {
+          break;
         }
-        this.x = newX;
-        this.y = newY;
+
+        this.x = testX;
+        this.y = testY;
+      }
+
+      // 尸体/墙壁实体碰撞
+      if (collisionManager) {
+        const resolved = collisionManager.resolveCollision(this.x, this.y, 0.3);
+        this.x = resolved.x;
+        this.y = resolved.y;
+      }
+
+      // 最终墙壁碰撞修正
+      if (dungeon.resolveWallCollision) {
+        const wallResolved = dungeon.resolveWallCollision(this.x, this.y, 0.3);
+        this.x = wallResolved.x;
+        this.y = wallResolved.y;
       }
 
       if (this.rollTimer <= 0) {
@@ -267,12 +295,24 @@ class Player {
         let newX = this.x + moveX;
         let newY = this.y + moveY;
 
-        // 地形碰撞检测
-        if (dungeon.isWalkable(newX, this.y)) {
-          this.x = newX;
-        }
-        if (dungeon.isWalkable(this.x, newY)) {
-          this.y = newY;
+        // 地形碰撞检测（使用带半径的检测）
+        if (dungeon.isWalkableWithRadius) {
+          // X轴移动
+          if (dungeon.isWalkableWithRadius(newX, this.y, 0.3)) {
+            this.x = newX;
+          }
+          // Y轴移动
+          if (dungeon.isWalkableWithRadius(this.x, newY, 0.3)) {
+            this.y = newY;
+          }
+        } else {
+          // 兼容旧方法
+          if (dungeon.isWalkable(newX, this.y)) {
+            this.x = newX;
+          }
+          if (dungeon.isWalkable(this.x, newY)) {
+            this.y = newY;
+          }
         }
 
         // 尸体/墙壁实体碰撞
@@ -280,6 +320,13 @@ class Player {
           const resolved = collisionManager.resolveCollision(this.x, this.y, 0.3);
           this.x = resolved.x;
           this.y = resolved.y;
+        }
+
+        // 最终墙壁碰撞修正（防止卡墙角）
+        if (dungeon.resolveWallCollision) {
+          const wallResolved = dungeon.resolveWallCollision(this.x, this.y, 0.3);
+          this.x = wallResolved.x;
+          this.y = wallResolved.y;
         }
 
         // 更新面朝方向

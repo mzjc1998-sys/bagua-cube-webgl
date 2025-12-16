@@ -408,6 +408,148 @@ class DungeonGenerator {
   }
 
   /**
+   * 检查位置是否可行走（带碰撞半径）
+   * @param {number} x - X坐标
+   * @param {number} y - Y坐标
+   * @param {number} radius - 碰撞半径
+   */
+  isWalkableWithRadius(x, y, radius = 0.3) {
+    // 检查8个方向 + 中心点
+    const checkPoints = [
+      { x: x, y: y },                           // 中心
+      { x: x - radius, y: y },                  // 左
+      { x: x + radius, y: y },                  // 右
+      { x: x, y: y - radius },                  // 上
+      { x: x, y: y + radius },                  // 下
+      { x: x - radius * 0.7, y: y - radius * 0.7 }, // 左上
+      { x: x + radius * 0.7, y: y - radius * 0.7 }, // 右上
+      { x: x - radius * 0.7, y: y + radius * 0.7 }, // 左下
+      { x: x + radius * 0.7, y: y + radius * 0.7 }  // 右下
+    ];
+
+    for (const pt of checkPoints) {
+      if (!this.isWalkable(pt.x, pt.y)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 解决墙壁碰撞（将位置推出墙壁）
+   * @param {number} x - X坐标
+   * @param {number} y - Y坐标
+   * @param {number} radius - 碰撞半径
+   */
+  resolveWallCollision(x, y, radius = 0.3) {
+    let newX = x;
+    let newY = y;
+
+    // 检查四个方向的墙壁碰撞
+    const tileX = Math.floor(x);
+    const tileY = Math.floor(y);
+
+    // 左边墙壁
+    if (!this.isWalkable(tileX - 1, tileY)) {
+      const wallRight = tileX; // 墙壁右边缘
+      if (x - radius < wallRight) {
+        newX = wallRight + radius + 0.01;
+      }
+    }
+
+    // 右边墙壁
+    if (!this.isWalkable(tileX + 1, tileY)) {
+      const wallLeft = tileX + 1; // 墙壁左边缘
+      if (x + radius > wallLeft) {
+        newX = wallLeft - radius - 0.01;
+      }
+    }
+
+    // 上边墙壁
+    if (!this.isWalkable(tileX, tileY - 1)) {
+      const wallBottom = tileY; // 墙壁下边缘
+      if (y - radius < wallBottom) {
+        newY = wallBottom + radius + 0.01;
+      }
+    }
+
+    // 下边墙壁
+    if (!this.isWalkable(tileX, tileY + 1)) {
+      const wallTop = tileY + 1; // 墙壁上边缘
+      if (y + radius > wallTop) {
+        newY = wallTop - radius - 0.01;
+      }
+    }
+
+    // 检查对角线墙壁（角落）
+    // 左上角
+    if (!this.isWalkable(tileX - 1, tileY - 1) &&
+        this.isWalkable(tileX - 1, tileY) &&
+        this.isWalkable(tileX, tileY - 1)) {
+      const cornerX = tileX;
+      const cornerY = tileY;
+      const dx = newX - cornerX;
+      const dy = newY - cornerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < radius) {
+        const push = radius - dist + 0.01;
+        newX += (dx / dist) * push;
+        newY += (dy / dist) * push;
+      }
+    }
+
+    // 右上角
+    if (!this.isWalkable(tileX + 1, tileY - 1) &&
+        this.isWalkable(tileX + 1, tileY) &&
+        this.isWalkable(tileX, tileY - 1)) {
+      const cornerX = tileX + 1;
+      const cornerY = tileY;
+      const dx = newX - cornerX;
+      const dy = newY - cornerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < radius) {
+        const push = radius - dist + 0.01;
+        newX += (dx / dist) * push;
+        newY += (dy / dist) * push;
+      }
+    }
+
+    // 左下角
+    if (!this.isWalkable(tileX - 1, tileY + 1) &&
+        this.isWalkable(tileX - 1, tileY) &&
+        this.isWalkable(tileX, tileY + 1)) {
+      const cornerX = tileX;
+      const cornerY = tileY + 1;
+      const dx = newX - cornerX;
+      const dy = newY - cornerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < radius) {
+        const push = radius - dist + 0.01;
+        newX += (dx / dist) * push;
+        newY += (dy / dist) * push;
+      }
+    }
+
+    // 右下角
+    if (!this.isWalkable(tileX + 1, tileY + 1) &&
+        this.isWalkable(tileX + 1, tileY) &&
+        this.isWalkable(tileX, tileY + 1)) {
+      const cornerX = tileX + 1;
+      const cornerY = tileY + 1;
+      const dx = newX - cornerX;
+      const dy = newY - cornerY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < radius) {
+        const push = radius - dist + 0.01;
+        newX += (dx / dist) * push;
+        newY += (dy / dist) * push;
+      }
+    }
+
+    return { x: newX, y: newY };
+  }
+
+  /**
    * 获取瓦片颜色
    */
   getTileColor(tile) {
