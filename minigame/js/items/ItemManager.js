@@ -208,69 +208,67 @@ class ItemManager {
   }
 
   /**
-   * 渲染彩虹色经验球（大小和寄生虫类似）
+   * 渲染像素风经验球（Minecraft风格）
    */
   renderRainbowExpOrb(ctx, pos, item, time, zoom) {
-    // 和寄生虫一样小的尺寸
-    const baseSize = (item.size || 0.04) * zoom * 800;
-    const coreRadius = Math.max(3, baseSize);
+    // 更小的像素尺寸
+    const pixelSize = Math.max(2, Math.floor(zoom * 3));
 
-    // 彩虹色相位随时间变化
-    const hueOffset = time * 60 + (item.bobOffset || 0) * 100;
+    // 彩虹色相位随时间变化（快速旋转）
+    const hueOffset = time * 100 + (item.bobOffset || 0) * 150;
+    const hue = hueOffset % 360;
 
-    // 外层彩虹光晕
-    const glowRadius = coreRadius * 3;
-    const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowRadius);
-
-    // 彩虹渐变光晕
-    const hue1 = (hueOffset) % 360;
-    const hue2 = (hueOffset + 60) % 360;
-    const hue3 = (hueOffset + 120) % 360;
-
-    gradient.addColorStop(0, `hsla(${hue1}, 100%, 70%, 0.9)`);
-    gradient.addColorStop(0.3, `hsla(${hue2}, 100%, 60%, 0.6)`);
-    gradient.addColorStop(0.6, `hsla(${hue3}, 100%, 50%, 0.3)`);
-    gradient.addColorStop(1, `hsla(${hue1}, 100%, 50%, 0)`);
+    // 外发光效果
+    const glowSize = pixelSize * 5;
+    const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowSize);
+    gradient.addColorStop(0, `hsla(${hue}, 100%, 70%, 0.4)`);
+    gradient.addColorStop(0.4, `hsla(${hue}, 100%, 60%, 0.15)`);
+    gradient.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
 
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, glowRadius, 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y, glowSize, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
 
-    // 核心球体 - 彩虹色渐变填充
-    const coreGradient = ctx.createRadialGradient(
-      pos.x - coreRadius * 0.3, pos.y - coreRadius * 0.3, 0,
-      pos.x, pos.y, coreRadius
-    );
-    coreGradient.addColorStop(0, `hsla(${hue1}, 100%, 90%, 1)`);
-    coreGradient.addColorStop(0.5, `hsla(${hue2}, 100%, 70%, 1)`);
-    coreGradient.addColorStop(1, `hsla(${hue3}, 100%, 50%, 1)`);
+    // 像素化的菱形形状（Minecraft经验球风格）
+    // 3x3 像素菱形
+    const pixels = [
+      // 中心（最亮）
+      { dx: 0, dy: 0, light: 90 },
+      // 十字（次亮）
+      { dx: -1, dy: 0, light: 75 },
+      { dx: 1, dy: 0, light: 75 },
+      { dx: 0, dy: -1, light: 80 },
+      { dx: 0, dy: 1, light: 65 },
+    ];
 
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, coreRadius, 0, Math.PI * 2);
-    ctx.fillStyle = coreGradient;
-    ctx.fill();
+    // 关闭抗锯齿实现像素风
+    ctx.imageSmoothingEnabled = false;
 
-    // 白色高光点
-    ctx.beginPath();
-    ctx.arc(pos.x - coreRadius * 0.3, pos.y - coreRadius * 0.3, coreRadius * 0.25, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.fill();
+    // 绘制每个像素
+    for (const pixel of pixels) {
+      const px = Math.floor(pos.x + pixel.dx * pixelSize);
+      const py = Math.floor(pos.y + pixel.dy * pixelSize);
 
-    // 闪烁粒子效果
-    const particleCount = 3;
-    for (let i = 0; i < particleCount; i++) {
-      const angle = (time * 2 + i * (Math.PI * 2 / particleCount)) % (Math.PI * 2);
-      const dist = coreRadius * 1.5 + Math.sin(time * 3 + i) * coreRadius * 0.3;
-      const px = pos.x + Math.cos(angle) * dist;
-      const py = pos.y + Math.sin(angle) * dist * 0.6; // 椭圆轨道
-
-      const particleHue = (hueOffset + i * 120) % 360;
-      ctx.beginPath();
-      ctx.arc(px, py, coreRadius * 0.2, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${particleHue}, 100%, 70%, 0.7)`;
-      ctx.fill();
+      ctx.fillStyle = `hsl(${hue}, 100%, ${pixel.light}%)`;
+      ctx.fillRect(
+        px - Math.floor(pixelSize / 2),
+        py - Math.floor(pixelSize / 2),
+        pixelSize,
+        pixelSize
+      );
     }
+
+    // 高光像素（左上）
+    ctx.fillStyle = `hsla(${hue}, 50%, 98%, 0.9)`;
+    ctx.fillRect(
+      Math.floor(pos.x - pixelSize) - Math.floor(pixelSize / 2),
+      Math.floor(pos.y - pixelSize) - Math.floor(pixelSize / 2),
+      pixelSize,
+      pixelSize
+    );
+
+    ctx.imageSmoothingEnabled = true;
   }
 
   /**
