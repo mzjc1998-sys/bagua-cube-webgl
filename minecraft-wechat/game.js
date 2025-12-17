@@ -339,8 +339,39 @@ class World {
   }
 
   getSpawnPoint() {
-    const height = this.getTerrainHeight(0, 0);
-    return { x: 0.5, y: height + 2, z: 0.5 };
+    // 寻找一个安全的出生点
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const x = attempt * 3;  // 每次尝试偏移一点
+      const z = attempt * 3;
+      const height = this.getTerrainHeight(x, z);
+
+      // 确保出生点上方是空气
+      let safeY = height + 1;
+      for (let checkY = height + 1; checkY < height + 10; checkY++) {
+        const blockBelow = this.getBlock(x, checkY - 1, z);
+        const blockAt = this.getBlock(x, checkY, z);
+        const blockAbove = this.getBlock(x, checkY + 1, z);
+
+        // 需要脚下有实体方块，头部和上方是空气
+        if (blockBelow !== BlockType.AIR && blockBelow !== BlockType.WATER &&
+            blockAt === BlockType.AIR && blockAbove === BlockType.AIR) {
+          safeY = checkY;
+          break;
+        }
+      }
+
+      // 验证这个位置是安全的
+      const blockAtSpawn = this.getBlock(x, safeY, z);
+      const blockAboveSpawn = this.getBlock(x, safeY + 1, z);
+      if (blockAtSpawn === BlockType.AIR && blockAboveSpawn === BlockType.AIR) {
+        console.log('找到安全出生点:', x + 0.5, safeY, z + 0.5);
+        return { x: x + 0.5, y: safeY, z: z + 0.5 };
+      }
+    }
+
+    // 如果找不到安全点，返回一个较高的位置
+    console.log('使用默认高空出生点');
+    return { x: 0.5, y: 50, z: 0.5 };
   }
 }
 
@@ -414,49 +445,78 @@ class Player {
   }
 
   moveWithCollision(dt) {
-    let newX = this.position.x + this.velocity.x * dt;
-    let newY = this.position.y + this.velocity.y * dt;
-    let newZ = this.position.z + this.velocity.z * dt;
+    // 分步移动，避免高速时穿模
+    const steps = Math.max(1, Math.ceil(Math.abs(this.velocity.y * dt) / 0.5));
+    const stepDt = dt / steps;
 
-    if (this.checkCollision(newX, this.position.y, this.position.z)) {
-      this.velocity.x = 0;
-    } else {
-      this.position.x = newX;
+    for (let i = 0; i < steps; i++) {
+      // X轴移动
+      let newX = this.position.x + this.velocity.x * stepDt;
+      if (this.checkCollision(newX, this.position.y, this.position.z)) {
+        this.velocity.x = 0;
+      } else {
+        this.position.x = newX;
+      }
+
+      // Z轴移动
+      let newZ = this.position.z + this.velocity.z * stepDt;
+      if (this.checkCollision(this.position.x, this.position.y, newZ)) {
+        this.velocity.z = 0;
+      } else {
+        this.position.z = newZ;
+      }
+
+      // Y轴移动
+      let newY = this.position.y + this.velocity.y * stepDt;
+      if (this.checkCollision(this.position.x, newY, this.position.z)) {
+        if (this.velocity.y < 0) this.onGround = true;
+        this.velocity.y = 0;
+      } else {
+        this.position.y = newY;
+        this.onGround = false;
+      }
     }
 
-    if (this.checkCollision(this.position.x, this.position.y, newZ)) {
-      this.velocity.z = 0;
-    } else {
-      this.position.z = newZ;
-    }
-
-    this.onGround = false;
-    if (this.checkCollision(this.position.x, newY, this.position.z)) {
-      if (this.velocity.y < 0) this.onGround = true;
-      this.velocity.y = 0;
-    } else {
-      this.position.y = newY;
-    }
-
+    // 掉出世界时重生
     if (this.position.y < -10) {
       const spawn = this.world.getSpawnPoint();
-      this.position = spawn;
+      this.position = { x: spawn.x, y: spawn.y, z: spawn.z };
       this.velocity = { x: 0, y: 0, z: 0 };
     }
   }
 
   checkCollision(x, y, z) {
     const hw = this.width / 2;
-    const corners = [
-      [x - hw, y, z - hw], [x + hw, y, z - hw],
-      [x - hw, y, z + hw], [x + hw, y, z + hw],
-      [x - hw, y + this.height, z - hw], [x + hw, y + this.height, z - hw],
-      [x - hw, y + this.height, z + hw], [x + hw, y + this.height, z + hw]
-    ];
 
-    for (const [cx, cy, cz] of corners) {
+    // 检查更多点，包括身体中间
+    const checkPoints = [];
+
+    // 底部4个角 + 中心
+    checkPoints.push([x, y, z]);
+    checkPoints.push([x - hw, y, z - hw]);
+    checkPoints.push([x + hw, y, z - hw]);
+    checkPoints.push([x - hw, y, z + hw]);
+    checkPoints.push([x + hw, y, z + hw]);
+
+    // 中间高度
+    const midY = y + this.height / 2;
+    checkPoints.push([x - hw, midY, z - hw]);
+    checkPoints.push([x + hw, midY, z - hw]);
+    checkPoints.push([x - hw, midY, z + hw]);
+    checkPoints.push([x + hw, midY, z + hw]);
+
+    // 顶部4个角
+    const topY = y + this.height - 0.1;
+    checkPoints.push([x - hw, topY, z - hw]);
+    checkPoints.push([x + hw, topY, z - hw]);
+    checkPoints.push([x - hw, topY, z + hw]);
+    checkPoints.push([x + hw, topY, z + hw]);
+
+    for (const [cx, cy, cz] of checkPoints) {
       const block = this.world.getBlock(Math.floor(cx), Math.floor(cy), Math.floor(cz));
-      if (block !== BlockType.AIR && block !== BlockType.WATER) return true;
+      if (block !== BlockType.AIR && block !== BlockType.WATER) {
+        return true;
+      }
     }
     return false;
   }
@@ -994,14 +1054,23 @@ class MinecraftGame {
     console.log('游戏开始!');
     this.state = 'playing';
 
+    // 1. 创建世界
     this.world = new World(Date.now());
+
+    // 2. 创建玩家（临时位置）
+    this.player = new Player(this.world);
+    this.player.position = { x: 0.5, y: 50, z: 0.5 };
+
+    // 3. 先生成出生点附近的区块
+    console.log('生成区块...');
+    this.generateChunksAt(0, 35, 0);
+
+    // 4. 现在区块已生成，找安全出生点
     const spawn = this.world.getSpawnPoint();
     console.log('出生点:', spawn.x, spawn.y, spawn.z);
-
-    this.player = new Player(this.world);
     this.player.position = { x: spawn.x, y: spawn.y, z: spawn.z };
 
-    console.log('生成区块...');
+    // 5. 更新玩家周围的区块
     this.generateChunks();
     console.log('区块mesh数量:', this.chunkMeshes.size);
 
@@ -1009,6 +1078,13 @@ class MinecraftGame {
     this.lastTime = Date.now();
     console.log('开始游戏循环');
     this.gameLoop();
+  }
+
+  generateChunksAt(x, y, z) {
+    const chunks = this.world.getChunksAround(x, y, z, 2);
+    for (const chunk of chunks) {
+      this.updateMesh(chunk);
+    }
   }
 
   generateChunks() {
