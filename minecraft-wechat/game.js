@@ -1377,15 +1377,29 @@ class MinecraftGame {
       const x = touch.clientX;
       const y = touch.clientY;
 
+      console.log('Touch:', x, y, 'State:', this.state);
+
       if (this.state === 'lobby') {
-        // 检查大厅按钮
-        for (let j = 0; j < this.lobbyButtons.length; j++) {
-          const btn = this.lobbyButtons[j];
-          const scale = this.pixelRatio;
-          if (x * scale >= btn.x && x * scale <= btn.x + btn.width &&
-              y * scale >= btn.y && y * scale <= btn.y + btn.height) {
-            if (btn.action === 'start') this.startGame();
-            return;
+        // 检查大厅按钮 - 使用屏幕坐标直接比较
+        if (this.lobbyButtons && this.lobbyButtons.length > 0) {
+          for (let j = 0; j < this.lobbyButtons.length; j++) {
+            const btn = this.lobbyButtons[j];
+            // 按钮坐标转换回屏幕坐标
+            const btnX = btn.x / this.pixelRatio;
+            const btnY = btn.y / this.pixelRatio;
+            const btnW = btn.width / this.pixelRatio;
+            const btnH = btn.height / this.pixelRatio;
+
+            console.log('Button:', btnX, btnY, btnW, btnH);
+
+            if (x >= btnX && x <= btnX + btnW &&
+                y >= btnY && y <= btnY + btnH) {
+              console.log('Button clicked:', btn.action);
+              if (btn.action === 'start') {
+                this.startGame();
+              }
+              return;
+            }
           }
         }
         return;
@@ -1396,9 +1410,14 @@ class MinecraftGame {
       if (this.uiButtons) {
         for (let j = 0; j < this.uiButtons.length; j++) {
           const btn = this.uiButtons[j];
-          const scale = this.pixelRatio;
-          if (x * scale >= btn.x && x * scale <= btn.x + btn.width &&
-              y * scale >= btn.y && y * scale <= btn.y + btn.height) {
+          // 按钮坐标转换回屏幕坐标
+          const btnX = btn.x / this.pixelRatio;
+          const btnY = btn.y / this.pixelRatio;
+          const btnW = btn.width / this.pixelRatio;
+          const btnH = btn.height / this.pixelRatio;
+
+          if (x >= btnX && x <= btnX + btnW &&
+              y >= btnY && y <= btnY + btnH) {
             if (btn.action === 'jump') {
               this.player.input.jump = true;
               setTimeout(() => { this.player.input.jump = false; }, 100);
@@ -1412,16 +1431,15 @@ class MinecraftGame {
         }
       }
 
-      // 检查快捷栏
-      const scale = this.pixelRatio;
-      const slotSize = 50 * scale;
-      const slotPadding = 4 * scale;
+      // 检查快捷栏 - 使用屏幕坐标
+      const slotSize = 50;
+      const slotPadding = 4;
       const totalWidth = (slotSize + slotPadding) * 9 - slotPadding;
-      const startX = (this.canvas.width - totalWidth) / 2;
-      const startY = this.canvas.height - slotSize - 20 * scale;
+      const startX = (this.screenWidth - totalWidth) / 2;
+      const startY = this.screenHeight - slotSize - 20;
 
-      if (y * scale >= startY && y * scale <= startY + slotSize) {
-        const slotIndex = Math.floor((x * scale - startX) / (slotSize + slotPadding));
+      if (y >= startY && y <= startY + slotSize) {
+        const slotIndex = Math.floor((x - startX) / (slotSize + slotPadding));
         if (slotIndex >= 0 && slotIndex < 9) {
           this.player.selectSlot(slotIndex);
           return;
