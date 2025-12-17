@@ -889,6 +889,8 @@ class Renderer {
 class MinecraftGame {
   constructor() {
     this.canvas = null;
+    this.uiCanvas = null;
+    this.ctx2d = null;
     this.renderer = null;
     this.world = null;
     this.player = null;
@@ -909,17 +911,21 @@ class MinecraftGame {
 
   init() {
     // 微信小游戏环境
-    this.canvas = wx.createCanvas();
     const info = wx.getSystemInfoSync();
-    this.canvas.width = info.windowWidth * info.pixelRatio;
-    this.canvas.height = info.windowHeight * info.pixelRatio;
-
     this.screenWidth = info.windowWidth;
     this.screenHeight = info.windowHeight;
     this.pixelRatio = info.pixelRatio;
 
-    // 初始化渲染器
-    this.renderer = new Renderer(this.canvas);
+    // 主canvas - 用于显示（先用2D模式显示大厅）
+    this.canvas = wx.createCanvas();
+    this.canvas.width = info.windowWidth * info.pixelRatio;
+    this.canvas.height = info.windowHeight * info.pixelRatio;
+
+    // 离屏canvas用于UI叠加
+    this.uiCanvas = wx.createCanvas();
+    this.uiCanvas.width = this.canvas.width;
+    this.uiCanvas.height = this.canvas.height;
+    this.ctx2d = this.uiCanvas.getContext('2d');
 
     // 绑定触摸事件
     wx.onTouchStart(this.onTouchStart.bind(this));
@@ -936,7 +942,12 @@ class MinecraftGame {
   }
 
   renderLobby() {
+    // 大厅使用主canvas的2D上下文
     const ctx = this.canvas.getContext('2d');
+    if (!ctx) {
+      console.error('无法获取2D上下文');
+      return;
+    }
     const width = this.canvas.width;
     const height = this.canvas.height;
     const scale = this.pixelRatio;
@@ -993,6 +1004,18 @@ class MinecraftGame {
   startGame() {
     console.log('开始游戏');
     this.state = 'playing';
+
+    // 微信小游戏中需要重新创建canvas来获取WebGL上下文
+    // 因为原来的canvas已经获取了2D上下文
+    const info = wx.getSystemInfoSync();
+
+    // 创建新的主canvas用于WebGL
+    this.canvas = wx.createCanvas();
+    this.canvas.width = info.windowWidth * info.pixelRatio;
+    this.canvas.height = info.windowHeight * info.pixelRatio;
+
+    // 初始化WebGL渲染器
+    this.renderer = new Renderer(this.canvas);
 
     this.world = new World(Date.now());
     const spawn = this.world.getSpawnPoint();
@@ -1110,10 +1133,16 @@ class MinecraftGame {
   }
 
   renderUI() {
-    const ctx = this.canvas.getContext('2d');
+    // 使用离屏canvas绘制UI，然后复制到主canvas
+    const ctx = this.ctx2d;
+    if (!ctx) return;
+
     const scale = this.pixelRatio;
-    const width = this.canvas.width;
-    const height = this.canvas.height;
+    const width = this.uiCanvas.width;
+    const height = this.uiCanvas.height;
+
+    // 清除UI画布
+    ctx.clearRect(0, 0, width, height);
 
     // 准星
     const cx = width / 2;
@@ -1240,6 +1269,106 @@ class MinecraftGame {
     ctx.fillText('X: ' + Math.floor(this.player.position.x), 20 * scale, 28 * scale);
     ctx.fillText('Y: ' + Math.floor(this.player.position.y), 20 * scale, 43 * scale);
     ctx.fillText('Z: ' + Math.floor(this.player.position.z), 70 * scale, 28 * scale);
+
+    // 将UI画布作为纹理绘制到WebGL
+    // 微信小游戏中需要特殊处理
+    if (this.renderer && this.renderer.gl) {
+      this.drawUITexture();
+    }
+  }
+
+  drawUITexture() {
+    const gl = this.renderer.gl;
+
+    // 禁用深度测试以便UI在最前面
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // 创建或更新UI纹理
+    if (!this.uiTexture) {
+      this.uiTexture = gl.createTexture();
+      this.initUIShader();
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, this.uiTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.uiCanvas);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    // 绘制全屏四边形
+    gl.useProgram(this.uiShaderProgram);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.uiVertexBuffer);
+    gl.vertexAttribPointer(this.uiPosAttrib, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(this.uiPosAttrib);
+    gl.vertexAttribPointer(this.uiTexAttrib, 2, gl.FLOAT, false, 16, 8);
+    gl.enableVertexAttribArray(this.uiTexAttrib);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.uiTexture);
+    gl.uniform1i(this.uiTexUniform, 0);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // 恢复状态
+    gl.enable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.renderer.shaderProgram);
+  }
+
+  initUIShader() {
+    const gl = this.renderer.gl;
+
+    const vsSource = `
+      attribute vec2 aPos;
+      attribute vec2 aTexCoord;
+      varying vec2 vTexCoord;
+      void main() {
+        gl_Position = vec4(aPos, 0.0, 1.0);
+        vTexCoord = aTexCoord;
+      }
+    `;
+
+    const fsSource = `
+      precision mediump float;
+      varying vec2 vTexCoord;
+      uniform sampler2D uTexture;
+      void main() {
+        gl_FragColor = texture2D(uTexture, vTexCoord);
+      }
+    `;
+
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSource);
+    gl.compileShader(vs);
+
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSource);
+    gl.compileShader(fs);
+
+    this.uiShaderProgram = gl.createProgram();
+    gl.attachShader(this.uiShaderProgram, vs);
+    gl.attachShader(this.uiShaderProgram, fs);
+    gl.linkProgram(this.uiShaderProgram);
+
+    this.uiPosAttrib = gl.getAttribLocation(this.uiShaderProgram, 'aPos');
+    this.uiTexAttrib = gl.getAttribLocation(this.uiShaderProgram, 'aTexCoord');
+    this.uiTexUniform = gl.getUniformLocation(this.uiShaderProgram, 'uTexture');
+
+    // 全屏四边形顶点
+    const vertices = new Float32Array([
+      -1, -1, 0, 1,
+       1, -1, 1, 1,
+      -1,  1, 0, 0,
+       1,  1, 1, 0
+    ]);
+
+    this.uiVertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.uiVertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
   }
 
   onTouchStart(e) {
