@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>方块世界 - Minecraft风格多人联机游戏</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a2e;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #gameCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #uiCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: auto;
+    }
+
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 24px;
+      text-align: center;
+    }
+
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      margin: 20px auto;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #4af;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="loading-spinner"></div>
+    <p>加载中...</p>
+  </div>
+
+  <canvas id="gameCanvas"></canvas>
+  <canvas id="uiCanvas"></canvas>
+
+  <script type="module">
+    // 导入游戏模块
+    import { Renderer } from './js/renderer.js';
+    import { World, BlockType, Chunk } from './js/world.js';
+    import { Player, RemotePlayer } from './js/player.js';
+    import { NetworkManager } from './js/network.js';
+    import { UI } from './js/ui.js';
+    import { InputManager } from './js/input.js';
+
+    class MinecraftGame {
+      constructor() {
+        this.gameCanvas = document.getElementById('gameCanvas');
+        this.uiCanvas = document.getElementById('uiCanvas');
+        this.loading = document.getElementById('loading');
+
+        this.renderer = null;
+        this.world = null;
+        this.player = null;
+        this.network = null;
+        this.ui = null;
+        this.input = null;
+
+        this.remotePlayers = new Map();
+        this.chunkMeshes = new Map();
+
+        this.lastTime = 0;
+        this.running = false;
+
+        this.state = 'lobby';
+        this.serverUrl = 'ws://localhost:8080';
+
+        this.init();
+      }
+
+      async init() {
+        // 设置画布大小
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+
+        // 初始化渲染器
+        try {
+          this.renderer = new Renderer(this.gameCanvas);
+        } catch (err) {
+          this.showError('WebGL初始化失败: ' + err.message);
+          return;
+        }
+
+        // 初始化UI
+        this.ui = new UI(this.uiCanvas, this);
+
+        // 隐藏加载画面
+        this.loading.style.display = 'none';
+
+        // 显示大厅
+        this.showLobby();
+      }
+
+      resize() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
+
+        this.gameCanvas.width = width * dpr;
+        this.gameCanvas.height = height * dpr;
+        this.gameCanvas.style.width = width + 'px';
+        this.gameCanvas.style.height = height + 'px';
+
+        this.uiCanvas.width = width;
+        this.uiCanvas.height = height;
+
+        if (this.renderer) {
+          this.renderer.resize(width * dpr, height * dpr);
+        }
+
+        if (this.ui) {
+          this.ui.resize(width, height);
+        }
+      }
+
+      showLobby() {
+        this.state = 'lobby';
+        this.renderLobby();
+      }
+
+      renderLobby() {
+        const ctx = this.ui.ctx;
+        const width = this.ui.width;
+        const height = this.ui.height;
+
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, width, height);
+
+        // 装饰性背景
+        ctx.fillStyle = 'rgba(74, 170, 255, 0.1)';
+        for (let i = 0; i < 20; i++) {
+          const x = Math.random() * width;
+          const y = Math.random() * height;
+          const size = Math.random() * 30 + 10;
+          ctx.fillRect(x, y, size, size);
+        }
+
+        // 标题
+        ctx.fillStyle = '#4af';
+        ctx.font = 'bold 48px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('方块世界', width / 2, 100);
+
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.fillText('Minecraft风格多人联机游戏', width / 2, 140);
+
+        // 版本
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '14px Arial';
+        ctx.fillText('WebGL版 v1.0', width / 2, 170);
+
+        // 按钮
+        this.lobbyButtons = [];
+
+        const buttonWidth = 240;
+        const buttonHeight = 50;
+        const buttonGap = 20;
+        let buttonY = height / 2 - 80;
+
+        const buttons = [
+          { label: '创建房间', action: 'create', color: '#4a7' },
+          { label: '加入房间', action: 'join', color: '#47a' },
+          { label: '单人游戏', action: 'single', color: '#74a' }
+        ];
+
+        for (const btn of buttons) {
+          const button = {
+            x: width / 2 - buttonWidth / 2,
+            y: buttonY,
+            width: buttonWidth,
+            height: buttonHeight,
+            label: btn.label,
+            action: btn.action,
+            color: btn.color
+          };
+          this.lobbyButtons.push(button);
+
+          // 按钮背景
+          ctx.fillStyle = btn.color;
+          ctx.fillRect(button.x, button.y, button.width, button.height);
+
+          // 按钮边框
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(button.x, button.y, button.width, button.height);
+
+          // 按钮文字
+          ctx.fillStyle = 'white';
+          ctx.font = 'bold 20px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(btn.label, button.x + button.width / 2, button.y + 32);
+
+          buttonY += buttonHeight + buttonGap;
+        }
+
+        // 操作说明
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        const instructions = [
+          'PC: WASD移动 | 空格跳跃 | 鼠标视角 | 左键破坏 | 右键放置',
+          '手机: 左侧摇杆移动 | 右侧滑动视角 | 按钮操作'
+        ];
+        let instructY = height - 60;
+        for (const text of instructions) {
+          ctx.fillText(text, width / 2, instructY);
+          instructY += 20;
+        }
+
+        // 绑定点击
+        this.uiCanvas.onclick = (e) => this.handleLobbyClick(e);
+      }
+
+      handleLobbyClick(e) {
+        if (this.state !== 'lobby') return;
+
+        const rect = this.uiCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        for (const btn of this.lobbyButtons || []) {
+          if (x >= btn.x && x <= btn.x + btn.width &&
+              y >= btn.y && y <= btn.y + btn.height) {
+            this.handleLobbyAction(btn.action);
+            break;
+          }
+        }
+      }
+
+      async handleLobbyAction(action) {
+        switch (action) {
+          case 'create':
+            await this.createRoom();
+            break;
+          case 'join':
+            await this.showRoomList();
+            break;
+          case 'single':
+            this.startSinglePlayer();
+            break;
+        }
+      }
+
+      async createRoom() {
+        this.state = 'connecting';
+        this.showConnecting('正在创建房间...');
+
+        try {
+          this.network = new NetworkManager(this);
+          await this.network.connect(this.serverUrl);
+
+          this.network.onRoomJoined = (data) => {
+            this.startMultiplayer(data);
+          };
+
+          this.network.createRoom('我的世界', 8);
+        } catch (err) {
+          this.showError('连接服务器失败\n请确保服务器已启动\n\n' + err.message);
+        }
+      }
+
+      async showRoomList() {
+        this.state = 'connecting';
+        this.showConnecting('正在获取房间列表...');
+
+        try {
+          this.network = new NetworkManager(this);
+          await this.network.connect(this.serverUrl);
+
+          this.network.onRoomList = (rooms) => {
+            this.renderRoomList(rooms);
+          };
+
+          this.network.getRoomList();
+        } catch (err) {
+          this.showError('连接服务器失败');
+        }
+      }
+
+      renderRoomList(rooms) {
+        const ctx = this.ui.ctx;
+        const width = this.ui.width;
+        const height = this.ui.height;
+
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 32px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('选择房间', width / 2, 60);
+
+        this.roomButtons = [];
+
+        // 返回按钮
+        const backBtn = {
+          x: 20,
+          y: 20,
+          width: 80,
+          height: 40,
+          label: '← 返回',
+          action: 'back'
+        };
+        this.roomButtons.push(backBtn);
+
+        ctx.fillStyle = '#555';
+        ctx.fillRect(backBtn.x, backBtn.y, backBtn.width, backBtn.height);
+        ctx.fillStyle = 'white';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(backBtn.label, backBtn.x + backBtn.width / 2, backBtn.y + 26);
+
+        if (rooms.length === 0) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          ctx.font = '18px Arial';
+          ctx.fillText('暂无房间', width / 2, height / 2 - 20);
+          ctx.fillText('请创建一个新房间', width / 2, height / 2 + 10);
+        } else {
+          let y = 120;
+          for (const room of rooms) {
+            const btn = {
+              x: width / 2 - 150,
+              y: y,
+              width: 300,
+              height: 60,
+              roomId: room.id,
+              label: `${room.name} (${room.players}/${room.maxPlayers})`
+            };
+            this.roomButtons.push(btn);
+
+            ctx.fillStyle = room.players < room.maxPlayers ? '#3a5a3a' : '#5a3a3a';
+            ctx.fillRect(btn.x, btn.y, btn.width, btn.height);
+
+            ctx.strokeStyle = '#5a8a5a';
+            ctx.strokeRect(btn.x, btn.y, btn.width, btn.height);
+
+            ctx.fillStyle = 'white';
+            ctx.font = '18px Arial';
+            ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + 36);
+
+            y += 80;
+          }
+        }
+
+        this.uiCanvas.onclick = (e) => this.handleRoomListClick(e);
+      }
+
+      handleRoomListClick(e) {
+        const rect = this.uiCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        for (const btn of this.roomButtons || []) {
+          if (x >= btn.x && x <= btn.x + btn.width &&
+              y >= btn.y && y <= btn.y + btn.height) {
+            if (btn.action === 'back') {
+              this.network.disconnect();
+              this.showLobby();
+            } else if (btn.roomId) {
+              this.joinRoom(btn.roomId);
+            }
+            break;
+          }
+        }
+      }
+
+      joinRoom(roomId) {
+        this.showConnecting('正在加入房间...');
+
+        this.network.onRoomJoined = (data) => {
+          this.startMultiplayer(data);
+        };
+
+        this.network.joinRoom(roomId, '玩家');
+      }
+
+      showConnecting(message) {
+        const ctx = this.ui.ctx;
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, this.ui.width, this.ui.height);
+
+        ctx.fillStyle = 'white';
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(message, this.ui.width / 2, this.ui.height / 2);
+
+        // 动画点
+        const dots = '.'.repeat((Date.now() / 500) % 4);
+        ctx.fillText(dots, this.ui.width / 2, this.ui.height / 2 + 30);
+      }
+
+      showError(message) {
+        const ctx = this.ui.ctx;
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, this.ui.width, this.ui.height);
+
+        ctx.fillStyle = '#f44';
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'center';
+
+        const lines = message.split('\n');
+        let y = this.ui.height / 2 - lines.length * 15;
+        for (const line of lines) {
+          ctx.fillText(line, this.ui.width / 2, y);
+          y += 30;
+        }
+
+        ctx.fillStyle = 'white';
+        ctx.font = '18px Arial';
+        ctx.fillText('点击返回大厅', this.ui.width / 2, y + 30);
+
+        this.uiCanvas.onclick = () => this.showLobby();
+      }
+
+      startSinglePlayer() {
+        console.log('开始单人游戏');
+
+        this.world = new World(Date.now());
+
+        const spawn = this.world.getSpawnPoint();
+        this.player = new Player(this.world);
+        this.player.position = { ...spawn };
+
+        this.input = new InputManager(this.uiCanvas, this);
+
+        this.state = 'playing';
+        this.running = true;
+        this.uiCanvas.onclick = null;
+
+        this.generateInitialChunks();
+
+        this.lastTime = performance.now();
+        requestAnimationFrame((t) => this.gameLoop(t));
+      }
+
+      startMultiplayer(roomData) {
+        console.log('开始多人游戏', roomData);
+
+        this.world = new World(roomData.seed || Date.now());
+
+        const spawn = this.world.getSpawnPoint();
+        this.player = new Player(this.world, this.network.playerId);
+        this.player.position = { ...spawn };
+
+        // 应用世界修改
+        if (roomData.worldChanges) {
+          for (const change of roomData.worldChanges) {
+            this.world.setBlock(change.x, change.y, change.z, change.blockType);
+          }
+        }
+
+        // 添加已有玩家
+        if (roomData.players) {
+          for (const p of roomData.players) {
+            const remote = new RemotePlayer(p);
+            this.remotePlayers.set(p.id, remote);
+          }
+        }
+
+        this.setupNetworkCallbacks();
+
+        this.input = new InputManager(this.uiCanvas, this);
+
+        this.state = 'playing';
+        this.running = true;
+        this.uiCanvas.onclick = null;
+
+        this.generateInitialChunks();
+
+        this.lastTime = performance.now();
+        requestAnimationFrame((t) => this.gameLoop(t));
+      }
+
+      setupNetworkCallbacks() {
+        this.network.onPlayerJoin = (playerData) => {
+          console.log('玩家加入:', playerData.name);
+          const remote = new RemotePlayer(playerData);
+          this.remotePlayers.set(playerData.id, remote);
+          this.ui.addChatMessage(`${playerData.name} 加入了游戏`);
+        };
+
+        this.network.onPlayerLeave = (playerId) => {
+          const remote = this.remotePlayers.get(playerId);
+          if (remote) {
+            this.ui.addChatMessage(`${remote.name} 离开了游戏`);
+            this.remotePlayers.delete(playerId);
+          }
+        };
+
+        this.network.onPlayerUpdate = (playerData) => {
+          if (playerData.id === this.player.id) return;
+
+          let remote = this.remotePlayers.get(playerData.id);
+          if (!remote) {
+            remote = new RemotePlayer(playerData);
+            this.remotePlayers.set(playerData.id, remote);
+          }
+          remote.setTarget(playerData);
+        };
+
+        this.network.onBlockChange = (data) => {
+          this.world.setBlock(data.x, data.y, data.z, data.blockType);
+          this.updateChunkMesh(data.x, data.y, data.z);
+        };
+
+        this.network.onChat = (data) => {
+          this.ui.addChatMessage(data.message, data.playerName);
+        };
+
+        this.network.onDisconnect = () => {
+          this.ui.addChatMessage('与服务器断开连接');
+          setTimeout(() => this.returnToLobby(), 3000);
+        };
+      }
+
+      generateInitialChunks() {
+        const chunks = this.world.getChunksAround(
+          this.player.position.x,
+          this.player.position.y,
+          this.player.position.z,
+          3
+        );
+
+        for (const chunk of chunks) {
+          this.updateChunkMeshFromChunk(chunk);
+        }
+      }
+
+      updateChunkMesh(x, y, z) {
+        const chunkSize = this.world.chunkSize;
+        const cx = Math.floor(x / chunkSize);
+        const cy = Math.floor(y / chunkSize);
+        const cz = Math.floor(z / chunkSize);
+
+        const chunk = this.world.getChunk(cx, cy, cz);
+        if (chunk) {
+          this.updateChunkMeshFromChunk(chunk);
+        }
+      }
+
+      updateChunkMeshFromChunk(chunk) {
+        const key = this.world.getChunkKey(chunk.x, chunk.y, chunk.z);
+
+        const oldMesh = this.chunkMeshes.get(key);
+        if (oldMesh) {
+          this.renderer.deleteMesh(oldMesh);
+        }
+
+        const mesh = this.renderer.createBlockMesh(chunk);
+        if (mesh) {
+          this.chunkMeshes.set(key, mesh);
+        }
+
+        chunk.dirty = false;
+      }
+
+      gameLoop(timestamp) {
+        if (!this.running) return;
+
+        const dt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
+        this.lastTime = timestamp;
+
+        this.update(dt);
+        this.render();
+
+        requestAnimationFrame((t) => this.gameLoop(t));
+      }
+
+      update(dt) {
+        this.input.update();
+        this.player.update(dt);
+
+        for (const [id, remote] of this.remotePlayers) {
+          remote.update(dt);
+        }
+
+        this.updateChunks();
+
+        if (this.network && this.network.connected) {
+          this.network.sendPlayerUpdate(this.player);
+        }
+      }
+
+      updateChunks() {
+        const chunks = this.world.getChunksAround(
+          this.player.position.x,
+          this.player.position.y,
+          this.player.position.z,
+          3
+        );
+
+        for (const chunk of chunks) {
+          if (chunk.dirty) {
+            this.updateChunkMeshFromChunk(chunk);
+          }
+        }
+      }
+
+      render() {
+        this.renderer.clear();
+
+        this.renderer.setViewMatrix(
+          this.player.getEyePosition(),
+          this.player.rotation
+        );
+
+        for (const [key, mesh] of this.chunkMeshes) {
+          this.renderer.renderChunk(mesh);
+        }
+
+        const targetBlock = this.player.getTargetBlock();
+        this.ui.render(this.player, this.remotePlayers, targetBlock);
+      }
+
+      placeBlock() {
+        const result = this.player.placeBlock();
+        if (result.success) {
+          this.updateChunkMesh(result.position.x, result.position.y, result.position.z);
+
+          if (this.network && this.network.connected) {
+            this.network.sendBlockChange(
+              result.position.x,
+              result.position.y,
+              result.position.z,
+              result.type,
+              'place'
+            );
+          }
+        }
+      }
+
+      breakBlock() {
+        const result = this.player.breakBlock();
+        if (result.success) {
+          this.updateChunkMesh(result.position.x, result.position.y, result.position.z);
+
+          if (this.network && this.network.connected) {
+            this.network.sendBlockChange(
+              result.position.x,
+              result.position.y,
+              result.position.z,
+              BlockType.AIR,
+              'break'
+            );
+          }
+        }
+      }
+
+      returnToLobby() {
+        this.running = false;
+
+        if (this.network) {
+          this.network.disconnect();
+          this.network = null;
+        }
+
+        this.remotePlayers.clear();
+        this.chunkMeshes.clear();
+
+        this.showLobby();
+      }
+    }
+
+    // 启动游戏
+    window.game = new MinecraftGame();
+  </script>
+</body>
+</html>

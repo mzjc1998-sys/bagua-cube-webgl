@@ -1,0 +1,24 @@
+{
+  "name": "minecraft-multiplayer-server",
+  "version": "1.0.0",
+  "description": "Minecraft风格多人联机游戏服务器",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "minecraft",
+    "multiplayer",
+    "websocket",
+    "game-server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
