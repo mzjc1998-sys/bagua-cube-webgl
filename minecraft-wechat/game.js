@@ -393,6 +393,7 @@ class Player {
     this.gravity = 20;
     this.onGround = false;
     this.flying = false;
+    this.inWater = false;
 
     this.input = { forward: false, backward: false, left: false, right: false, jump: false };
 
@@ -409,12 +410,26 @@ class Player {
   }
 
   update(dt) {
+    // 检测是否在水中
+    const eyePos = this.getEyePosition();
+    const blockAtEye = this.world.getBlock(Math.floor(eyePos.x), Math.floor(eyePos.y), Math.floor(eyePos.z));
+    const blockAtFeet = this.world.getBlock(Math.floor(this.position.x), Math.floor(this.position.y), Math.floor(this.position.z));
+    this.inWater = blockAtEye === BlockType.WATER || blockAtFeet === BlockType.WATER;
+
+    // 如果卡在方块里，尝试推出
+    if (this.isStuckInBlock()) {
+      this.pushOutOfBlock();
+    }
+
     const moveDir = { x: 0, z: 0 };
 
     if (this.input.forward) moveDir.z -= 1;
     if (this.input.backward) moveDir.z += 1;
     if (this.input.left) moveDir.x -= 1;
     if (this.input.right) moveDir.x += 1;
+
+    // 水中移动速度降低
+    const speedMult = this.inWater ? 0.5 : 1.0;
 
     if (moveDir.x !== 0 || moveDir.z !== 0) {
       const length = Math.sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
@@ -423,8 +438,8 @@ class Player {
 
       const cos = Math.cos(this.rotation.y);
       const sin = Math.sin(this.rotation.y);
-      this.velocity.x = (moveDir.x * cos - moveDir.z * sin) * this.moveSpeed;
-      this.velocity.z = (moveDir.x * sin + moveDir.z * cos) * this.moveSpeed;
+      this.velocity.x = (moveDir.x * cos - moveDir.z * sin) * this.moveSpeed * speedMult;
+      this.velocity.z = (moveDir.x * sin + moveDir.z * cos) * this.moveSpeed * speedMult;
     } else {
       this.velocity.x *= 0.8;
       this.velocity.z *= 0.8;
@@ -432,6 +447,13 @@ class Player {
 
     if (this.flying) {
       this.velocity.y = this.input.jump ? this.moveSpeed : 0;
+    } else if (this.inWater) {
+      // 水中物理
+      this.velocity.y -= this.gravity * 0.3 * dt;  // 减少重力
+      this.velocity.y *= 0.95;  // 水阻力
+      if (this.input.jump) {
+        this.velocity.y = 3;  // 水中向上游
+      }
     } else {
       this.velocity.y -= this.gravity * dt;
       if (this.input.jump && this.onGround) {
@@ -519,6 +541,49 @@ class Player {
       }
     }
     return false;
+  }
+
+  isStuckInBlock() {
+    // 检查玩家中心点是否在实体方块内
+    const block = this.world.getBlock(
+      Math.floor(this.position.x),
+      Math.floor(this.position.y + 0.5),
+      Math.floor(this.position.z)
+    );
+    return block !== BlockType.AIR && block !== BlockType.WATER;
+  }
+
+  pushOutOfBlock() {
+    // 尝试向各个方向推出
+    const directions = [
+      { x: 0, y: 1, z: 0 },   // 上
+      { x: 1, y: 0, z: 0 },   // +X
+      { x: -1, y: 0, z: 0 },  // -X
+      { x: 0, y: 0, z: 1 },   // +Z
+      { x: 0, y: 0, z: -1 },  // -Z
+    ];
+
+    for (const dir of directions) {
+      for (let dist = 0.5; dist <= 2; dist += 0.5) {
+        const testX = this.position.x + dir.x * dist;
+        const testY = this.position.y + dir.y * dist;
+        const testZ = this.position.z + dir.z * dist;
+
+        if (!this.checkCollision(testX, testY, testZ)) {
+          this.position.x = testX;
+          this.position.y = testY;
+          this.position.z = testZ;
+          this.velocity = { x: 0, y: 0, z: 0 };
+          console.log('推出方块到:', testX, testY, testZ);
+          return;
+        }
+      }
+    }
+
+    // 如果所有方向都失败，直接向上传送
+    this.position.y += 3;
+    this.velocity = { x: 0, y: 0, z: 0 };
+    console.log('强制向上传送');
   }
 
   getEyePosition() {
@@ -1175,6 +1240,12 @@ class MinecraftGame {
     const s = w / this.screenWidth;
 
     ctx.clearRect(0, 0, w, h);
+
+    // 水中效果 - 蓝色半透明遮罩
+    if (this.player.inWater) {
+      ctx.fillStyle = 'rgba(0, 80, 180, 0.3)';
+      ctx.fillRect(0, 0, w, h);
+    }
 
     // 准星
     ctx.strokeStyle = 'white';
