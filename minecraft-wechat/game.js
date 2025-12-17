@@ -1,8 +1,6 @@
 /**
  * Minecraft微信小游戏 - 主入口
  * 支持多人联机的3D方块世界
- *
- * 注意：微信小游戏不支持ES6模块，所有代码合并在此文件
  */
 
 // ============================================
@@ -22,22 +20,6 @@ const BlockType = {
   COBBLESTONE: 10,
   PLANKS: 11,
   BEDROCK: 12
-};
-
-const BlockNames = {
-  [BlockType.AIR]: '空气',
-  [BlockType.GRASS]: '草方块',
-  [BlockType.DIRT]: '泥土',
-  [BlockType.STONE]: '石头',
-  [BlockType.WOOD]: '木头',
-  [BlockType.LEAVES]: '树叶',
-  [BlockType.SAND]: '沙子',
-  [BlockType.WATER]: '水',
-  [BlockType.GLASS]: '玻璃',
-  [BlockType.BRICK]: '砖块',
-  [BlockType.COBBLESTONE]: '圆石',
-  [BlockType.PLANKS]: '木板',
-  [BlockType.BEDROCK]: '基岩'
 };
 
 // ============================================
@@ -126,7 +108,7 @@ class SimplexNoise {
 }
 
 // ============================================
-// Chunk类 - 16x16x16方块区域
+// Chunk类
 // ============================================
 class Chunk {
   constructor(x, y, z, size) {
@@ -135,7 +117,6 @@ class Chunk {
     this.z = z;
     this.size = size || 16;
     this.blocks = new Uint8Array(this.size * this.size * this.size);
-    this.mesh = null;
     this.dirty = true;
   }
 
@@ -168,7 +149,7 @@ class Chunk {
 }
 
 // ============================================
-// World类 - 世界管理
+// World类
 // ============================================
 class World {
   constructor(seed) {
@@ -221,11 +202,7 @@ class World {
           } else if (worldY < height - 1) {
             blockType = BlockType.DIRT;
           } else if (worldY < height) {
-            if (worldY < this.seaLevel - 2) {
-              blockType = BlockType.SAND;
-            } else {
-              blockType = BlockType.GRASS;
-            }
+            blockType = worldY < this.seaLevel - 2 ? BlockType.SAND : BlockType.GRASS;
           } else if (worldY < this.seaLevel) {
             blockType = BlockType.WATER;
           }
@@ -242,7 +219,6 @@ class World {
     let height = this.baseHeight;
     height += this.noise.noise2D(x * 0.01, z * 0.01) * 15;
     height += this.noise.noise2D(x * 0.05, z * 0.05) * 5;
-    height += this.noise.noise2D(x * 0.1, z * 0.1) * 2;
     return Math.floor(height);
   }
 
@@ -254,15 +230,12 @@ class World {
     for (let i = 0; i < 2; i++) {
       const x = Math.floor(random() * (this.chunkSize - 4)) + 2;
       const z = Math.floor(random() * (this.chunkSize - 4)) + 2;
-      const worldX = cx + x;
-      const worldZ = cz + z;
-      const height = this.getTerrainHeight(worldX, worldZ);
+      const height = this.getTerrainHeight(cx + x, cz + z);
 
       if (height > this.seaLevel && chunk.y === Math.floor(height / this.chunkSize)) {
         const localY = height % this.chunkSize;
         if (localY + 6 < this.chunkSize && localY > 0) {
-          const blockBelow = chunk.getBlock(x, localY - 1, z);
-          if (blockBelow === BlockType.GRASS || blockBelow === BlockType.DIRT) {
+          if (chunk.getBlock(x, localY - 1, z) === BlockType.GRASS) {
             this.placeTree(chunk, x, localY, z);
           }
         }
@@ -271,14 +244,10 @@ class World {
   }
 
   placeTree(chunk, x, y, z) {
-    const trunkHeight = 4;
-    for (let i = 0; i < trunkHeight; i++) {
-      if (y + i < this.chunkSize) {
-        chunk.setBlock(x, y + i, z, BlockType.WOOD);
-      }
+    for (let i = 0; i < 4; i++) {
+      if (y + i < this.chunkSize) chunk.setBlock(x, y + i, z, BlockType.WOOD);
     }
-
-    const leafStart = y + trunkHeight - 2;
+    const leafStart = y + 2;
     for (let dy = 0; dy < 3; dy++) {
       const radius = dy < 2 ? 2 : 1;
       for (let dx = -radius; dx <= radius; dx++) {
@@ -339,8 +308,7 @@ class World {
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dz = -radius; dz <= radius; dz++) {
-          const chunk = this.getOrCreateChunk(cx + dx, cy + dy, cz + dz);
-          chunks.push(chunk);
+          chunks.push(this.getOrCreateChunk(cx + dx, cy + dy, cz + dz));
         }
       }
     }
@@ -350,26 +318,20 @@ class World {
   raycast(origin, direction, maxDistance) {
     maxDistance = maxDistance || 10;
     const step = 0.1;
-    const pos = { x: origin.x, y: origin.y, z: origin.z };
     let lastPos = null;
 
     for (let d = 0; d < maxDistance; d += step) {
-      pos.x = origin.x + direction.x * d;
-      pos.y = origin.y + direction.y * d;
-      pos.z = origin.z + direction.z * d;
+      const px = origin.x + direction.x * d;
+      const py = origin.y + direction.y * d;
+      const pz = origin.z + direction.z * d;
 
-      const blockX = Math.floor(pos.x);
-      const blockY = Math.floor(pos.y);
-      const blockZ = Math.floor(pos.z);
+      const blockX = Math.floor(px);
+      const blockY = Math.floor(py);
+      const blockZ = Math.floor(pz);
       const block = this.getBlock(blockX, blockY, blockZ);
 
       if (block !== BlockType.AIR && block !== BlockType.WATER) {
-        return {
-          hit: true,
-          block: block,
-          position: { x: blockX, y: blockY, z: blockZ },
-          lastPosition: lastPos
-        };
+        return { hit: true, block, position: { x: blockX, y: blockY, z: blockZ }, lastPosition: lastPos };
       }
       lastPos = { x: blockX, y: blockY, z: blockZ };
     }
@@ -377,21 +339,17 @@ class World {
   }
 
   getSpawnPoint() {
-    const x = 0, z = 0;
-    const height = this.getTerrainHeight(x, z);
-    return { x: x + 0.5, y: height + 2, z: z + 0.5 };
+    const height = this.getTerrainHeight(0, 0);
+    return { x: 0.5, y: height + 2, z: 0.5 };
   }
 }
 
 // ============================================
-// Player类 - 玩家控制
+// Player类
 // ============================================
 class Player {
-  constructor(world, id) {
+  constructor(world) {
     this.world = world;
-    this.id = id || (Math.random().toString(36).substring(2, 15));
-    this.name = '玩家' + this.id.substring(0, 4);
-
     this.position = { x: 0, y: 50, z: 0 };
     this.rotation = { x: 0, y: 0 };
     this.velocity = { x: 0, y: 0, z: 0 };
@@ -399,29 +357,15 @@ class Player {
     this.width = 0.6;
     this.height = 1.8;
     this.eyeHeight = 1.6;
-
     this.moveSpeed = 4.5;
     this.jumpForce = 8;
     this.gravity = 20;
-    this.friction = 10;
-
     this.onGround = false;
     this.flying = false;
 
-    this.input = {
-      forward: false,
-      backward: false,
-      left: false,
-      right: false,
-      jump: false
-    };
+    this.input = { forward: false, backward: false, left: false, right: false, jump: false };
 
-    this.inventory = {
-      slots: [],
-      selectedSlot: 0
-    };
-
-    // 初始化背包
+    this.inventory = { slots: [], selectedSlot: 0 };
     this.inventory.slots[0] = { type: BlockType.GRASS, count: 64 };
     this.inventory.slots[1] = { type: BlockType.DIRT, count: 64 };
     this.inventory.slots[2] = { type: BlockType.STONE, count: 64 };
@@ -448,19 +392,15 @@ class Player {
 
       const cos = Math.cos(this.rotation.y);
       const sin = Math.sin(this.rotation.y);
-      const rotatedX = moveDir.x * cos - moveDir.z * sin;
-      const rotatedZ = moveDir.x * sin + moveDir.z * cos;
-
-      this.velocity.x = rotatedX * this.moveSpeed;
-      this.velocity.z = rotatedZ * this.moveSpeed;
+      this.velocity.x = (moveDir.x * cos - moveDir.z * sin) * this.moveSpeed;
+      this.velocity.z = (moveDir.x * sin + moveDir.z * cos) * this.moveSpeed;
     } else {
-      this.velocity.x *= Math.max(0, 1 - this.friction * dt);
-      this.velocity.z *= Math.max(0, 1 - this.friction * dt);
+      this.velocity.x *= 0.8;
+      this.velocity.z *= 0.8;
     }
 
     if (this.flying) {
-      if (this.input.jump) this.velocity.y = this.moveSpeed;
-      else this.velocity.y = 0;
+      this.velocity.y = this.input.jump ? this.moveSpeed : 0;
     } else {
       this.velocity.y -= this.gravity * dt;
       if (this.input.jump && this.onGround) {
@@ -469,36 +409,33 @@ class Player {
       }
     }
 
-    if (this.velocity.y < -50) this.velocity.y = -50;
-
+    this.velocity.y = Math.max(-50, this.velocity.y);
     this.moveWithCollision(dt);
   }
 
   moveWithCollision(dt) {
-    const newPos = {
-      x: this.position.x + this.velocity.x * dt,
-      y: this.position.y + this.velocity.y * dt,
-      z: this.position.z + this.velocity.z * dt
-    };
+    let newX = this.position.x + this.velocity.x * dt;
+    let newY = this.position.y + this.velocity.y * dt;
+    let newZ = this.position.z + this.velocity.z * dt;
 
-    if (this.checkCollision(newPos.x, this.position.y, this.position.z)) {
+    if (this.checkCollision(newX, this.position.y, this.position.z)) {
       this.velocity.x = 0;
     } else {
-      this.position.x = newPos.x;
+      this.position.x = newX;
     }
 
-    if (this.checkCollision(this.position.x, this.position.y, newPos.z)) {
+    if (this.checkCollision(this.position.x, this.position.y, newZ)) {
       this.velocity.z = 0;
     } else {
-      this.position.z = newPos.z;
+      this.position.z = newZ;
     }
 
     this.onGround = false;
-    if (this.checkCollision(this.position.x, newPos.y, this.position.z)) {
+    if (this.checkCollision(this.position.x, newY, this.position.z)) {
       if (this.velocity.y < 0) this.onGround = true;
       this.velocity.y = 0;
     } else {
-      this.position.y = newPos.y;
+      this.position.y = newY;
     }
 
     if (this.position.y < -10) {
@@ -509,106 +446,58 @@ class Player {
   }
 
   checkCollision(x, y, z) {
-    const halfWidth = this.width / 2;
+    const hw = this.width / 2;
     const corners = [
-      { x: x - halfWidth, y: y, z: z - halfWidth },
-      { x: x + halfWidth, y: y, z: z - halfWidth },
-      { x: x - halfWidth, y: y, z: z + halfWidth },
-      { x: x + halfWidth, y: y, z: z + halfWidth },
-      { x: x - halfWidth, y: y + this.height, z: z - halfWidth },
-      { x: x + halfWidth, y: y + this.height, z: z - halfWidth },
-      { x: x - halfWidth, y: y + this.height, z: z + halfWidth },
-      { x: x + halfWidth, y: y + this.height, z: z + halfWidth }
+      [x - hw, y, z - hw], [x + hw, y, z - hw],
+      [x - hw, y, z + hw], [x + hw, y, z + hw],
+      [x - hw, y + this.height, z - hw], [x + hw, y + this.height, z - hw],
+      [x - hw, y + this.height, z + hw], [x + hw, y + this.height, z + hw]
     ];
 
-    for (let i = 0; i < corners.length; i++) {
-      const corner = corners[i];
-      const block = this.world.getBlock(
-        Math.floor(corner.x),
-        Math.floor(corner.y),
-        Math.floor(corner.z)
-      );
-      if (block !== BlockType.AIR && block !== BlockType.WATER) {
-        return true;
-      }
+    for (const [cx, cy, cz] of corners) {
+      const block = this.world.getBlock(Math.floor(cx), Math.floor(cy), Math.floor(cz));
+      if (block !== BlockType.AIR && block !== BlockType.WATER) return true;
     }
     return false;
   }
 
   getEyePosition() {
-    return {
-      x: this.position.x,
-      y: this.position.y + this.eyeHeight,
-      z: this.position.z
-    };
+    return { x: this.position.x, y: this.position.y + this.eyeHeight, z: this.position.z };
   }
 
   getLookDirection() {
-    const pitch = this.rotation.x;
-    const yaw = this.rotation.y;
     return {
-      x: -Math.sin(yaw) * Math.cos(pitch),
-      y: -Math.sin(pitch),
-      z: -Math.cos(yaw) * Math.cos(pitch)
+      x: -Math.sin(this.rotation.y) * Math.cos(this.rotation.x),
+      y: -Math.sin(this.rotation.x),
+      z: -Math.cos(this.rotation.y) * Math.cos(this.rotation.x)
     };
   }
 
   placeBlock() {
-    const eye = this.getEyePosition();
-    const dir = this.getLookDirection();
-    const result = this.world.raycast(eye, dir, 5);
-
+    const result = this.world.raycast(this.getEyePosition(), this.getLookDirection(), 5);
     if (result.hit && result.lastPosition) {
-      const selectedItem = this.inventory.slots[this.inventory.selectedSlot];
-      if (selectedItem && selectedItem.count > 0) {
+      const item = this.inventory.slots[this.inventory.selectedSlot];
+      if (item && item.count > 0) {
         const pos = result.lastPosition;
-        this.world.setBlock(pos.x, pos.y, pos.z, selectedItem.type);
-        selectedItem.count--;
-        return { success: true, position: pos, type: selectedItem.type };
+        this.world.setBlock(pos.x, pos.y, pos.z, item.type);
+        item.count--;
+        return { success: true, position: pos, type: item.type };
       }
     }
     return { success: false };
   }
 
   breakBlock() {
-    const eye = this.getEyePosition();
-    const dir = this.getLookDirection();
-    const result = this.world.raycast(eye, dir, 5);
-
-    if (result.hit) {
-      const pos = result.position;
-      if (result.block === BlockType.BEDROCK) return { success: false };
-
-      this.world.setBlock(pos.x, pos.y, pos.z, BlockType.AIR);
-      return { success: true, position: pos, type: result.block };
+    const result = this.world.raycast(this.getEyePosition(), this.getLookDirection(), 5);
+    if (result.hit && result.block !== BlockType.BEDROCK) {
+      this.world.setBlock(result.position.x, result.position.y, result.position.z, BlockType.AIR);
+      return { success: true, position: result.position };
     }
     return { success: false };
   }
 
   selectSlot(index) {
-    if (index >= 0 && index < this.inventory.slots.length) {
-      this.inventory.selectedSlot = index;
-    }
-  }
-
-  toggleFlying() {
-    this.flying = !this.flying;
-    if (this.flying) this.velocity.y = 0;
-  }
-
-  getTargetBlock() {
-    const eye = this.getEyePosition();
-    const dir = this.getLookDirection();
-    return this.world.raycast(eye, dir, 5);
-  }
-
-  serialize() {
-    return {
-      id: this.id,
-      name: this.name,
-      position: this.position,
-      rotation: this.rotation
-    };
+    if (index >= 0 && index < 9) this.inventory.selectedSlot = index;
   }
 }
 
@@ -619,7 +508,6 @@ class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.gl = canvas.getContext('webgl');
-
     if (!this.gl) {
       console.error('WebGL不支持');
       return;
@@ -628,14 +516,8 @@ class Renderer {
     this.gl.enable(this.gl.DEPTH_TEST);
     this.gl.enable(this.gl.CULL_FACE);
 
-    this.viewMatrix = this.createIdentityMatrix();
     this.projectionMatrix = this.createPerspectiveMatrix(70, canvas.width / canvas.height, 0.1, 1000);
-
     this.initShaders();
-  }
-
-  createIdentityMatrix() {
-    return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
   }
 
   createPerspectiveMatrix(fov, aspect, near, far) {
@@ -650,236 +532,202 @@ class Renderer {
   }
 
   createViewMatrix(position, rotation) {
-    const cosX = Math.cos(rotation.x);
-    const sinX = Math.sin(rotation.x);
-    const cosY = Math.cos(rotation.y);
-    const sinY = Math.sin(rotation.y);
+    const cx = Math.cos(rotation.x), sx = Math.sin(rotation.x);
+    const cy = Math.cos(rotation.y), sy = Math.sin(rotation.y);
 
-    const rotX = new Float32Array([1,0,0,0, 0,cosX,sinX,0, 0,-sinX,cosX,0, 0,0,0,1]);
-    const rotY = new Float32Array([cosY,0,-sinY,0, 0,1,0,0, sinY,0,cosY,0, 0,0,0,1]);
+    const rotX = new Float32Array([1,0,0,0, 0,cx,sx,0, 0,-sx,cx,0, 0,0,0,1]);
+    const rotY = new Float32Array([cy,0,-sy,0, 0,1,0,0, sy,0,cy,0, 0,0,0,1]);
     const trans = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, -position.x,-position.y,-position.z,1]);
 
     return this.multiplyMatrices(this.multiplyMatrices(rotX, rotY), trans);
   }
 
   multiplyMatrices(a, b) {
-    const result = new Float32Array(16);
+    const r = new Float32Array(16);
     for (let i = 0; i < 4; i++) {
       for (let j = 0; j < 4; j++) {
-        result[i * 4 + j] = 0;
-        for (let k = 0; k < 4; k++) {
-          result[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
-        }
+        r[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j] + a[i * 4 + 2] * b[8 + j] + a[i * 4 + 3] * b[12 + j];
       }
     }
-    return result;
+    return r;
   }
 
   initShaders() {
-    const vsSource = `
-      attribute vec3 aPosition;
+    const vs = `
+      attribute vec3 aPos;
       attribute vec3 aNormal;
-      attribute float aBlockType;
-      uniform mat4 uProjection;
+      attribute float aBlock;
+      uniform mat4 uProj;
       uniform mat4 uView;
       varying vec3 vNormal;
-      varying float vBlockType;
-      varying vec3 vPosition;
+      varying float vBlock;
+      varying vec3 vPos;
       void main() {
-        gl_Position = uProjection * uView * vec4(aPosition, 1.0);
+        gl_Position = uProj * uView * vec4(aPos, 1.0);
         vNormal = aNormal;
-        vBlockType = aBlockType;
-        vPosition = aPosition;
+        vBlock = aBlock;
+        vPos = aPos;
       }
     `;
 
-    const fsSource = `
+    const fs = `
       precision mediump float;
       varying vec3 vNormal;
-      varying float vBlockType;
-      varying vec3 vPosition;
-      uniform vec3 uLightDir;
+      varying float vBlock;
+      varying vec3 vPos;
 
       void main() {
-        vec3 baseColor;
-        if (vBlockType < 0.5) baseColor = vec3(0.3, 0.7, 0.2);
-        else if (vBlockType < 1.5) baseColor = vec3(0.3, 0.7, 0.2);
-        else if (vBlockType < 2.5) baseColor = vec3(0.6, 0.4, 0.2);
-        else if (vBlockType < 3.5) baseColor = vec3(0.5, 0.5, 0.5);
-        else if (vBlockType < 4.5) baseColor = vec3(0.6, 0.4, 0.2);
-        else if (vBlockType < 5.5) baseColor = vec3(0.2, 0.6, 0.1);
-        else if (vBlockType < 6.5) baseColor = vec3(0.9, 0.85, 0.6);
-        else if (vBlockType < 7.5) baseColor = vec3(0.2, 0.4, 0.8);
-        else baseColor = vec3(0.8, 0.8, 0.8);
+        vec3 color;
+        if (vBlock < 1.5) color = vec3(0.3, 0.7, 0.2);
+        else if (vBlock < 2.5) color = vec3(0.6, 0.4, 0.2);
+        else if (vBlock < 3.5) color = vec3(0.5, 0.5, 0.5);
+        else if (vBlock < 4.5) color = vec3(0.55, 0.35, 0.15);
+        else if (vBlock < 5.5) color = vec3(0.2, 0.6, 0.1);
+        else if (vBlock < 6.5) color = vec3(0.9, 0.85, 0.6);
+        else if (vBlock < 7.5) color = vec3(0.2, 0.4, 0.8);
+        else color = vec3(0.8, 0.8, 0.8);
 
-        vec3 normal = normalize(vNormal);
-        float light = max(dot(normal, normalize(uLightDir)), 0.4);
-        vec3 color = baseColor * light;
+        float light = max(dot(normalize(vNormal), normalize(vec3(0.5, 1.0, 0.3))), 0.4);
+        color *= light;
 
-        float dist = length(vPosition);
-        float fog = clamp((100.0 - dist) / 50.0, 0.0, 1.0);
+        float fog = clamp((80.0 - length(vPos)) / 40.0, 0.0, 1.0);
         color = mix(vec3(0.6, 0.8, 1.0), color, fog);
 
         gl_FragColor = vec4(color, 1.0);
       }
     `;
 
-    const vertexShader = this.compileShader(vsSource, this.gl.VERTEX_SHADER);
-    const fragmentShader = this.compileShader(fsSource, this.gl.FRAGMENT_SHADER);
-
-    this.shaderProgram = this.gl.createProgram();
-    this.gl.attachShader(this.shaderProgram, vertexShader);
-    this.gl.attachShader(this.shaderProgram, fragmentShader);
-    this.gl.linkProgram(this.shaderProgram);
-    this.gl.useProgram(this.shaderProgram);
-
-    this.attribs = {
-      position: this.gl.getAttribLocation(this.shaderProgram, 'aPosition'),
-      normal: this.gl.getAttribLocation(this.shaderProgram, 'aNormal'),
-      blockType: this.gl.getAttribLocation(this.shaderProgram, 'aBlockType')
-    };
-
-    this.uniforms = {
-      projection: this.gl.getUniformLocation(this.shaderProgram, 'uProjection'),
-      view: this.gl.getUniformLocation(this.shaderProgram, 'uView'),
-      lightDir: this.gl.getUniformLocation(this.shaderProgram, 'uLightDir')
-    };
-
-    this.gl.uniform3f(this.uniforms.lightDir, 0.5, 1.0, 0.3);
-  }
-
-  compileShader(source, type) {
-    const shader = this.gl.createShader(type);
-    this.gl.shaderSource(shader, source);
-    this.gl.compileShader(shader);
-    if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-      console.error('着色器编译失败:', this.gl.getShaderInfoLog(shader));
+    const vShader = this.gl.createShader(this.gl.VERTEX_SHADER);
+    this.gl.shaderSource(vShader, vs);
+    this.gl.compileShader(vShader);
+    if (!this.gl.getShaderParameter(vShader, this.gl.COMPILE_STATUS)) {
+      console.error('顶点着色器编译失败:', this.gl.getShaderInfoLog(vShader));
     }
-    return shader;
+
+    const fShader = this.gl.createShader(this.gl.FRAGMENT_SHADER);
+    this.gl.shaderSource(fShader, fs);
+    this.gl.compileShader(fShader);
+    if (!this.gl.getShaderParameter(fShader, this.gl.COMPILE_STATUS)) {
+      console.error('片段着色器编译失败:', this.gl.getShaderInfoLog(fShader));
+    }
+
+    this.program = this.gl.createProgram();
+    this.gl.attachShader(this.program, vShader);
+    this.gl.attachShader(this.program, fShader);
+    this.gl.linkProgram(this.program);
+    if (!this.gl.getProgramParameter(this.program, this.gl.LINK_STATUS)) {
+      console.error('着色器程序链接失败:', this.gl.getProgramInfoLog(this.program));
+    }
+    this.gl.useProgram(this.program);
+    console.log('主着色器初始化完成');
+
+    this.aPos = this.gl.getAttribLocation(this.program, 'aPos');
+    this.aNormal = this.gl.getAttribLocation(this.program, 'aNormal');
+    this.aBlock = this.gl.getAttribLocation(this.program, 'aBlock');
+    this.uProj = this.gl.getUniformLocation(this.program, 'uProj');
+    this.uView = this.gl.getUniformLocation(this.program, 'uView');
   }
 
-  createBlockMesh(chunk) {
-    const positions = [];
-    const normals = [];
-    const blockTypes = [];
-    const indices = [];
-    let vertexCount = 0;
+  createMesh(chunk) {
+    const pos = [], norm = [], block = [], idx = [];
+    let vc = 0;
 
-    const addFace = (x, y, z, face, blockType) => {
-      const faceData = {
-        top: { positions: [[0,1,0],[1,1,0],[1,1,1],[0,1,1]], normal: [0,1,0] },
-        bottom: { positions: [[0,0,1],[1,0,1],[1,0,0],[0,0,0]], normal: [0,-1,0] },
-        front: { positions: [[0,0,1],[0,1,1],[1,1,1],[1,0,1]], normal: [0,0,1] },
-        back: { positions: [[1,0,0],[1,1,0],[0,1,0],[0,0,0]], normal: [0,0,-1] },
-        left: { positions: [[0,0,0],[0,1,0],[0,1,1],[0,0,1]], normal: [-1,0,0] },
-        right: { positions: [[1,0,1],[1,1,1],[1,1,0],[1,0,0]], normal: [1,0,0] }
-      };
-
-      const fd = faceData[face];
-      for (let i = 0; i < fd.positions.length; i++) {
-        const pos = fd.positions[i];
-        positions.push(x + pos[0], y + pos[1], z + pos[2]);
-        normals.push(fd.normal[0], fd.normal[1], fd.normal[2]);
-        blockTypes.push(blockType);
-      }
-
-      indices.push(vertexCount, vertexCount + 1, vertexCount + 2);
-      indices.push(vertexCount, vertexCount + 2, vertexCount + 3);
-      vertexCount += 4;
+    const faces = {
+      top: { p: [[0,1,0],[1,1,0],[1,1,1],[0,1,1]], n: [0,1,0] },
+      bottom: { p: [[0,0,1],[1,0,1],[1,0,0],[0,0,0]], n: [0,-1,0] },
+      front: { p: [[0,0,1],[0,1,1],[1,1,1],[1,0,1]], n: [0,0,1] },
+      back: { p: [[1,0,0],[1,1,0],[0,1,0],[0,0,0]], n: [0,0,-1] },
+      left: { p: [[0,0,0],[0,1,0],[0,1,1],[0,0,1]], n: [-1,0,0] },
+      right: { p: [[1,0,1],[1,1,1],[1,1,0],[1,0,0]], n: [1,0,0] }
     };
 
-    const size = chunk.size;
-    for (let x = 0; x < size; x++) {
-      for (let y = 0; y < size; y++) {
-        for (let z = 0; z < size; z++) {
-          const block = chunk.getBlock(x, y, z);
-          if (block === 0) continue;
+    const addFace = (x, y, z, face, b) => {
+      const f = faces[face];
+      for (const p of f.p) {
+        pos.push(x + p[0], y + p[1], z + p[2]);
+        norm.push(...f.n);
+        block.push(b);
+      }
+      idx.push(vc, vc+1, vc+2, vc, vc+2, vc+3);
+      vc += 4;
+    };
 
-          const worldX = chunk.x * size + x;
-          const worldY = chunk.y * size + y;
-          const worldZ = chunk.z * size + z;
-
-          if (!chunk.getBlockSafe(x, y + 1, z)) addFace(worldX, worldY, worldZ, 'top', block);
-          if (!chunk.getBlockSafe(x, y - 1, z)) addFace(worldX, worldY, worldZ, 'bottom', block);
-          if (!chunk.getBlockSafe(x, y, z + 1)) addFace(worldX, worldY, worldZ, 'front', block);
-          if (!chunk.getBlockSafe(x, y, z - 1)) addFace(worldX, worldY, worldZ, 'back', block);
-          if (!chunk.getBlockSafe(x - 1, y, z)) addFace(worldX, worldY, worldZ, 'left', block);
-          if (!chunk.getBlockSafe(x + 1, y, z)) addFace(worldX, worldY, worldZ, 'right', block);
+    const s = chunk.size;
+    for (let x = 0; x < s; x++) {
+      for (let y = 0; y < s; y++) {
+        for (let z = 0; z < s; z++) {
+          const b = chunk.getBlock(x, y, z);
+          if (b === 0) continue;
+          const wx = chunk.x * s + x, wy = chunk.y * s + y, wz = chunk.z * s + z;
+          if (!chunk.getBlockSafe(x, y+1, z)) addFace(wx, wy, wz, 'top', b);
+          if (!chunk.getBlockSafe(x, y-1, z)) addFace(wx, wy, wz, 'bottom', b);
+          if (!chunk.getBlockSafe(x, y, z+1)) addFace(wx, wy, wz, 'front', b);
+          if (!chunk.getBlockSafe(x, y, z-1)) addFace(wx, wy, wz, 'back', b);
+          if (!chunk.getBlockSafe(x-1, y, z)) addFace(wx, wy, wz, 'left', b);
+          if (!chunk.getBlockSafe(x+1, y, z)) addFace(wx, wy, wz, 'right', b);
         }
       }
     }
 
-    if (positions.length === 0) return null;
+    if (pos.length === 0) return null;
 
-    const positionBuffer = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, positionBuffer);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(positions), this.gl.STATIC_DRAW);
+    const gl = this.gl;
+    const posBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
 
-    const normalBuffer = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, normalBuffer);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(normals), this.gl.STATIC_DRAW);
+    const normBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, normBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(norm), gl.STATIC_DRAW);
 
-    const blockTypeBuffer = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, blockTypeBuffer);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(blockTypes), this.gl.STATIC_DRAW);
+    const blockBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, blockBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(block), gl.STATIC_DRAW);
 
-    const indexBuffer = this.gl.createBuffer();
-    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-    this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), this.gl.STATIC_DRAW);
+    const idxBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
 
-    return {
-      position: positionBuffer,
-      normal: normalBuffer,
-      blockType: blockTypeBuffer,
-      indices: indexBuffer,
-      indexCount: indices.length
-    };
+    return { pos: posBuf, norm: normBuf, block: blockBuf, idx: idxBuf, count: idx.length };
   }
 
-  setViewMatrix(position, rotation) {
-    this.viewMatrix = this.createViewMatrix(position, rotation);
-    this.gl.uniformMatrix4fv(this.uniforms.view, false, this.viewMatrix);
+  setCamera(position, rotation) {
+    const view = this.createViewMatrix(position, rotation);
+    this.gl.uniformMatrix4fv(this.uView, false, view);
   }
 
-  renderChunk(mesh) {
+  renderMesh(mesh) {
     if (!mesh) return;
     const gl = this.gl;
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.position);
-    gl.vertexAttribPointer(this.attribs.position, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.attribs.position);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.pos);
+    gl.vertexAttribPointer(this.aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.aPos);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normal);
-    gl.vertexAttribPointer(this.attribs.normal, 3, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.attribs.normal);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.norm);
+    gl.vertexAttribPointer(this.aNormal, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.aNormal);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.blockType);
-    gl.vertexAttribPointer(this.attribs.blockType, 1, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(this.attribs.blockType);
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.block);
+    gl.vertexAttribPointer(this.aBlock, 1, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.aBlock);
 
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
-    gl.drawElements(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.idx);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
   }
 
   clear() {
     this.gl.clearColor(0.6, 0.8, 1.0, 1.0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-    this.gl.uniformMatrix4fv(this.uniforms.projection, false, this.projectionMatrix);
-  }
-
-  resize(width, height) {
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.gl.viewport(0, 0, width, height);
-    this.projectionMatrix = this.createPerspectiveMatrix(70, width / height, 0.1, 1000);
+    this.gl.uniformMatrix4fv(this.uProj, false, this.projectionMatrix);
   }
 
   deleteMesh(mesh) {
     if (!mesh) return;
-    this.gl.deleteBuffer(mesh.position);
-    this.gl.deleteBuffer(mesh.normal);
-    this.gl.deleteBuffer(mesh.blockType);
-    this.gl.deleteBuffer(mesh.indices);
+    this.gl.deleteBuffer(mesh.pos);
+    this.gl.deleteBuffer(mesh.norm);
+    this.gl.deleteBuffer(mesh.block);
+    this.gl.deleteBuffer(mesh.idx);
   }
 }
 
@@ -889,175 +737,268 @@ class Renderer {
 class MinecraftGame {
   constructor() {
     this.canvas = null;
-    this.uiCanvas = null;
     this.ctx2d = null;
     this.renderer = null;
     this.world = null;
     this.player = null;
-
     this.chunkMeshes = new Map();
     this.lastTime = 0;
     this.running = false;
     this.state = 'lobby';
 
-    // 触摸状态
     this.joystick = { active: false, startX: 0, startY: 0, currentX: 0, currentY: 0 };
     this.lookTouch = null;
     this.lastLookX = 0;
     this.lastLookY = 0;
 
+    this.screenWidth = 0;
+    this.screenHeight = 0;
+
     this.init();
   }
 
   init() {
-    // 微信小游戏环境
     const info = wx.getSystemInfoSync();
     this.screenWidth = info.windowWidth;
     this.screenHeight = info.windowHeight;
-    this.pixelRatio = info.pixelRatio;
+    this.pixelRatio = info.pixelRatio || 2;
 
-    // 主canvas - 用于显示（先用2D模式显示大厅）
+    console.log('屏幕尺寸:', this.screenWidth, 'x', this.screenHeight, '像素比:', this.pixelRatio);
+
+    // 创建主canvas - 使用WebGL
     this.canvas = wx.createCanvas();
-    this.canvas.width = info.windowWidth * info.pixelRatio;
-    this.canvas.height = info.windowHeight * info.pixelRatio;
+    this.canvas.width = this.screenWidth * this.pixelRatio;
+    this.canvas.height = this.screenHeight * this.pixelRatio;
 
-    // 离屏canvas用于UI叠加
-    this.uiCanvas = wx.createCanvas();
-    this.uiCanvas.width = this.canvas.width;
-    this.uiCanvas.height = this.canvas.height;
-    this.ctx2d = this.uiCanvas.getContext('2d');
+    console.log('Canvas尺寸:', this.canvas.width, 'x', this.canvas.height);
+
+    // 创建离屏2D canvas用于UI - 使用createOffscreenCanvas如果可用
+    try {
+      if (wx.createOffscreenCanvas) {
+        this.uiCanvas = wx.createOffscreenCanvas({ type: '2d', width: this.canvas.width, height: this.canvas.height });
+        this.ctx2d = this.uiCanvas.getContext('2d');
+        console.log('使用OffscreenCanvas');
+      } else {
+        this.uiCanvas = wx.createCanvas();
+        this.uiCanvas.width = this.canvas.width;
+        this.uiCanvas.height = this.canvas.height;
+        this.ctx2d = this.uiCanvas.getContext('2d');
+        console.log('使用普通Canvas');
+      }
+    } catch (e) {
+      console.log('OffscreenCanvas创建失败，使用普通Canvas:', e.message);
+      this.uiCanvas = wx.createCanvas();
+      this.uiCanvas.width = this.canvas.width;
+      this.uiCanvas.height = this.canvas.height;
+      this.ctx2d = this.uiCanvas.getContext('2d');
+    }
+
+    if (!this.ctx2d) {
+      console.error('无法获取2D context');
+    }
+
+    // 初始化WebGL渲染器
+    this.renderer = new Renderer(this.canvas);
+    if (!this.renderer.gl) {
+      console.error('WebGL初始化失败');
+      return;
+    }
+    console.log('WebGL渲染器初始化完成');
 
     // 绑定触摸事件
     wx.onTouchStart(this.onTouchStart.bind(this));
     wx.onTouchMove(this.onTouchMove.bind(this));
     wx.onTouchEnd(this.onTouchEnd.bind(this));
 
-    // 显示大厅
-    this.showLobby();
+    console.log('开始大厅循环');
+    // 开始大厅循环
+    this.lobbyLoop();
   }
 
-  showLobby() {
-    this.state = 'lobby';
+  lobbyLoop() {
+    if (this.state !== 'lobby') return;
+
     this.renderLobby();
+    requestAnimationFrame(() => this.lobbyLoop());
   }
 
   renderLobby() {
-    // 大厅使用主canvas的2D上下文
-    const ctx = this.canvas.getContext('2d');
-    if (!ctx) {
-      console.error('无法获取2D上下文');
-      return;
-    }
-    const width = this.canvas.width;
-    const height = this.canvas.height;
-    const scale = this.pixelRatio;
+    const gl = this.renderer.gl;
+    gl.clearColor(0.1, 0.1, 0.18, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // 使用2D canvas绘制UI，然后作为纹理显示
+    const ctx = this.ctx2d;
+    const w = this.uiCanvas.width;
+    const h = this.uiCanvas.height;
+    const s = w / this.screenWidth;
 
     ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, w, h);
 
+    // 标题
     ctx.fillStyle = '#4af';
-    ctx.font = `bold ${48 * scale}px Arial`;
+    ctx.font = `bold ${48 * s}px Arial`;
     ctx.textAlign = 'center';
-    ctx.fillText('方块世界', width / 2, 100 * scale);
+    ctx.fillText('方块世界', w / 2, 100 * s);
 
     ctx.fillStyle = 'white';
-    ctx.font = `${20 * scale}px Arial`;
-    ctx.fillText('Minecraft风格小游戏', width / 2, 150 * scale);
+    ctx.font = `${20 * s}px Arial`;
+    ctx.fillText('Minecraft风格小游戏', w / 2, 150 * s);
 
     // 按钮
-    this.lobbyButtons = [];
-    const btnWidth = 240 * scale;
-    const btnHeight = 50 * scale;
-    let btnY = height / 2 - 40 * scale;
+    const btnW = 240 * s;
+    const btnH = 50 * s;
+    const btnX = w / 2 - btnW / 2;
+    const btnY = h / 2 - btnH / 2;
 
-    const buttons = [
-      { label: '开始游戏', action: 'start' }
-    ];
+    ctx.fillStyle = '#4a7';
+    ctx.fillRect(btnX, btnY, btnW, btnH);
 
-    for (const btn of buttons) {
-      const button = {
-        x: width / 2 - btnWidth / 2,
-        y: btnY,
-        width: btnWidth,
-        height: btnHeight,
-        label: btn.label,
-        action: btn.action
-      };
-      this.lobbyButtons.push(button);
+    ctx.fillStyle = 'white';
+    ctx.font = `bold ${20 * s}px Arial`;
+    ctx.fillText('开始游戏', w / 2, btnY + 32 * s);
 
-      ctx.fillStyle = '#4a7';
-      ctx.fillRect(button.x, button.y, button.width, button.height);
-
-      ctx.fillStyle = 'white';
-      ctx.font = `bold ${20 * scale}px Arial`;
-      ctx.fillText(btn.label, width / 2, btnY + 32 * scale);
-
-      btnY += btnHeight + 20 * scale;
-    }
+    // 保存按钮位置（屏幕坐标）
+    this.startButton = {
+      x: this.screenWidth / 2 - 120,
+      y: this.screenHeight / 2 - 25,
+      w: 240,
+      h: 50
+    };
 
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.font = `${14 * scale}px Arial`;
-    ctx.fillText('左侧摇杆移动 | 右侧滑动视角', width / 2, height - 60 * scale);
-    ctx.fillText('点击放/挖按钮操作方块', width / 2, height - 35 * scale);
+    ctx.font = `${14 * s}px Arial`;
+    ctx.fillText('左侧摇杆移动 | 右侧滑动视角', w / 2, h - 60 * s);
+    ctx.fillText('点击按钮操作方块', w / 2, h - 35 * s);
+
+    // 将2D内容渲染为纹理
+    this.renderUIToScreen();
+  }
+
+  renderUIToScreen() {
+    const gl = this.renderer.gl;
+
+    if (!this.uiTexture) {
+      this.uiTexture = gl.createTexture();
+      this.initUIShader();
+    }
+
+    gl.disable(gl.DEPTH_TEST);
+
+    gl.bindTexture(gl.TEXTURE_2D, this.uiTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.uiCanvas);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.useProgram(this.uiProgram);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.uiVB);
+    gl.vertexAttribPointer(this.uiPosAttr, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(this.uiPosAttr);
+    gl.vertexAttribPointer(this.uiTexAttr, 2, gl.FLOAT, false, 16, 8);
+    gl.enableVertexAttribArray(this.uiTexAttr);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.uiTexture);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.useProgram(this.renderer.program);
+  }
+
+  initUIShader() {
+    const gl = this.renderer.gl;
+
+    const vs = `
+      attribute vec2 aPos;
+      attribute vec2 aTex;
+      varying vec2 vTex;
+      void main() {
+        gl_Position = vec4(aPos, 0.0, 1.0);
+        vTex = aTex;
+      }
+    `;
+    const fs = `
+      precision mediump float;
+      varying vec2 vTex;
+      uniform sampler2D uTex;
+      void main() {
+        gl_FragColor = texture2D(uTex, vTex);
+      }
+    `;
+
+    const vShader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vShader, vs);
+    gl.compileShader(vShader);
+    if (!gl.getShaderParameter(vShader, gl.COMPILE_STATUS)) {
+      console.error('UI顶点着色器编译失败:', gl.getShaderInfoLog(vShader));
+    }
+
+    const fShader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fShader, fs);
+    gl.compileShader(fShader);
+    if (!gl.getShaderParameter(fShader, gl.COMPILE_STATUS)) {
+      console.error('UI片段着色器编译失败:', gl.getShaderInfoLog(fShader));
+    }
+
+    this.uiProgram = gl.createProgram();
+    gl.attachShader(this.uiProgram, vShader);
+    gl.attachShader(this.uiProgram, fShader);
+    gl.linkProgram(this.uiProgram);
+    if (!gl.getProgramParameter(this.uiProgram, gl.LINK_STATUS)) {
+      console.error('UI着色器程序链接失败:', gl.getProgramInfoLog(this.uiProgram));
+    }
+    console.log('UI着色器初始化完成');
+
+    this.uiPosAttr = gl.getAttribLocation(this.uiProgram, 'aPos');
+    this.uiTexAttr = gl.getAttribLocation(this.uiProgram, 'aTex');
+
+    const verts = new Float32Array([-1,-1,0,1, 1,-1,1,1, -1,1,0,0, 1,1,1,0]);
+    this.uiVB = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.uiVB);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
   }
 
   startGame() {
-    console.log('开始游戏');
+    console.log('游戏开始!');
     this.state = 'playing';
-
-    // 微信小游戏中需要重新创建canvas来获取WebGL上下文
-    // 因为原来的canvas已经获取了2D上下文
-    const info = wx.getSystemInfoSync();
-
-    // 创建新的主canvas用于WebGL
-    this.canvas = wx.createCanvas();
-    this.canvas.width = info.windowWidth * info.pixelRatio;
-    this.canvas.height = info.windowHeight * info.pixelRatio;
-
-    // 初始化WebGL渲染器
-    this.renderer = new Renderer(this.canvas);
 
     this.world = new World(Date.now());
     const spawn = this.world.getSpawnPoint();
+    console.log('出生点:', spawn.x, spawn.y, spawn.z);
 
     this.player = new Player(this.world);
     this.player.position = { x: spawn.x, y: spawn.y, z: spawn.z };
 
-    this.generateInitialChunks();
+    console.log('生成区块...');
+    this.generateChunks();
+    console.log('区块mesh数量:', this.chunkMeshes.size);
 
     this.running = true;
     this.lastTime = Date.now();
+    console.log('开始游戏循环');
     this.gameLoop();
   }
 
-  generateInitialChunks() {
+  generateChunks() {
     const chunks = this.world.getChunksAround(
       this.player.position.x,
       this.player.position.y,
       this.player.position.z,
       2
     );
-
-    for (let i = 0; i < chunks.length; i++) {
-      this.updateChunkMeshFromChunk(chunks[i]);
+    for (const chunk of chunks) {
+      this.updateMesh(chunk);
     }
   }
 
-  updateChunkMesh(x, y, z) {
-    const chunkSize = this.world.chunkSize;
-    const cx = Math.floor(x / chunkSize);
-    const cy = Math.floor(y / chunkSize);
-    const cz = Math.floor(z / chunkSize);
-    const chunk = this.world.getChunk(cx, cy, cz);
-    if (chunk) this.updateChunkMeshFromChunk(chunk);
-  }
-
-  updateChunkMeshFromChunk(chunk) {
+  updateMesh(chunk) {
     const key = this.world.getChunkKey(chunk.x, chunk.y, chunk.z);
-    const oldMesh = this.chunkMeshes.get(key);
-    if (oldMesh) this.renderer.deleteMesh(oldMesh);
+    const old = this.chunkMeshes.get(key);
+    if (old) this.renderer.deleteMesh(old);
 
-    const mesh = this.renderer.createBlockMesh(chunk);
+    const mesh = this.renderer.createMesh(chunk);
     if (mesh) this.chunkMeshes.set(key, mesh);
     chunk.dirty = false;
   }
@@ -1072,27 +1013,25 @@ class MinecraftGame {
     this.update(dt);
     this.render();
 
-    requestAnimationFrame(this.gameLoop.bind(this));
+    // 每60帧输出一次调试信息
+    this.frameCount = (this.frameCount || 0) + 1;
+    if (this.frameCount % 60 === 0) {
+      console.log('GameLoop running, meshes:', this.chunkMeshes.size,
+        'pos:', Math.floor(this.player.position.x), Math.floor(this.player.position.y), Math.floor(this.player.position.z));
+    }
+
+    requestAnimationFrame(() => this.gameLoop());
   }
 
   update(dt) {
-    // 处理摇杆输入
+    // 处理摇杆
     if (this.joystick.active) {
       const dx = this.joystick.currentX - this.joystick.startX;
       const dy = this.joystick.currentY - this.joystick.startY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist > 10) {
-        this.player.input.forward = dy < -20;
-        this.player.input.backward = dy > 20;
-        this.player.input.left = dx < -20;
-        this.player.input.right = dx > 20;
-      } else {
-        this.player.input.forward = false;
-        this.player.input.backward = false;
-        this.player.input.left = false;
-        this.player.input.right = false;
-      }
+      this.player.input.forward = dy < -15;
+      this.player.input.backward = dy > 15;
+      this.player.input.left = dx < -15;
+      this.player.input.right = dx > 15;
     } else {
       this.player.input.forward = false;
       this.player.input.backward = false;
@@ -1109,344 +1048,190 @@ class MinecraftGame {
       this.player.position.z,
       2
     );
-    for (let i = 0; i < chunks.length; i++) {
-      if (chunks[i].dirty) {
-        this.updateChunkMeshFromChunk(chunks[i]);
-      }
+    for (const chunk of chunks) {
+      if (chunk.dirty) this.updateMesh(chunk);
     }
   }
 
   render() {
     this.renderer.clear();
+    this.renderer.setCamera(this.player.getEyePosition(), this.player.rotation);
 
-    this.renderer.setViewMatrix(
-      this.player.getEyePosition(),
-      this.player.rotation
-    );
+    this.chunkMeshes.forEach(mesh => this.renderer.renderMesh(mesh));
 
-    this.chunkMeshes.forEach((mesh) => {
-      this.renderer.renderChunk(mesh);
-    });
-
-    // 渲染UI
-    this.renderUI();
+    this.renderGameUI();
   }
 
-  renderUI() {
-    // 使用离屏canvas绘制UI，然后复制到主canvas
+  renderGameUI() {
     const ctx = this.ctx2d;
-    if (!ctx) return;
+    const w = this.uiCanvas.width;
+    const h = this.uiCanvas.height;
+    const s = w / this.screenWidth;
 
-    const scale = this.pixelRatio;
-    const width = this.uiCanvas.width;
-    const height = this.uiCanvas.height;
-
-    // 清除UI画布
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, w, h);
 
     // 准星
-    const cx = width / 2;
-    const cy = height / 2;
     ctx.strokeStyle = 'white';
-    ctx.lineWidth = 2 * scale;
+    ctx.lineWidth = 2 * s;
     ctx.beginPath();
-    ctx.moveTo(cx - 10 * scale, cy);
-    ctx.lineTo(cx + 10 * scale, cy);
-    ctx.moveTo(cx, cy - 10 * scale);
-    ctx.lineTo(cx, cy + 10 * scale);
+    ctx.moveTo(w/2 - 10*s, h/2);
+    ctx.lineTo(w/2 + 10*s, h/2);
+    ctx.moveTo(w/2, h/2 - 10*s);
+    ctx.lineTo(w/2, h/2 + 10*s);
     ctx.stroke();
 
-    // 虚拟摇杆区域
-    const joystickX = 100 * scale;
-    const joystickY = height - 140 * scale;
-    const joystickRadius = 60 * scale;
+    // 摇杆
+    const jx = 100 * s;
+    const jy = h - 140 * s;
+    const jr = 60 * s;
 
     ctx.fillStyle = 'rgba(255,255,255,0.2)';
     ctx.beginPath();
-    ctx.arc(joystickX, joystickY, joystickRadius, 0, Math.PI * 2);
+    ctx.arc(jx, jy, jr, 0, Math.PI * 2);
     ctx.fill();
 
-    // 摇杆内圈
-    let knobX = joystickX;
-    let knobY = joystickY;
+    let kx = jx, ky = jy;
     if (this.joystick.active) {
-      const dx = (this.joystick.currentX - this.joystick.startX) * scale;
-      const dy = (this.joystick.currentY - this.joystick.startY) * scale;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const dx = (this.joystick.currentX - this.joystick.startX) * s;
+      const dy = (this.joystick.currentY - this.joystick.startY) * s;
+      const dist = Math.sqrt(dx*dx + dy*dy);
       if (dist > 0) {
-        const maxDist = joystickRadius * 0.8;
-        const clampedDist = Math.min(dist, maxDist);
-        knobX = joystickX + (dx / dist) * clampedDist;
-        knobY = joystickY + (dy / dist) * clampedDist;
+        const maxD = jr * 0.8;
+        const clamped = Math.min(dist, maxD);
+        kx += (dx / dist) * clamped;
+        ky += (dy / dist) * clamped;
       }
     }
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.beginPath();
-    ctx.arc(knobX, knobY, joystickRadius * 0.4, 0, Math.PI * 2);
+    ctx.arc(kx, ky, jr * 0.4, 0, Math.PI * 2);
     ctx.fill();
 
     // 按钮
-    this.uiButtons = [];
-    const btnSize = 60 * scale;
-    const margin = 20 * scale;
+    this.gameButtons = [];
+    const btnSize = 60 * s;
+    const margin = 20 * s;
 
-    // 跳跃按钮
-    const jumpBtn = { x: width - btnSize - margin - 80 * scale, y: height - btnSize * 2 - margin * 2, width: btnSize, height: btnSize, label: '跳', action: 'jump' };
-    this.uiButtons.push(jumpBtn);
+    const buttons = [
+      { x: w - btnSize - margin - 80*s, y: h - btnSize*2 - margin*2, label: '跳', action: 'jump' },
+      { x: w - btnSize - margin, y: h - btnSize*2 - margin*2, label: '放', action: 'place' },
+      { x: w - btnSize - margin - 40*s, y: h - btnSize - margin, label: '挖', action: 'break' }
+    ];
 
-    // 放置按钮
-    const placeBtn = { x: width - btnSize - margin, y: height - btnSize * 2 - margin * 2, width: btnSize, height: btnSize, label: '放', action: 'place' };
-    this.uiButtons.push(placeBtn);
-
-    // 破坏按钮
-    const breakBtn = { x: width - btnSize - margin - 40 * scale, y: height - btnSize - margin, width: btnSize, height: btnSize, label: '挖', action: 'break' };
-    this.uiButtons.push(breakBtn);
-
-    // 绘制按钮
-    for (let i = 0; i < this.uiButtons.length; i++) {
-      const btn = this.uiButtons[i];
+    for (const b of buttons) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(btn.x, btn.y, btn.width, btn.height);
+      ctx.fillRect(b.x, b.y, btnSize, btnSize);
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-      ctx.strokeRect(btn.x, btn.y, btn.width, btn.height);
+      ctx.strokeRect(b.x, b.y, btnSize, btnSize);
       ctx.fillStyle = 'white';
-      ctx.font = `bold ${20 * scale}px Arial`;
+      ctx.font = `bold ${20*s}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + btn.height / 2);
+      ctx.fillText(b.label, b.x + btnSize/2, b.y + btnSize/2);
+
+      // 转换为屏幕坐标
+      this.gameButtons.push({
+        x: b.x / s, y: b.y / s, w: btnSize / s, h: btnSize / s, action: b.action
+      });
     }
 
     // 快捷栏
-    const slotSize = 50 * scale;
-    const slotPadding = 4 * scale;
-    const totalWidth = (slotSize + slotPadding) * 9 - slotPadding;
-    const startX = (width - totalWidth) / 2;
-    const startY = height - slotSize - 20 * scale;
+    const slotSize = 50 * s;
+    const slotPad = 4 * s;
+    const totalW = (slotSize + slotPad) * 9 - slotPad;
+    const startX = (w - totalW) / 2;
+    const startY = h - slotSize - 20 * s;
 
-    const blockColors = {
-      [BlockType.GRASS]: '#4a9f4a',
-      [BlockType.DIRT]: '#8b6c4a',
-      [BlockType.STONE]: '#888888',
-      [BlockType.WOOD]: '#8b6c4a',
-      [BlockType.PLANKS]: '#c8a870',
-      [BlockType.GLASS]: '#c8e8ff',
-      [BlockType.BRICK]: '#b86050',
-      [BlockType.SAND]: '#e8d898',
-      [BlockType.COBBLESTONE]: '#707070'
+    const colors = {
+      1: '#4a9f4a', 2: '#8b6c4a', 3: '#888', 4: '#8b6c4a',
+      5: '#c8a870', 6: '#c8e8ff', 7: '#b86050', 8: '#e8d898', 9: '#707070'
     };
 
     for (let i = 0; i < 9; i++) {
-      const x = startX + i * (slotSize + slotPadding);
-      const y = startY;
-
+      const x = startX + i * (slotSize + slotPad);
       ctx.fillStyle = i === this.player.inventory.selectedSlot ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
-      ctx.fillRect(x, y, slotSize, slotSize);
-
+      ctx.fillRect(x, startY, slotSize, slotSize);
       ctx.strokeStyle = i === this.player.inventory.selectedSlot ? 'white' : 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 2 * scale;
-      ctx.strokeRect(x, y, slotSize, slotSize);
+      ctx.strokeRect(x, startY, slotSize, slotSize);
 
       const item = this.player.inventory.slots[i];
       if (item) {
-        ctx.fillStyle = blockColors[item.type] || '#888';
-        ctx.fillRect(x + 8 * scale, y + 8 * scale, slotSize - 16 * scale, slotSize - 16 * scale);
-
-        if (item.count > 1) {
-          ctx.fillStyle = 'white';
-          ctx.font = `bold ${14 * scale}px Arial`;
-          ctx.textAlign = 'right';
-          ctx.fillText(item.count.toString(), x + slotSize - 4 * scale, y + slotSize - 4 * scale);
-        }
+        ctx.fillStyle = colors[item.type] || '#888';
+        ctx.fillRect(x + 8*s, startY + 8*s, slotSize - 16*s, slotSize - 16*s);
       }
     }
 
     // 坐标
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(10 * scale, 10 * scale, 120 * scale, 50 * scale);
+    ctx.fillRect(10*s, 10*s, 140*s, 50*s);
     ctx.fillStyle = 'white';
-    ctx.font = `${12 * scale}px Arial`;
+    ctx.font = `${12*s}px Arial`;
     ctx.textAlign = 'left';
-    ctx.fillText('X: ' + Math.floor(this.player.position.x), 20 * scale, 28 * scale);
-    ctx.fillText('Y: ' + Math.floor(this.player.position.y), 20 * scale, 43 * scale);
-    ctx.fillText('Z: ' + Math.floor(this.player.position.z), 70 * scale, 28 * scale);
+    ctx.textBaseline = 'top';
+    ctx.fillText(`X:${Math.floor(this.player.position.x)} Y:${Math.floor(this.player.position.y)} Z:${Math.floor(this.player.position.z)}`, 20*s, 25*s);
 
-    // 将UI画布作为纹理绘制到WebGL
-    // 微信小游戏中需要特殊处理
-    if (this.renderer && this.renderer.gl) {
-      this.drawUITexture();
-    }
-  }
-
-  drawUITexture() {
+    // 渲染UI到屏幕
     const gl = this.renderer.gl;
-
-    // 禁用深度测试以便UI在最前面
-    gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-
-    // 创建或更新UI纹理
-    if (!this.uiTexture) {
-      this.uiTexture = gl.createTexture();
-      this.initUIShader();
-    }
-
-    gl.bindTexture(gl.TEXTURE_2D, this.uiTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.uiCanvas);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    // 绘制全屏四边形
-    gl.useProgram(this.uiShaderProgram);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.uiVertexBuffer);
-    gl.vertexAttribPointer(this.uiPosAttrib, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(this.uiPosAttrib);
-    gl.vertexAttribPointer(this.uiTexAttrib, 2, gl.FLOAT, false, 16, 8);
-    gl.enableVertexAttribArray(this.uiTexAttrib);
-
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.uiTexture);
-    gl.uniform1i(this.uiTexUniform, 0);
-
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-    // 恢复状态
-    gl.enable(gl.DEPTH_TEST);
+    this.renderUIToScreen();
     gl.disable(gl.BLEND);
-    gl.useProgram(this.renderer.shaderProgram);
-  }
-
-  initUIShader() {
-    const gl = this.renderer.gl;
-
-    const vsSource = `
-      attribute vec2 aPos;
-      attribute vec2 aTexCoord;
-      varying vec2 vTexCoord;
-      void main() {
-        gl_Position = vec4(aPos, 0.0, 1.0);
-        vTexCoord = aTexCoord;
-      }
-    `;
-
-    const fsSource = `
-      precision mediump float;
-      varying vec2 vTexCoord;
-      uniform sampler2D uTexture;
-      void main() {
-        gl_FragColor = texture2D(uTexture, vTexCoord);
-      }
-    `;
-
-    const vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs, vsSource);
-    gl.compileShader(vs);
-
-    const fs = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fs, fsSource);
-    gl.compileShader(fs);
-
-    this.uiShaderProgram = gl.createProgram();
-    gl.attachShader(this.uiShaderProgram, vs);
-    gl.attachShader(this.uiShaderProgram, fs);
-    gl.linkProgram(this.uiShaderProgram);
-
-    this.uiPosAttrib = gl.getAttribLocation(this.uiShaderProgram, 'aPos');
-    this.uiTexAttrib = gl.getAttribLocation(this.uiShaderProgram, 'aTexCoord');
-    this.uiTexUniform = gl.getUniformLocation(this.uiShaderProgram, 'uTexture');
-
-    // 全屏四边形顶点
-    const vertices = new Float32Array([
-      -1, -1, 0, 1,
-       1, -1, 1, 1,
-      -1,  1, 0, 0,
-       1,  1, 1, 0
-    ]);
-
-    this.uiVertexBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.uiVertexBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
   }
 
   onTouchStart(e) {
-    for (let i = 0; i < e.touches.length; i++) {
-      const touch = e.touches[i];
-      const x = touch.clientX;
-      const y = touch.clientY;
+    const touches = e.touches || e.changedTouches || [e];
+    for (const touch of touches) {
+      const x = touch.clientX || touch.x || 0;
+      const y = touch.clientY || touch.y || 0;
 
       console.log('Touch:', x, y, 'State:', this.state);
 
       if (this.state === 'lobby') {
-        // 检查大厅按钮 - 使用屏幕坐标直接比较
-        if (this.lobbyButtons && this.lobbyButtons.length > 0) {
-          for (let j = 0; j < this.lobbyButtons.length; j++) {
-            const btn = this.lobbyButtons[j];
-            // 按钮坐标转换回屏幕坐标
-            const btnX = btn.x / this.pixelRatio;
-            const btnY = btn.y / this.pixelRatio;
-            const btnW = btn.width / this.pixelRatio;
-            const btnH = btn.height / this.pixelRatio;
-
-            console.log('Button:', btnX, btnY, btnW, btnH);
-
-            if (x >= btnX && x <= btnX + btnW &&
-                y >= btnY && y <= btnY + btnH) {
-              console.log('Button clicked:', btn.action);
-              if (btn.action === 'start') {
-                this.startGame();
-              }
-              return;
-            }
-          }
+        const btn = this.startButton;
+        console.log('按钮区域:', btn);
+        if (btn && x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+          console.log('点击开始按钮!');
+          this.startGame();
+          return;
         }
         return;
       }
 
-      // 游戏中
-      // 检查UI按钮
-      if (this.uiButtons) {
-        for (let j = 0; j < this.uiButtons.length; j++) {
-          const btn = this.uiButtons[j];
-          // 按钮坐标转换回屏幕坐标
-          const btnX = btn.x / this.pixelRatio;
-          const btnY = btn.y / this.pixelRatio;
-          const btnW = btn.width / this.pixelRatio;
-          const btnH = btn.height / this.pixelRatio;
-
-          if (x >= btnX && x <= btnX + btnW &&
-              y >= btnY && y <= btnY + btnH) {
+      // 游戏中 - 检查按钮
+      if (this.gameButtons) {
+        for (const btn of this.gameButtons) {
+          if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
             if (btn.action === 'jump') {
               this.player.input.jump = true;
-              setTimeout(() => { this.player.input.jump = false; }, 100);
+              setTimeout(() => this.player.input.jump = false, 100);
             } else if (btn.action === 'place') {
-              this.placeBlock();
+              const r = this.player.placeBlock();
+              if (r.success) this.updateMeshAt(r.position);
             } else if (btn.action === 'break') {
-              this.breakBlock();
+              const r = this.player.breakBlock();
+              if (r.success) this.updateMeshAt(r.position);
             }
             return;
           }
         }
       }
 
-      // 检查快捷栏 - 使用屏幕坐标
+      // 快捷栏
       const slotSize = 50;
-      const slotPadding = 4;
-      const totalWidth = (slotSize + slotPadding) * 9 - slotPadding;
-      const startX = (this.screenWidth - totalWidth) / 2;
+      const slotPad = 4;
+      const totalW = (slotSize + slotPad) * 9 - slotPad;
+      const startX = (this.screenWidth - totalW) / 2;
       const startY = this.screenHeight - slotSize - 20;
 
-      if (y >= startY && y <= startY + slotSize) {
-        const slotIndex = Math.floor((x - startX) / (slotSize + slotPadding));
-        if (slotIndex >= 0 && slotIndex < 9) {
-          this.player.selectSlot(slotIndex);
+      if (y >= startY && y <= startY + slotSize && x >= startX && x <= startX + totalW) {
+        const slot = Math.floor((x - startX) / (slotSize + slotPad));
+        if (slot >= 0 && slot < 9) {
+          this.player.selectSlot(slot);
           return;
         }
       }
 
-      // 左侧是摇杆
+      // 摇杆区域
       if (x < this.screenWidth / 3) {
         this.joystick.active = true;
         this.joystick.startX = x;
@@ -1454,7 +1239,6 @@ class MinecraftGame {
         this.joystick.currentX = x;
         this.joystick.currentY = y;
       } else {
-        // 右侧是视角控制
         this.lookTouch = touch.identifier;
         this.lastLookX = x;
         this.lastLookY = y;
@@ -1463,28 +1247,23 @@ class MinecraftGame {
   }
 
   onTouchMove(e) {
-    for (let i = 0; i < e.touches.length; i++) {
-      const touch = e.touches[i];
-      const x = touch.clientX;
-      const y = touch.clientY;
+    if (this.state !== 'playing') return;
 
-      if (this.state !== 'playing') return;
+    const touches = e.touches || e.changedTouches || [e];
+    for (const touch of touches) {
+      const x = touch.clientX || touch.x || 0;
+      const y = touch.clientY || touch.y || 0;
 
-      // 摇杆
       if (this.joystick.active && x < this.screenWidth / 2) {
         this.joystick.currentX = x;
         this.joystick.currentY = y;
       }
 
-      // 视角
       if (touch.identifier === this.lookTouch) {
         const dx = x - this.lastLookX;
         const dy = y - this.lastLookY;
-
         this.player.rotation.y += dx * 0.005;
-        this.player.rotation.x += dy * 0.005;
-        this.player.rotation.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, this.player.rotation.x));
-
+        this.player.rotation.x = Math.max(-1.5, Math.min(1.5, this.player.rotation.x + dy * 0.005));
         this.lastLookX = x;
         this.lastLookY = y;
       }
@@ -1492,45 +1271,29 @@ class MinecraftGame {
   }
 
   onTouchEnd(e) {
-    // 检查摇杆是否松开
-    let joystickStillActive = false;
-    for (let i = 0; i < e.touches.length; i++) {
-      if (e.touches[i].clientX < this.screenWidth / 3) {
-        joystickStillActive = true;
-        break;
-      }
-    }
-    if (!joystickStillActive) {
-      this.joystick.active = false;
+    let joyActive = false;
+    let lookActive = false;
+
+    const touches = e.touches || [];
+    for (const touch of touches) {
+      const x = touch.clientX || touch.x || 0;
+      if (x < this.screenWidth / 3) joyActive = true;
+      if (touch.identifier === this.lookTouch) lookActive = true;
     }
 
-    // 检查视角触摸是否松开
-    let lookStillActive = false;
-    for (let i = 0; i < e.touches.length; i++) {
-      if (e.touches[i].identifier === this.lookTouch) {
-        lookStillActive = true;
-        break;
-      }
-    }
-    if (!lookStillActive) {
-      this.lookTouch = null;
-    }
+    if (!joyActive) this.joystick.active = false;
+    if (!lookActive) this.lookTouch = null;
   }
 
-  placeBlock() {
-    const result = this.player.placeBlock();
-    if (result.success) {
-      this.updateChunkMesh(result.position.x, result.position.y, result.position.z);
-    }
-  }
-
-  breakBlock() {
-    const result = this.player.breakBlock();
-    if (result.success) {
-      this.updateChunkMesh(result.position.x, result.position.y, result.position.z);
-    }
+  updateMeshAt(pos) {
+    const cs = this.world.chunkSize;
+    const cx = Math.floor(pos.x / cs);
+    const cy = Math.floor(pos.y / cs);
+    const cz = Math.floor(pos.z / cs);
+    const chunk = this.world.getChunk(cx, cy, cz);
+    if (chunk) this.updateMesh(chunk);
   }
 }
 
-// 启动游戏
+// 启动
 new MinecraftGame();
