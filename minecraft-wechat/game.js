@@ -351,7 +351,7 @@ class Player {
   constructor(world) {
     this.world = world;
     this.position = { x: 0, y: 50, z: 0 };
-    this.rotation = { x: 0, y: 0 };
+    this.rotation = { x: 0.3, y: 0 };  // 初始略微向下看
     this.velocity = { x: 0, y: 0, z: 0 };
 
     this.width = 0.6;
@@ -532,14 +532,44 @@ class Renderer {
   }
 
   createViewMatrix(position, rotation) {
-    const cx = Math.cos(rotation.x), sx = Math.sin(rotation.x);
-    const cy = Math.cos(rotation.y), sy = Math.sin(rotation.y);
+    // 视图矩阵: 先平移到相机位置，再旋转
+    const cx = Math.cos(-rotation.x), sx = Math.sin(-rotation.x);
+    const cy = Math.cos(-rotation.y), sy = Math.sin(-rotation.y);
 
-    const rotX = new Float32Array([1,0,0,0, 0,cx,sx,0, 0,-sx,cx,0, 0,0,0,1]);
-    const rotY = new Float32Array([cy,0,-sy,0, 0,1,0,0, sy,0,cy,0, 0,0,0,1]);
-    const trans = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, -position.x,-position.y,-position.z,1]);
+    // 先平移
+    const tx = -position.x;
+    const ty = -position.y;
+    const tz = -position.z;
 
-    return this.multiplyMatrices(this.multiplyMatrices(rotX, rotY), trans);
+    // 构建组合矩阵: RotX * RotY * Trans
+    // 这相当于先平移，再绕Y轴旋转，最后绕X轴旋转
+    const m = new Float32Array(16);
+
+    // 第一列
+    m[0] = cy;
+    m[1] = sx * sy;
+    m[2] = -cx * sy;
+    m[3] = 0;
+
+    // 第二列
+    m[4] = 0;
+    m[5] = cx;
+    m[6] = sx;
+    m[7] = 0;
+
+    // 第三列
+    m[8] = sy;
+    m[9] = -sx * cy;
+    m[10] = cx * cy;
+    m[11] = 0;
+
+    // 第四列 (平移部分经过旋转变换)
+    m[12] = cy * tx + sy * tz;
+    m[13] = sx * sy * tx + cx * ty - sx * cy * tz;
+    m[14] = -cx * sy * tx + sx * ty + cx * cy * tz;
+    m[15] = 1;
+
+    return m;
   }
 
   multiplyMatrices(a, b) {
