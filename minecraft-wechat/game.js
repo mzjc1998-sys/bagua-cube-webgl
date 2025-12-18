@@ -510,37 +510,38 @@ class Player {
   checkCollision(x, y, z) {
     const hw = this.width / 2;
 
-    // 检查更多点，包括身体中间
-    const checkPoints = [];
+    // 计算玩家包围盒占据的所有方块
+    const minX = Math.floor(x - hw);
+    const maxX = Math.floor(x + hw);
+    const minY = Math.floor(y);
+    const maxY = Math.floor(y + this.height);
+    const minZ = Math.floor(z - hw);
+    const maxZ = Math.floor(z + hw);
 
-    // 底部4个角 + 中心
-    checkPoints.push([x, y, z]);
-    checkPoints.push([x - hw, y, z - hw]);
-    checkPoints.push([x + hw, y, z - hw]);
-    checkPoints.push([x - hw, y, z + hw]);
-    checkPoints.push([x + hw, y, z + hw]);
-
-    // 中间高度
-    const midY = y + this.height / 2;
-    checkPoints.push([x - hw, midY, z - hw]);
-    checkPoints.push([x + hw, midY, z - hw]);
-    checkPoints.push([x - hw, midY, z + hw]);
-    checkPoints.push([x + hw, midY, z + hw]);
-
-    // 顶部4个角
-    const topY = y + this.height - 0.1;
-    checkPoints.push([x - hw, topY, z - hw]);
-    checkPoints.push([x + hw, topY, z - hw]);
-    checkPoints.push([x - hw, topY, z + hw]);
-    checkPoints.push([x + hw, topY, z + hw]);
-
-    for (const [cx, cy, cz] of checkPoints) {
-      const block = this.world.getBlock(Math.floor(cx), Math.floor(cy), Math.floor(cz));
-      if (block !== BlockType.AIR && block !== BlockType.WATER) {
-        return true;
+    // 检查所有可能碰撞的方块
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        for (let bz = minZ; bz <= maxZ; bz++) {
+          const block = this.world.getBlock(bx, by, bz);
+          if (block !== BlockType.AIR && block !== BlockType.WATER) {
+            // AABB碰撞检测
+            if (this.aabbIntersect(
+              x - hw, y, z - hw, x + hw, y + this.height, z + hw,
+              bx, by, bz, bx + 1, by + 1, bz + 1
+            )) {
+              return true;
+            }
+          }
+        }
       }
     }
     return false;
+  }
+
+  aabbIntersect(ax1, ay1, az1, ax2, ay2, az2, bx1, by1, bz1, bx2, by2, bz2) {
+    return ax1 < bx2 && ax2 > bx1 &&
+           ay1 < by2 && ay2 > by1 &&
+           az1 < bz2 && az2 > bz1;
   }
 
   isStuckInBlock() {
@@ -813,13 +814,32 @@ class Renderer {
         for (let z = 0; z < s; z++) {
           const b = chunk.getBlock(x, y, z);
           if (b === 0) continue;
+
+          // 水方块只渲染顶面（且上方不是水时）
+          if (b === BlockType.WATER) {
+            const above = chunk.getBlockSafe(x, y+1, z);
+            if (above !== BlockType.WATER && above === 0) {
+              const wx = chunk.x * s + x, wy = chunk.y * s + y, wz = chunk.z * s + z;
+              addFace(wx, wy, wz, 'top', b);
+            }
+            continue;
+          }
+
           const wx = chunk.x * s + x, wy = chunk.y * s + y, wz = chunk.z * s + z;
-          if (!chunk.getBlockSafe(x, y+1, z)) addFace(wx, wy, wz, 'top', b);
-          if (!chunk.getBlockSafe(x, y-1, z)) addFace(wx, wy, wz, 'bottom', b);
-          if (!chunk.getBlockSafe(x, y, z+1)) addFace(wx, wy, wz, 'front', b);
-          if (!chunk.getBlockSafe(x, y, z-1)) addFace(wx, wy, wz, 'back', b);
-          if (!chunk.getBlockSafe(x-1, y, z)) addFace(wx, wy, wz, 'left', b);
-          if (!chunk.getBlockSafe(x+1, y, z)) addFace(wx, wy, wz, 'right', b);
+          const neighborAbove = chunk.getBlockSafe(x, y+1, z);
+          const neighborBelow = chunk.getBlockSafe(x, y-1, z);
+          const neighborFront = chunk.getBlockSafe(x, y, z+1);
+          const neighborBack = chunk.getBlockSafe(x, y, z-1);
+          const neighborLeft = chunk.getBlockSafe(x-1, y, z);
+          const neighborRight = chunk.getBlockSafe(x+1, y, z);
+
+          // 只在相邻方块是空气或水时渲染面
+          if (neighborAbove === 0 || neighborAbove === BlockType.WATER) addFace(wx, wy, wz, 'top', b);
+          if (neighborBelow === 0 || neighborBelow === BlockType.WATER) addFace(wx, wy, wz, 'bottom', b);
+          if (neighborFront === 0 || neighborFront === BlockType.WATER) addFace(wx, wy, wz, 'front', b);
+          if (neighborBack === 0 || neighborBack === BlockType.WATER) addFace(wx, wy, wz, 'back', b);
+          if (neighborLeft === 0 || neighborLeft === BlockType.WATER) addFace(wx, wy, wz, 'left', b);
+          if (neighborRight === 0 || neighborRight === BlockType.WATER) addFace(wx, wy, wz, 'right', b);
         }
       }
     }
