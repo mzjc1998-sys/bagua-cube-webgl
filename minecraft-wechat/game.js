@@ -788,13 +788,14 @@ class Renderer {
     const pos = [], norm = [], block = [], idx = [];
     let vc = 0;
 
+    // 面的顶点顺序必须是逆时针(CCW)，从外部看时
     const faces = {
-      top: { p: [[0,1,0],[1,1,0],[1,1,1],[0,1,1]], n: [0,1,0] },
-      bottom: { p: [[0,0,1],[1,0,1],[1,0,0],[0,0,0]], n: [0,-1,0] },
-      front: { p: [[0,0,1],[0,1,1],[1,1,1],[1,0,1]], n: [0,0,1] },
-      back: { p: [[1,0,0],[1,1,0],[0,1,0],[0,0,0]], n: [0,0,-1] },
-      left: { p: [[0,0,0],[0,1,0],[0,1,1],[0,0,1]], n: [-1,0,0] },
-      right: { p: [[1,0,1],[1,1,1],[1,1,0],[1,0,0]], n: [1,0,0] }
+      top:    { p: [[0,1,0],[0,1,1],[1,1,1],[1,1,0]], n: [0,1,0] },   // 从上往下看CCW
+      bottom: { p: [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], n: [0,-1,0] },  // 从下往上看CCW
+      front:  { p: [[0,0,1],[1,0,1],[1,1,1],[0,1,1]], n: [0,0,1] },   // 从前往后看CCW
+      back:   { p: [[1,0,0],[0,0,0],[0,1,0],[1,1,0]], n: [0,0,-1] },  // 从后往前看CCW
+      left:   { p: [[0,0,0],[0,0,1],[0,1,1],[0,1,0]], n: [-1,0,0] },  // 从左往右看CCW
+      right:  { p: [[1,0,1],[1,0,0],[1,1,0],[1,1,1]], n: [1,0,0] }    // 从右往左看CCW
     };
 
     const addFace = (x, y, z, face, b) => {
@@ -815,31 +816,32 @@ class Renderer {
           const b = chunk.getBlock(x, y, z);
           if (b === 0) continue;
 
+          const wx = chunk.x * s + x, wy = chunk.y * s + y, wz = chunk.z * s + z;
+
           // 水方块只渲染顶面（且上方不是水时）
           if (b === BlockType.WATER) {
             const above = chunk.getBlockSafe(x, y+1, z);
-            if (above !== BlockType.WATER && above === 0) {
-              const wx = chunk.x * s + x, wy = chunk.y * s + y, wz = chunk.z * s + z;
+            if (above !== BlockType.WATER) {
               addFace(wx, wy, wz, 'top', b);
             }
             continue;
           }
 
-          const wx = chunk.x * s + x, wy = chunk.y * s + y, wz = chunk.z * s + z;
-          const neighborAbove = chunk.getBlockSafe(x, y+1, z);
-          const neighborBelow = chunk.getBlockSafe(x, y-1, z);
-          const neighborFront = chunk.getBlockSafe(x, y, z+1);
-          const neighborBack = chunk.getBlockSafe(x, y, z-1);
-          const neighborLeft = chunk.getBlockSafe(x-1, y, z);
-          const neighborRight = chunk.getBlockSafe(x+1, y, z);
+          // 检查6个方向，需要渲染的条件：相邻是空气(0)或水
+          const above = chunk.getBlockSafe(x, y+1, z);
+          const below = chunk.getBlockSafe(x, y-1, z);
+          const front = chunk.getBlockSafe(x, y, z+1);
+          const back = chunk.getBlockSafe(x, y, z-1);
+          const left = chunk.getBlockSafe(x-1, y, z);
+          const right = chunk.getBlockSafe(x+1, y, z);
 
-          // 只在相邻方块是空气或水时渲染面
-          if (neighborAbove === 0 || neighborAbove === BlockType.WATER) addFace(wx, wy, wz, 'top', b);
-          if (neighborBelow === 0 || neighborBelow === BlockType.WATER) addFace(wx, wy, wz, 'bottom', b);
-          if (neighborFront === 0 || neighborFront === BlockType.WATER) addFace(wx, wy, wz, 'front', b);
-          if (neighborBack === 0 || neighborBack === BlockType.WATER) addFace(wx, wy, wz, 'back', b);
-          if (neighborLeft === 0 || neighborLeft === BlockType.WATER) addFace(wx, wy, wz, 'left', b);
-          if (neighborRight === 0 || neighborRight === BlockType.WATER) addFace(wx, wy, wz, 'right', b);
+          // 如果相邻是空气、水、或超出边界(返回0)，就渲染该面
+          if (above === 0 || above === BlockType.WATER) addFace(wx, wy, wz, 'top', b);
+          if (below === 0 || below === BlockType.WATER) addFace(wx, wy, wz, 'bottom', b);
+          if (front === 0 || front === BlockType.WATER) addFace(wx, wy, wz, 'front', b);
+          if (back === 0 || back === BlockType.WATER) addFace(wx, wy, wz, 'back', b);
+          if (left === 0 || left === BlockType.WATER) addFace(wx, wy, wz, 'left', b);
+          if (right === 0 || right === BlockType.WATER) addFace(wx, wy, wz, 'right', b);
         }
       }
     }
